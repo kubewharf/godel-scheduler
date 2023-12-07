@@ -1,0 +1,282 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.9.0
+  creationTimestamp: null
+  name: customnoderesources.node.katalyst.kubewharf.io
+spec:
+  group: node.katalyst.kubewharf.io
+  names:
+    kind: CustomNodeResource
+    listKind: CustomNodeResourceList
+    plural: customnoderesources
+    shortNames:
+    - kcnr
+    singular: customnoderesource
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CustomNodeResource captures information about a custom defined
+          node resource CustomNodeResource objects are non-namespaced.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the behavior of a CustomNodeResource.
+            properties:
+              nodeResourceProperties:
+                items:
+                  properties:
+                    propertyName:
+                      description: property name
+                      type: string
+                    propertyQuantity:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: values of the quantity-types property
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    propertyValues:
+                      description: values of the specific property
+                      items:
+                        type: string
+                      type: array
+                  required:
+                  - propertyName
+                  type: object
+                type: array
+              taints:
+                description: customized taint for katalyst, which may affect partial
+                  tasks
+                items:
+                  properties:
+                    effect:
+                      description: Required. The effect of the taint on pods that
+                        do not tolerate the taint. Valid effects are NoScheduleForReclaimedTasks.
+                      type: string
+                    key:
+                      description: Required. The taint key to be applied to a node.
+                      type: string
+                    value:
+                      description: Required. The taint value corresponding to the
+                        taint key.
+                      type: string
+                  type: object
+                type: array
+            type: object
+          status:
+            description: Status represents the current information about a CustomNodeResource.
+              This data may not be up-to-date.
+            properties:
+              conditions:
+                description: Conditions is an array of current observed cnr conditions.
+                items:
+                  description: CNRCondition contains condition information for a cnr.
+                  properties:
+                    lastHeartbeatTime:
+                      description: Last time we got an update on a given condition.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human-readable message indicating details about
+                        last transition.
+                      type: string
+                    reason:
+                      description: (brief) reason for the condition's last transition.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type is the type of the condition.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              resources:
+                description: Resources defines the numeric quantities in this node;
+                  for instance reclaimed resources for this node
+                properties:
+                  allocatable:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: ResourceList is a set of (resource name, quantity)
+                      pairs.
+                    type: object
+                  capacity:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: ResourceList is a set of (resource name, quantity)
+                      pairs.
+                    type: object
+                type: object
+              topologyPolicy:
+                default: none
+                description: TopologyPolicy indicates placement policy for scheduler
+                  or other centralized components to follow. this policy (including
+                  topology scope) is defined in topology-manager, katalyst is responsible
+                  to parse the policy, and transform to TopologyPolicy here.
+                type: string
+              topologyZone:
+                items:
+                  properties:
+                    allocations:
+                      items:
+                        properties:
+                          consumer:
+                            type: string
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: ResourceList is a set of (resource name,
+                              quantity) pairs.
+                            type: object
+                        required:
+                        - consumer
+                        type: object
+                      type: array
+                    attributes:
+                      items:
+                        description: Attribute records the resource-specified info
+                          with name-value pairs
+                        properties:
+                          name:
+                            type: string
+                          value:
+                            type: string
+                        required:
+                        - name
+                        - value
+                        type: object
+                      type: array
+                    children:
+                      description: 'Children represents the ownerships between multiple
+                        TopologyZone; for instance, - a TopologyZone with type TopologyTypeSocket
+                        may have multiple childed TopologyZone with type TopologyTypeNuma
+                        to reflect the physical connections for a node - a TopologyZone
+                        with type `nic` may have multiple childed TopologyZone with
+                        type `vf` to reflect the `physical and virtual` relations
+                        between devices todo: in order to bypass the lacked functionality
+                        of recursive structure definition, we need to skip validation
+                        of this field for now; will re-add this validation logic if
+                        the community supports $ref, for more information, please
+                        refer to https://github.com/kubernetes/kubernetes/issues/62872'
+                      x-kubernetes-preserve-unknown-fields: true
+                    name:
+                      description: Name represents the name for the given type for
+                        resource; for instance, - disk-for-log, disk-for-storage may
+                        have different usage or attributes, so we need separate structure
+                        to distinguish them.
+                      type: string
+                    resources:
+                      description: Resources defines the numeric quantities in this
+                        TopologyZone; for instance, - a TopologyZone with type TopologyTypeGPU
+                        may have both gpu and gpu-memory - a TopologyZone with type
+                        TopologyTypeNIC may have both ingress and egress bandwidth
+                      properties:
+                        allocatable:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: ResourceList is a set of (resource name, quantity)
+                            pairs.
+                          type: object
+                        capacity:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: ResourceList is a set of (resource name, quantity)
+                            pairs.
+                          type: object
+                      type: object
+                    siblings:
+                      description: Siblings represents the relationship between TopologyZones
+                        at the same level; for instance, the distance between NUMA
+                        nodes.
+                      items:
+                        description: Sibling describes the relationship between two
+                          Zones.
+                        properties:
+                          attributes:
+                            description: Attributes are the attributes of the relationship
+                              between two Zones. For instance, the distance between
+                              tow NUMA nodes, the connection type between two GPUs,
+                              etc.
+                            items:
+                              description: Attribute records the resource-specified
+                                info with name-value pairs
+                              properties:
+                                name:
+                                  type: string
+                                value:
+                                  type: string
+                              required:
+                              - name
+                              - value
+                              type: object
+                            type: array
+                          name:
+                            description: Name represents the name of this Sibling.
+                            type: string
+                          type:
+                            description: Type represents the type of this Sibling.
+                              For instance, Socket, Numa, GPU, NIC, Disk and so on.
+                            type: string
+                        required:
+                        - name
+                        - type
+                        type: object
+                      type: array
+                    type:
+                      description: Type represents which kind of resource this TopologyZone
+                        is for; for instance, Socket, Numa, GPU, NIC, Disk and so
+                        on.
+                      type: string
+                  required:
+                  - name
+                  - type
+                  type: object
+                type: array
+            required:
+            - topologyPolicy
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

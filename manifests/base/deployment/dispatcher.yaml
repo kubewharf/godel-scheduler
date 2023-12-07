@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dispatcher
+  namespace: godel-system
+  labels:
+    component: dispatcher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: godel-dispatcher
+  template:
+    metadata:
+      labels:
+        app: godel-dispatcher
+    spec:
+      serviceAccountName: godel
+      containers:
+        - name: dispatcher
+          image: godel-local:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/local/bin/dispatcher"]
+          args:
+            - "--leader-elect=false"
+            - "--tracer=noop"
+            - "--v=5"
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1G
+            requests:
+              cpu: "1"
+              memory: 1G

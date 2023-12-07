@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: godel
+subjects:
+  - kind: ServiceAccount
+    name: godel
+    namespace: godel-system
+roleRef:
+  kind: ClusterRole
+  name: godel
+  apiGroup: rbac.authorization.k8s.io

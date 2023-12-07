@@ -1,0 +1,9 @@
+apiVersion: godelbinder.config.kubewharf.io/v1beta1
+kind: GodelBinderConfiguration
+profile:
+  plugins:
+    victimChecking:
+      pluginCollections:
+      - plugins:
+        - name: PDBChecker
+        enableQuickPass: false

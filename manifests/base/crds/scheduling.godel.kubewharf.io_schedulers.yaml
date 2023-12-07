@@ -1,0 +1,78 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.0
+  creationTimestamp: null
+  name: schedulers.scheduling.godel.kubewharf.io
+spec:
+  group: scheduling.godel.kubewharf.io
+  names:
+    kind: Scheduler
+    listKind: SchedulerList
+    plural: schedulers
+    singular: scheduler
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Scheduler captures information about a scheduler Scheduler objects
+          are non-namespaced.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the behavior of a Scheduler.
+            type: object
+          status:
+            description: Status represents the current information about a Scheduler.
+              This data may not be up to date.
+            properties:
+              currentHost:
+                description: CurrentHost is the host the current scheduler leader
+                  runs on
+                type: string
+              lastUpdateTime:
+                description: LastUpdateTime is the latest update time. It should be
+                  first time initialized when this crd is created
+                format: date-time
+                type: string
+              metricsStatus:
+                description: 'TODO: populate more info here TODO: investigate whether
+                  we need a separate API object for this'
+                properties:
+                  pendingPods:
+                    description: pending pods in the pending queue
+                    type: integer
+                type: object
+              phase:
+                type: string
+              schedulerNodePartitionName:
+                description: SchedulerNodePartitionName is the name of NodePartition
+                  which contains all the nodes in this scheduler's partition
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

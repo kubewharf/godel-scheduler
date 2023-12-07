@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+  namespace: godel-system
+  labels:
+    component: scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: godel-scheduler
+  template:
+    metadata:
+      labels:
+        app: godel-scheduler
+    spec:
+      serviceAccountName: godel
+      containers:
+        - name: scheduler
+          image: godel-local:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/local/bin/scheduler"]
+          args:
+            - "--leader-elect=false"
+            - "--tracer=noop"
+            - "--v=4"
+            - "--disable-preemption=false"
+            - "--config=/config/scheduler.config"
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1G
+            requests:
+              cpu: "1"
+              memory: 1G
+          volumeMounts:
+            - mountPath: /config
+              name: scheduler-config
+      volumes:
+        - name: scheduler-config
+          configMap:
+            name: godel-scheduler-config
+            items:
+            - key: godel-scheduler-config
+              path: scheduler.config

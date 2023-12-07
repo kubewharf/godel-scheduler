@@ -1,0 +1,11 @@
+apiVersion: godelscheduler.config.kubewharf.io/v1beta1
+kind: GodelSchedulerConfiguration
+healthzBindAddress: 0.0.0.0:{{BindPort}}         # This should be 0.0.0.0:10251 by default
+metricsBindAddress: 0.0.0.0:{{BindPort}}         # This should be 0.0.0.0:10251 by default
+subClusterProfiles:            # SubCluster Profile Examples
+  - subClusterName: "subCluster 1"
+  - subClusterName: "subCluster 2"
+    candidatesSelectPolicy: Better
+    betterSelectPolicies:
+    - Dichotomy
+    - Ascending

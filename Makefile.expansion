@@ -1,0 +1,63 @@
+# =========================================================
+# Tweak the variables based on your project.
+# =========================================================
+
+# Constants used throughout.
+.EXPORT_ALL_VARIABLES:
+# This controls the verbosity of the build.  Higher numbers mean more output.
+VERBOSE ?= 1
+
+# If true, built on local. Otherwise, built in docker.
+LOCAL_BUILD ?= true
+# Golang on-build docker image.
+GO_ONBUILD_IMAGE := golang:1.20.12-bullseye
+# Building for these platforms.
+GO_BUILD_PLATFORMS ?= linux/amd64 darwin/amd64 darwin/arm64
+# Pre-defined all directory names of targets for go build. 
+GO_BUILD_TARGETS := $(filter cmd/%,$(shell find cmd -maxdepth 2 -name "main.go" | xargs -I {} dirname {}))
+# Targets using CGO_ENABLED=0. It is a single word without dir prefix.
+GO_STATIC_LIBRARIES := 
+# Skip go unittest under the following dir.
+GO_TEST_EXCEPTIONS :=
+
+# Pre-defined all directories containing Dockerfiles for building containers.
+DOCKER_BUILD_TARGETS := $(filter build/%,$(shell find build -maxdepth 2 -name "*Dockerfile" | xargs dirname))
+# Container registries.
+# use your own docker registries
+DOCKER_REGISTRIES := registry.example.com
+# Force pushing to override images in remote registries
+DOCKER_FORCE_PUSH ?= true
+# Container image prefix and suffix added to targets.
+# The final built images are:
+#   $[REGISTRY]/$[IMAGE_PREFIX]$[TARGET]$[IMAGE_SUFFIX]:$[VERSION]
+#   $[REGISTRY] is an item from $[DOCKER_REGISTRIES], $[TARGET] is the basename from $[DOCKER_BUILD_TARGETS[@]].
+DOCKER_IMAGE_PREFIX := 
+DOCKER_IMAGE_SUFFIX := 
+
+# enable go module
+GO111MODULE := on
+
+REPO_ROOT := $(abspath ./)
+MAKE_RULES_ROOT := $(REPO_ROOT)/hack/make-rules
+MAKE_RULES_HOOKS := $(REPO_ROOT)/hack/hooks
+LOCAL_PKG_PREFIX := "github.com/kubewharf/godel-scheduler/"
+
+# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
+ifeq (,$(shell go env GOBIN))
+GOBIN=$(shell go env GOPATH)/bin
+else
+GOBIN=$(shell go env GOBIN)
+endif
+
+.PHONY: format 
+format:
+	bash $(HACK_ROOT)/update-format.sh $(REPO_ROOT)
+
+.PHONY: pre-commit
+pre-commit:
+	@pre-commit --version || pip install pre-commit
+	@pre-commit install
+
+.PHONY: golangci
+golangci:
+	@golangci-lint --version || curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.22.2
