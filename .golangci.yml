@@ -1,0 +1,85 @@
+linters-settings:
+  govet:
+    check-shadowing: true
+  golint:
+    min-confidence: 0
+  gocyclo:
+    min-complexity: 15
+  maligned:
+    suggest-new: true
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 2
+    min-occurrences: 2
+  misspell:
+    locale: US
+  lll:
+    line-length: 140
+  goimports:
+    local-prefixes: github.com/kubewharf/godel-scheduler/
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport # https://github.com/go-critic/go-critic/issues/845
+      - ifElseChain
+      - octalLiteral
+      - wrapperFunc
+  funlen:
+    lines: 100
+    statements: 50
+linters:
+  disable-all: true
+  enable:
+    ## for bug
+    - bodyclose
+    # - errcheck
+    # - gosec
+    - govet
+    - scopelint
+    - staticcheck
+    - typecheck
+    ## for complexity
+    # - gocyclo
+    - nakedret
+    # for format
+    - gofmt
+    - goimports
+    ## for style
+    - unconvert
+    - goconst
+    - misspell
+    - unparam
+    - gosimple
+    ## for unused
+    - deadcode
+    # - unused
+    - unparam
+
+run:
+  deadline: 5m
+  # default is true. Enables skipping of directories:
+  #   vendor$, third_party$, testdata$, examples$, Godeps$, builtin$
+  skip-dirs-use-default: true
+
+issues:
+  exclude-use-default: false
+  exclude-rules:
+    - path: _test.go
+      linters:
+        - errcheck
+        - unparam
+        - gocyclo
+        - dupl
+        - gosec
+    - linters:
+        - govet
+      text: composite literal uses unkeyed fields
+    - linters:
+        - govet
+      text: shadows declaration at line

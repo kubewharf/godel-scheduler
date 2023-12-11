@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: godel-scheduler-config
+  namespace: godel-system
+data:
+  godel-scheduler-config: |+
+    apiVersion: godelscheduler.config.kubewharf.io/v1beta1
+    kind: GodelSchedulerConfiguration
+    subClusterKey: nodeLevel
+    defaultProfile:
+      disablePreemption: false

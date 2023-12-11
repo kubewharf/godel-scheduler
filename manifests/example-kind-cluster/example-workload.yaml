@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example
+  labels:
+    app: example
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: example
+  template:
+    metadata:
+      labels:
+        app: example
+      annotations:
+        godel.bytedance.com/pod-resource-type: guaranteed
+        godel.bytedance.com/pod-launcher: kubelet
+    spec:
+      schedulerName: godel-scheduler
+      containers:
+        - name: nginx
+          image: nginx:1.14.2
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1Gi

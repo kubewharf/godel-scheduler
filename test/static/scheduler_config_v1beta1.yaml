@@ -1,0 +1,131 @@
+apiVersion: godelscheduler.config.kubewharf.io/v1beta1
+kind: GodelSchedulerConfiguration
+leaderElection:
+  leaderElect: true
+  leaseDuration: 15s
+  renewDeadline: 10s
+  resourceLock: leases
+  resourceName: scheduler
+  resourceNamespace: godel-system
+  retryPeriod: 2s
+clientConnection:
+  acceptContentTypes: ""
+  burst: 1500                             # This should be 10000 by default
+  contentType: application/vnd.kubernetes.protobuf
+  # kubeconfig: {{PATH/TO/KUBE_CONFIG}}
+  qps: 1000                               # This should be 10000 by default
+# healthzBindAddress: {{HealthzBindAddr}}
+# metricsBindAddress: {{MetricsBindAddr}}
+enableContentionProfiling: true
+enableProfiling: true
+schedulerRenewIntervalSeconds: 100        # This should be 30 by default
+subClusterKey: nodeLevel
+defaultProfile:
+  # unitQueueSortPlugin:
+  #   name: {{FCFS|DefaultUnitQueueSort}} # This should be DefaultUnitQueueSort by default
+  attemptImpactFactorOnPriority: 3.0      # This should be 10 by default
+  disablePreemption: false                # This should be true by default
+  blockQueue: false
+  percentageOfNodesToScore: 0
+  increasedPercentageOfNodesToScore: 0
+  unitInitialBackoffSeconds: 1            # This should be 10 by default
+  unitMaxBackoffSeconds: 100              # This should be 300 by default
+  baseKubeletPlugins:
+    filter:
+      plugins:
+      - name: PodLauncher
+      - name: NodeUnschedulable
+      - name: NodeResourcesFit
+      - name: NodePorts
+      - name: VolumeBinding
+      - name: NodeAffinity
+      - name: TaintToleration
+    score:
+      plugins:
+      - name: NodeResourcesMostAllocated
+        weight: 8
+      - name: NodePreferAvoidPods
+        weight: 10
+      - name: TaintToleration
+        weight: 1
+    victimSearching:                         # This shoule be unset by default, DO NOT copy this in production cluster.
+      pluginCollections:
+      - plugins:
+        - name: PDBChecker
+        enableQuickPass: false
+    sorting:
+      plugins:
+      - name: MinHighestPriority
+      - name: MinPrioritySum
+  baseNMPlugins:
+    filter:
+      plugins:
+      - name: PodLauncher
+      - name: NodeUnschedulable
+      - name: NodeResourcesFit
+      - name: NodePorts
+      - name: VolumeBinding
+      - name: NodeAffinity
+      - name: TaintToleration
+    score:
+      plugins:
+      - name: NodeResourcesLeastAllocated
+        weight: 8
+      - name: TaintToleration
+        weight: 1
+  pluginConfig:
+    - name: NodeResourcesMostAllocated
+      args:
+        resources:
+        - name: nvidia.com/gpu
+          weight: 10
+        - name: cpu
+          weight: 1
+        - name: memory
+          weight: 1
+subClusterProfiles:            # SubCluster Profile Examples
+  - subClusterName: "subCluster 1"
+    disablePreemption: true
+    unitQueueSortPlugin:
+      name: FCFS                            # Different unitQueueSortPlugin
+    baseKubeletPlugins:                     # Different baseKubeletPlugins
+      filter:
+        plugins:
+        - name: PodLauncher
+      score:
+        plugins:
+        - name: NodeResourcesMostAllocated
+          weight: 8
+      victimSearching:
+        pluginCollections:
+        - plugins:
+          - name: PDBChecker
+          enableQuickPass: false
+      sorting:
+        plugins:
+        - name: MaxMinGPURemain
+        - name: MaxMinNumaRemain
+    pluginConfig:                           # Different pluginConfig
+      - name: NodeResourcesMostAllocated
+        args:
+          resources:
+          - name: nvidia.com/gpu
+            weight: 1
+          - name: cpu
+            weight: 1
+          - name: memory
+            weight: 1
+  - subClusterName: "subCluster blockqueue"
+    disablePreemption: false
+    unitQueueSortPlugin:
+      name: FCFS
+    blockQueue: true    # use BlockQueue
+  - subClusterName: "subCluster priorityqueue"
+    disablePreemption: false
+    unitQueueSortPlugin:
+      name: FCFS
+  - subClusterName: "subCluster different percentageOfNodesToScore & unitInitialBackoffSeconds & unitMaxBackoffSeconds"
+    percentageOfNodesToScore: 20
+    increasedPercentageOfNodesToScore: 40
+    unitInitialBackoffSeconds: 2
+    unitMaxBackoffSeconds: 256
