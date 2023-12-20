@@ -214,10 +214,12 @@ func Run(ctx context.Context, cc schedulerserverconfig.CompletedConfig) error {
 	// Start all informers.
 	cc.InformerFactory.Start(ctx.Done())
 	cc.GodelCrdInformerFactory.Start(ctx.Done())
+	cc.KatalystCrdInformerFactory.Start(ctx.Done())
 
 	// Wait for all caches to sync before scheduling.
 	cc.InformerFactory.WaitForCacheSync(ctx.Done())
 	cc.GodelCrdInformerFactory.WaitForCacheSync(ctx.Done())
+	cc.KatalystCrdInformerFactory.WaitForCacheSync(ctx.Done())
 
 	run := func(ctx context.Context) {
 		// Register the tracer when we become the leader.
