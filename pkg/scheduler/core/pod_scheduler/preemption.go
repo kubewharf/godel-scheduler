@@ -59,7 +59,7 @@ import (
 const (
 	ReasonNotEligibleToPreemptOthers      string = "pod is not eligible for more preemption"
 	ReasonUnresolvableByPreemption        string = "preemption will not help schedule pod on any node"
-	ReasonPreemptionCandidatesNotFound    string = "preemption candidates not found"
+	ReasonPreemptionCandidatesNotFound    string = "can not find any candidates to preempt"
 	ReasonPreemptionBestCandidateNotFound string = "best candidate for preemption not found"
 )
 

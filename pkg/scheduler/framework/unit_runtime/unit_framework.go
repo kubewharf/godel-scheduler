@@ -404,7 +404,7 @@ func (f *UnitFramework) scheduleOneUnitInstance(ctx context.Context, scheduledIn
 		return false, err
 	}
 
-	klog.V(4).InfoS("Pod can be placed by scheduling",
+	klog.V(4).InfoS("Pod can be scheduled directly without preemption",
 		"switchType", switchType, "subCluster", subCluster,
 		"podKey", podKey,
 		"suggestedHost", scheduleResult.SuggestedHost,
@@ -506,7 +506,8 @@ func (f *UnitFramework) preemptOneUnitInstance(ctx context.Context, scheduledInd
 
 		klog.ErrorS(err, "Failed to run preemption", "switchType", switchType, "subCluster", subCluster, "podKey", podKey, "nodeGroup", nodeGroup.GetKey())
 		preemptionTraceContext.WithFields(tracing.WithReasonField(fmt.Sprintf("Failed to run preemption")), tracing.WithErrorField(err))
-		f.schedulerHooks.EventRecorder().Eventf(clonedPod, nil, v1.EventTypeWarning, "FailToPreempt", core.ReturnAction, helper.TruncateMessage(errorStr(err)))
+		errMessage := fmt.Sprintf("Fail to preempt for this pod in node group: %v, err: %v", nodeGroup.GetKey(), err.Error())
+		f.schedulerHooks.EventRecorder().Eventf(clonedPod, nil, v1.EventTypeWarning, "FailToPreempt", core.ReturnAction, helper.TruncateMessage(errMessage))
 		return false, err
 	}
 

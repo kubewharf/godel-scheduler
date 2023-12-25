@@ -404,7 +404,7 @@ func GetPodResourceType(pod *v1.Pod) (PodResourceType, error) {
 			return "", PodResourceTypeUnsupportError
 		}
 	}
-	klog.V(5).InfoS("Resource type was not set for pod", "pod", klog.KObj(pod))
+	klog.V(6).InfoS("Resource type was not set for pod", "pod", klog.KObj(pod))
 	return GuaranteedPod, nil
 }
 
@@ -418,7 +418,7 @@ func GetPodLauncher(pod *v1.Pod) (PodLauncher, error) {
 			return "", PodLauncherUnsupportError
 		}
 	}
-	klog.V(5).InfoS("Launcher was not set for pod", "pod", klog.KObj(pod))
+	klog.V(6).InfoS("Launcher was not set for pod", "pod", klog.KObj(pod))
 	return Kubelet, nil
 }
 
