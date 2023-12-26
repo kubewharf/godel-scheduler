@@ -19,6 +19,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
@@ -104,7 +105,7 @@ func NewNodeCircle(key string, lister NodeInfoLister) NodeCircle {
 }
 
 func (nc *NodeCircleImpl) GetKey() string {
-	return nc.key
+	return GenerateReadableKey(nc.key)
 }
 
 func (nc *NodeCircleImpl) Validate() error {
@@ -168,7 +169,7 @@ func NewNodeGroup(key string, nodeCircles []NodeCircle) NodeGroup {
 }
 
 func (ng *NodeGroupImpl) GetKey() string {
-	return ng.Key
+	return GenerateReadableKey(ng.Key)
 }
 
 func (ng *NodeGroupImpl) Validate() error {
@@ -349,4 +350,11 @@ func UnitRequireJobLevelAffinity(unit ScheduleUnit) bool {
 		return true
 	}
 	return false
+}
+
+func GenerateReadableKey(name string) string {
+	if strings.Contains(name, "[") || strings.Contains(name, "]") {
+		return name
+	}
+	return "[" + name + "]"
 }
