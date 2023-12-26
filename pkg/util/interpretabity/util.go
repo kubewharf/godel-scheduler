@@ -24,7 +24,6 @@ import (
 
 	schedv1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	pgclientset "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
@@ -34,21 +33,9 @@ import (
 )
 
 // UpdatePreSchedulingCondition updates first PodGroupCondition, which Phase is "PreScheduling"
-func UpdatePreSchedulingCondition(details *UnitSchedulingDetails, pgcli pgclientset.Interface, pg *schedv1alpha1.PodGroup) (err error) {
+func UpdatePreSchedulingCondition(pgcli pgclientset.Interface, pg *schedv1alpha1.PodGroup, cond schedv1alpha1.PodGroupCondition) (err error) {
 	if pg.Status.Phase != schedv1alpha1.PodGroupPreScheduling {
 		return fmt.Errorf("PodGroup:%v isn't in phase:%v", unitutil.GetPodGroupKey(pg), schedv1alpha1.PodGroupPreScheduling)
-	}
-
-	if details == nil {
-		return fmt.Errorf("UnitSchedulingDetails is nil")
-	}
-
-	reason := details.FailureReason()
-	message := details.FailureMessage()
-
-	// no failure, don't update condition
-	if reason == "" || message == "" {
-		return nil
 	}
 
 	pgCopy := pg.DeepCopy()
@@ -63,13 +50,7 @@ func UpdatePreSchedulingCondition(details *UnitSchedulingDetails, pgcli pgclient
 	}
 
 	if index >= 0 {
-		conditions[index] = schedv1alpha1.PodGroupCondition{
-			Phase:              schedv1alpha1.PodGroupPreScheduling,
-			Status:             v1.ConditionTrue,
-			LastTransitionTime: metav1.Now(),
-			Reason:             details.FailureReason(),
-			Message:            details.FailureMessage(),
-		}
+		conditions[index] = cond
 		return PatchPodGroupCondition(pgcli, pg, pgCopy)
 	}
 
