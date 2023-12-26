@@ -301,7 +301,7 @@ func TestScheduleInSpecificNodeCircle(t *testing.T) {
 				schedulerCache.AddPod(tt.terminatingPod)
 			}
 			if tt.cachedPod != nil {
-				isolationCache.CacheNodeForPodOwner(podutil.GetPodOwner(tt.cachedPod), tt.cachedPod.Spec.NodeName, "")
+				isolationCache.CacheNodeForPodOwner(podutil.GetPodOwner(tt.cachedPod), tt.cachedPod.Spec.NodeName, "[]")
 			}
 			schedulerCache.UpdateSnapshot(snapshot)
 

@@ -415,19 +415,19 @@ func TestGroupNodesByAffinityTerms(t *testing.T) {
 	)
 	nodeGroup := framework.NewNodeCircle("", framework.NewNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup, nodes...)
-	topologyKey1 := "topologyKey1:topologyVal1;"
+	topologyKey1 := "[topologyKey1:topologyVal1;]"
 	nodeGroup1 := framework.NewNodeCircle(topologyKey1, framework.NewNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup1, nodes[:3]...)
-	topologyKey2 := "topologyKey1:topologyVal2;"
+	topologyKey2 := "[topologyKey1:topologyVal2;]"
 	nodeGroup2 := framework.NewNodeCircle(topologyKey2, framework.NewNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup2, nodes[3])
-	topologyKey3 := "topologyKey1:topologyVal1;topologyKey2:topologyVal1;"
+	topologyKey3 := "[topologyKey1:topologyVal1;topologyKey2:topologyVal1;]"
 	nodeGroup3 := framework.NewNodeCircle(topologyKey3, framework.NewNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup3, nodes[:2]...)
-	topologyKey4 := "topologyKey1:topologyVal1;topologyKey2:topologyVal2;"
+	topologyKey4 := "[topologyKey1:topologyVal1;topologyKey2:topologyVal2;]"
 	nodeGroup4 := framework.NewNodeCircle(topologyKey4, framework.NewNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup4, nodes[2])
-	topologyKey5 := "topologyKey1:topologyVal2;topologyKey2:topologyVal1;"
+	topologyKey5 := "[topologyKey1:topologyVal2;topologyKey2:topologyVal1;]"
 	nodeGroup5 := framework.NewNodeCircle(topologyKey5, framework.NewNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup5, nodes[3])
 
