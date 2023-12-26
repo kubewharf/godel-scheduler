@@ -20,13 +20,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"sync"
 	"time"
 
+	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
 	"github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientset "k8s.io/client-go/kubernetes"
@@ -52,6 +55,8 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/util/tracing"
 	unitstatus "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
 )
+
+const FailToScheduleUnit = "FailToScheduleUnit"
 
 // ------------------------------------------------------------------------------------------
 
@@ -388,7 +393,7 @@ func (gs *unitScheduler) Schedule(ctx context.Context) {
 
 	// if scheduling failed, stop the workflow and return
 	if !finalUnitResult.Successfully {
-		gs.recordUnitSchedulingResults(queuedUnitInfo, false, "FailToScheduleUnit", core.ReturnAction, helper.TruncateMessage(errMessage))
+		gs.recordUnitSchedulingResults(queuedUnitInfo, false, FailToScheduleUnit, core.ReturnAction, helper.TruncateMessage(errMessage))
 		klog.V(4).InfoS(errMessage)
 
 		if err := gs.updateFailedScheduleUnit(unitInfo.QueuedUnitInfo.ScheduleUnit, finalUnitResult.Details); err != nil {
@@ -397,7 +402,6 @@ func (gs *unitScheduler) Schedule(ctx context.Context) {
 				"switchType", switchType,
 				"subCluster", subCluster,
 				"unitKey", unitInfo.UnitKey,
-				"reason", finalUnitResult.Details.FailureReason(),
 				"message", finalUnitResult.Details.FailureMessage())
 		}
 
@@ -649,7 +653,15 @@ func (gs *unitScheduler) updateFailedScheduleUnit(scheduleUnit framework.Schedul
 		return fmt.Errorf("failed to update ScheduleUnit. type:%v; key:%v/%v; err:%v", scheduleUnit.Type(), scheduleUnit.GetNamespace(), scheduleUnit.GetName(), err)
 	}
 
-	return interpretabity.UpdatePreSchedulingCondition(failureDetails, gs.crdClient, pg)
+	cond := schedulingv1a1.PodGroupCondition{
+		Phase:              schedulingv1a1.PodGroupPreScheduling,
+		Status:             v1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             FailToScheduleUnit,
+		Message:            failureDetails.FailureMessage(),
+	}
+
+	return interpretabity.UpdatePreSchedulingCondition(gs.crdClient, pg, cond)
 }
 
 func (gs *unitScheduler) applyToCache(ctx context.Context, unitInfo *core.SchedulingUnitInfo, result *core.UnitResult) bool {
@@ -695,7 +707,7 @@ func (gs *unitScheduler) applyToCache(ctx context.Context, unitInfo *core.Schedu
 				}
 
 				// Remove all Pods from successfulPods, which failed to assume cache, and mark them as failedPods.
-				result.Details.SetUnitError(err)
+				result.Details.AddPodsError(err, result.SuccessfulPods...)
 				result.FailedPods = append(result.FailedPods, result.SuccessfulPods...)
 				result.SuccessfulPods = []string{}
 				return false
@@ -705,7 +717,7 @@ func (gs *unitScheduler) applyToCache(ctx context.Context, unitInfo *core.Schedu
 				klog.InfoS(msg, "numSuccessfulPods", len(result.SuccessfulPods), "podIndex", i)
 
 				// Otherwise, move the left pods from successfulPods to failedPods and return true.
-				result.Details.RemoveNSuccess(len(result.SuccessfulPods[i:]), err)
+				result.Details.AddPodsError(err, result.SuccessfulPods[i:]...)
 				result.FailedPods = append(result.FailedPods, result.SuccessfulPods[i:]...)
 				result.SuccessfulPods = result.SuccessfulPods[:i]
 				return true
