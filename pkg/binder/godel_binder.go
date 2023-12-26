@@ -849,6 +849,10 @@ func (binder *Binder) FailAndRejectAllTasks(unitInfo *bindingUnitInfo, err error
 
 // TODO: figure out what can we do if fail to reject tasks
 func (binder *Binder) RejectFailedTasks(unitInfo *bindingUnitInfo) {
+	if len(unitInfo.failedTasks) == 0 {
+		return
+	}
+
 	// reject all failed tasks
 	// TODO: figure out if we need to print the error message
 	// since we will try to delete all markers and forget all pods,
@@ -889,6 +893,7 @@ func (binder *Binder) RejectFailedTasks(unitInfo *bindingUnitInfo) {
 				"err", err)
 			return
 		}
+
 		errMes := fmt.Errorf("reject failed tasks for unit: %v, detailed failed reasons are attached to tasks(pods); unit checking result is: all member: %v, mim member: %v, ready: %v, waiting: %v, failed tasks: %v",
 			unitInfo.queuedUnitInfo.GetKey(), unitInfo.allMember, unitInfo.minMember, len(unitInfo.GetReadyTasks()), len(unitInfo.GetWaitingTasks()), len(unitInfo.GetFailedTasks()))
 		binder.recorder.Eventf(pg, nil, v1.EventTypeWarning, "FailedTasks", "Rejecting", helper.TruncateMessage(errMes.Error()))
