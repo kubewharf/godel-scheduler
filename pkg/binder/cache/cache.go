@@ -32,7 +32,7 @@ import (
 
 	"github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
 	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
-	common "github.com/kubewharf/godel-scheduler/pkg/cache"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
@@ -744,7 +744,7 @@ func (cache *binderCache) RemoveCNR(cnr *katalystv1alpha1.CustomNodeResource) er
 }
 
 // Dump is a dump of the bindCache state
-func (cache *binderCache) Dump() *common.Dump {
+func (cache *binderCache) Dump() *commoncache.Dump {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
@@ -753,7 +753,7 @@ func (cache *binderCache) Dump() *common.Dump {
 		assumedPods[k] = v
 	}
 
-	return &common.Dump{
+	return &commoncache.Dump{
 		Nodes:       cache.nodeInfoMap,
 		AssumedPods: assumedPods,
 	}

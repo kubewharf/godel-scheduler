@@ -24,7 +24,7 @@ import (
 	policy "k8s.io/api/policy/v1beta1"
 
 	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
-	common "github.com/kubewharf/godel-scheduler/pkg/cache"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 )
 
@@ -109,8 +109,8 @@ func (c *Cache) RemoveNMNode(nmNode *nodev1alpha1.NMNode) error { return nil }
 func (c *Cache) PodCount() (int, error) { return 0, nil }
 
 // Dump is a fake method for testing.
-func (c *Cache) Dump() *common.Dump {
-	return &common.Dump{}
+func (c *Cache) Dump() *commoncache.Dump {
+	return &commoncache.Dump{}
 }
 
 // AddCNR adds custom resource information about node
