@@ -23,7 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	policy "k8s.io/api/policy/v1beta1"
 
-	common "github.com/kubewharf/godel-scheduler/pkg/cache"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
@@ -151,8 +151,8 @@ func (c *Cache) DeleteNodeForPodOwner(podOwner string, nodeName string) error {
 	return nil
 }
 
-func (c *Cache) Dump() *common.Dump {
-	return &common.Dump{}
+func (c *Cache) Dump() *commoncache.Dump {
+	return &commoncache.Dump{}
 }
 
 func (c *Cache) AddPodGroup(podGroup *schedulingv1a1.PodGroup) error {

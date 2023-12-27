@@ -19,7 +19,7 @@ package commonstores
 import (
 	"sync"
 
-	common "github.com/kubewharf/godel-scheduler/pkg/cache"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 )
 
@@ -31,7 +31,7 @@ const (
 )
 
 type BaseStore interface {
-	common.ClusterCache
+	commoncache.ClusterCache
 	AssumePod(*framework.CachePodInfo) error
 	ForgetPod(*framework.CachePodInfo) error
 

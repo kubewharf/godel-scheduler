@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
-	common "github.com/kubewharf/godel-scheduler/pkg/cache"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
@@ -198,7 +198,7 @@ func (cache *schedulerCache) finishReserving(pod *v1.Pod, now time.Time) error {
 // debugging purposes only and shouldn't be confused with UpdateSnapshot
 // function.
 // This method is expensive, and should be only used in non-critical path.
-func (cache *schedulerCache) Dump() *common.Dump {
+func (cache *schedulerCache) Dump() *commoncache.Dump {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
@@ -211,7 +211,7 @@ func (cache *schedulerCache) Dump() *common.Dump {
 		assumedPods[k] = v
 	}
 
-	return &common.Dump{
+	return &commoncache.Dump{
 		Nodes:       nodes,
 		AssumedPods: assumedPods,
 	}

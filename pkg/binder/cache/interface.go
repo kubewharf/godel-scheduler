@@ -21,7 +21,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
-	common "github.com/kubewharf/godel-scheduler/pkg/cache"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 )
 
@@ -60,12 +60,12 @@ import (
 //   - Both "Expired" and "Deleted" are valid end states. In case of some problems, e.g. network issue,
 //     a pod might have changed its state (e.g. added and deleted) without delivering notification to the cache.
 type BinderCache interface {
-	common.ClusterCache
+	commoncache.ClusterCache
 
 	// Dump takes a snapshot of the current cache. This is used for debugging
 	// purposes only and shouldn't be confused with UpdateSnapshot function.
 	// This method is expensive, and should be only used in non-critical path.
-	Dump() *common.Dump
+	Dump() *commoncache.Dump
 
 	// PodCount returns the number of pods in the cache (including those from deleted nodes).
 	PodCount() (int, error)
