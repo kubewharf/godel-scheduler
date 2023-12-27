@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
-	"github.com/kubewharf/godel-scheduler/pkg/preemption-plugins/searching/pdbchecker"
+	"github.com/kubewharf/godel-scheduler/pkg/plugins/preempting/pdbchecker"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 )
 
