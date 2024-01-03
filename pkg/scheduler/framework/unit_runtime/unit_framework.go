@@ -170,7 +170,7 @@ func (f *UnitFramework) Scheduling(ctx context.Context, unitInfo *core.Schedulin
 	result := &core.UnitSchedulingResult{
 		SuccessfulPods: sets.NewString(),
 		FailedPods:     sets.NewString(),
-		Details:        interpretabity.NewUnitSchedulingDetails(interpretabity.Scheduling, 0),
+		Details:        interpretabity.NewUnitSchedulingDetails(interpretabity.Scheduling, len(unitInfo.DispatchedPods)),
 	}
 
 	templateCount := len(unitInfo.NotScheduledPodKeysByTemplate)
@@ -197,13 +197,13 @@ func (f *UnitFramework) Scheduling(ctx context.Context, unitInfo *core.Schedulin
 
 				klog.V(4).InfoS("Pod was able to be scheduled in this attempt",
 					"switchType", f.handle.SwitchType(), "subCluster", f.handle.SubCluster(),
-					"pod", podutil.GetPodKey(runningUnitInfo.ClonedPod),
+					"pod", podKey,
 					"unitKey", unitInfo.UnitKey,
 					"nodeGroup", nodeGroup.GetKey())
 
 				// TODO: more infos...
-				result.SuccessfulPods.Insert(podutil.GetPodKey(runningUnitInfo.ClonedPod))
-				result.Details.AddSuccess()
+				result.SuccessfulPods.Insert(podKey)
+				result.Details.AddSuccessfulPods(podKey)
 
 				unitInfo.ScheduledIndex = (unitInfo.ScheduledIndex) + 1
 				delete(unitInfo.NotScheduledPodKeysByTemplate[tmplKey], podKey)
@@ -218,19 +218,19 @@ func (f *UnitFramework) Scheduling(ctx context.Context, unitInfo *core.Schedulin
 					"nodeGroup", nodeGroup.GetKey(),
 					"err", err)
 
-				result.FailedPods.Insert(podutil.GetPodKey(runningUnitInfo.ClonedPod))
-				result.Details.AddPodError(podKey, err)
+				result.FailedPods.Insert(podKey)
+				result.Details.AddPodsError(err, podKey)
 				// Move the rest pods belong to same template to FailedPods.
 				for j := i + 1; j < len(podKeysList); j++ {
-					runningUnitInfo := unitInfo.DispatchedPods[podKeysList[j]]
+					podKey := podKeysList[j]
+					runningUnitInfo := unitInfo.DispatchedPods[podKey]
 					klog.V(4).InfoS("Quick fail template pod in this attempt",
 						"switchType", f.handle.SwitchType(), "subCluster", f.handle.SubCluster(),
 						"pod", klog.KObj(runningUnitInfo.ClonedPod),
 						"unitKey", unitInfo.UnitKey,
 						"nodeGroup", nodeGroup.GetKey(),
 						"err", err)
-					result.FailedPods.Insert(podutil.GetPodKey(runningUnitInfo.ClonedPod))
-					result.Details.AddPodError(podKeysList[j], err) // TODO: use the latest error code?
+					result.FailedPods.Insert(podKey)
 				}
 				break
 			}
@@ -251,26 +251,29 @@ func (f *UnitFramework) Preempting(ctx context.Context, unitInfo *core.Schedulin
 	// TODO: get all member from pod owner if unit is not pod group
 	markIndex := !unitInfo.EverScheduled
 
-	result := &core.UnitPreemptionResult{
-		SuccessfulPods: sets.NewString(),
-		FailedPods:     sets.NewString(),
-		Details:        interpretabity.NewUnitSchedulingDetails(interpretabity.Scheduling, 0),
-	}
-
-	commonPreemptionState := framework.NewCycleState()
+	needPreempt := 0
 	templateToNominatedNodes := map[string]*framework.CachedNominatedNodes{}
 	for tmplKey, podKeys := range unitInfo.NotScheduledPodKeysByTemplate {
 		if tmplKey == "" {
 			continue
 		}
+
 		if len(podKeys) == 0 {
 			delete(unitInfo.NotScheduledPodKeysByTemplate, tmplKey)
 			continue
 		}
+		needPreempt += len(podKeys)
 		templateToNominatedNodes[tmplKey] = framework.NewCachedNominatedNodes()
 		templateToNominatedNodes[tmplKey].SetPodCount(len(podKeys))
 	}
 
+	result := &core.UnitPreemptionResult{
+		SuccessfulPods: sets.NewString(),
+		FailedPods:     sets.NewString(),
+		Details:        interpretabity.NewUnitSchedulingDetails(interpretabity.Scheduling, needPreempt),
+	}
+
+	commonPreemptionState := framework.NewCycleState()
 	for tmplKey, podKeys := range unitInfo.NotScheduledPodKeysByTemplate {
 		klog.InfoS("Will preempt in specific node group for the pod template", "template", tmplKey, "nodeGroup", nodeGroup.GetKey())
 
@@ -290,7 +293,7 @@ func (f *UnitFramework) Preempting(ctx context.Context, unitInfo *core.Schedulin
 			if scheduled {
 				klog.V(4).InfoS("Pod was able to preempt in this attempt",
 					"switchType", f.handle.SwitchType(), "subCluster", f.handle.SubCluster(),
-					"pod", podutil.GetPodKey(runningUnitInfo.ClonedPod),
+					"pod", podKey,
 					"unitKey", unitInfo.UnitKey,
 					"nodeGroup", nodeGroup.GetKey())
 
@@ -298,8 +301,8 @@ func (f *UnitFramework) Preempting(ctx context.Context, unitInfo *core.Schedulin
 				preemptTraceContext.WithFields(tracing.WithMessageField("Pod was able to preempt in this attempt"))
 
 				// TODO: more infos...
-				result.SuccessfulPods.Insert(podutil.GetPodKey(runningUnitInfo.ClonedPod))
-				result.Details.AddSuccess()
+				result.SuccessfulPods.Insert(podKey)
+				result.Details.AddSuccessfulPods(podKey)
 
 				unitInfo.ScheduledIndex = (unitInfo.ScheduledIndex) + 1
 				delete(unitInfo.NotScheduledPodKeysByTemplate[tmplKey], podKey)
@@ -311,14 +314,15 @@ func (f *UnitFramework) Preempting(ctx context.Context, unitInfo *core.Schedulin
 					"nodeGroup", nodeGroup.GetKey(),
 					"err", err)
 
-				result.FailedPods.Insert(podutil.GetPodKey(runningUnitInfo.ClonedPod))
-				result.Details.AddPodError(podKey, err)
+				result.FailedPods.Insert(podKey)
+				result.Details.AddPodsError(err, podKey)
 
 				preemptTraceContext.WithFields(tracing.WithMessageField("Failed to preempt for pod in this attempt"))
 				preemptTraceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
 
 				// Move the rest pods belong to same template to FailedPods.
 				for j := i + 1; j < len(podKeysList); j++ {
+					podKey := podKeysList[j]
 					runningUnitInfo := unitInfo.DispatchedPods[podKeysList[j]]
 					klog.V(4).InfoS("Quick fail template pod in this attempt",
 						"switchType", f.handle.SwitchType(), "subCluster", f.handle.SubCluster(),
@@ -326,8 +330,8 @@ func (f *UnitFramework) Preempting(ctx context.Context, unitInfo *core.Schedulin
 						"unitKey", unitInfo.UnitKey,
 						"nodeGroup", nodeGroup.GetKey(),
 						"err", err)
-					result.FailedPods.Insert(podutil.GetPodKey(runningUnitInfo.ClonedPod))
-					result.Details.AddPodError(podKeysList[j], err) // TODO: use the latest error code?
+					result.FailedPods.Insert(podKey)
+					result.Details.AddPodsError(err, podKey)
 				}
 				break
 			}
