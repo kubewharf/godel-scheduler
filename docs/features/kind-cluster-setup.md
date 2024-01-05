@@ -1,5 +1,5 @@
-# Quickstart
-This Quickstart guide will walk you through how to set up the Gödel Unified Scheduling system.
+# Local Gödel Environment Setup with KIND
+This guide will walk you through how to set up the Gödel Unified Scheduling system.
 
 ## One-Step Cluster Bootstrap & Installation
 
@@ -37,17 +37,8 @@ This command will complete the following steps:
 
 1. Build Gödel image locally;
 2. Start a Kubernetes cluster using Kind;
-2. Installs the Gödel control-plane components on the cluster;
-3. Deploy an example workload which designate godel-schduler as the scheduler.
+3. Installs the Gödel control-plane components on the cluster.
 
-For example, you would see below output after the command finishes
-```console
-$ kubectl get pods -l app=example
-NAME                       READY   STATUS    RESTARTS   AGE
-example-7db669785b-n5mb4   1/1     Running   0          19s
-example-7db669785b-plrgf   1/1     Running   0          19s
-example-7db669785b-xgnth   1/1     Running   0          19s
-```
 
 ## Manual Installation
 If you have an existing Kubernetes cluster, please follow the steps below to install Gödel.

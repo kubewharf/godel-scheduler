@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: example
+  name: basic
   labels:
-    app: example
+    app: basic
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: example
+      app: basic
   template:
     metadata:
       labels:
-        app: example
+        app: basic
       annotations:
         godel.bytedance.com/pod-resource-type: guaranteed
         godel.bytedance.com/pod-launcher: kubelet
