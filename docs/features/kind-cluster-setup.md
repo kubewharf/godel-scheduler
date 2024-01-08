@@ -51,7 +51,7 @@ make docker-images
 ### 2. Load Gödel image to your cluster
 For example, if you are using Kind
 ```console
-kind load docker-image godel-local:latest --name <cluster-name>
+kind load docker-image godel-local:latest --name <cluster-name> --nodes <control-plane-nodes>
 ```
 
 ### 3. Create Gödel components in the cluster

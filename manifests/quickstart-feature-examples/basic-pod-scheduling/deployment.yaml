@@ -20,7 +20,7 @@ spec:
       schedulerName: godel-scheduler
       containers:
         - name: nginx
-          image: nginx:1.14.2
+          image: nginx
           resources:
             requests:
               cpu: "1"

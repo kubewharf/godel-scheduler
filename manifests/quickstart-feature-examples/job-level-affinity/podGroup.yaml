@@ -1,0 +1,14 @@
+apiVersion: scheduling.godel.kubewharf.io/v1alpha1
+kind: PodGroup
+metadata:
+  generation: 1
+  name: nginx
+spec:
+  affinity:
+    podGroupAffinity:
+      preferred:
+        - topologyKey: micronet
+      required:
+        - topologyKey: mainnet
+  minMember: 10
+  scheduleTimeoutSeconds: 3000

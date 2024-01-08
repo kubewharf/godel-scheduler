@@ -20,9 +20,9 @@ Please refer to the below links for quick start guides on key features. Please n
 
 - [Basic Pod Scheduling](./docs/features/basic-pod.md)
 - [Gang Scheduling](./docs/features/gang-scheduling.md)
-- Job Level Affinity
-- SubCluster Concurrent Scheduling
 - [Preemption](./docs/features/preemption.md)
+- [Job Level Affinity](./docs/features/job-level-affinity.md)
+- [SubCluster Concurrent Scheduling](./docs/features/concurrent-scheduling.md)
 
 ## Contribution Guide
 Please refer to [Contribution](CONTRIBUTING.md).

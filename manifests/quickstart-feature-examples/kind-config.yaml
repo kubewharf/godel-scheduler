@@ -1,7 +1,42 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+name: godel-demo
 nodes:
   - role: control-plane
     image: kindest/node:v1.21.1
   - role: worker
     image: kindest/node:v1.21.1
+    labels:
+      subCluster: subCluster-a
+      micronet: 10.76.65.0
+      mainnet: 10.76.0.0
+  - role: worker
+    image: kindest/node:v1.21.1
+    labels:
+      subCluster: subCluster-a
+      micronet: 10.76.64.0
+      mainnet: 10.76.0.0
+  - role: worker
+    image: kindest/node:v1.21.1
+    labels:
+      subCluster: subCluster-a
+      micronet: 10.76.64.0
+      mainnet: 10.76.0.0
+  - role: worker
+    image: kindest/node:v1.21.1
+    labels:
+      subCluster: subCluster-a
+      micronet: 10.53.16.0
+      mainnet: 10.53.0.0
+  - role: worker
+    image: kindest/node:v1.21.1
+    labels:
+      subCluster: subCluster-b
+      micronet: 10.25.162.0
+      mainnet: 10.25.0.0
+  - role: worker
+    image: kindest/node:v1.21.1
+    labels:
+      subCluster: subCluster-b
+      micronet: 10.57.111.0
+      mainnet: 10.57.0.0

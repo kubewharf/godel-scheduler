@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-a
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      name: nginx-a
+  template:
+    metadata:
+      name: nginx-a
+      labels:
+        name: nginx-a
+    spec:
+      schedulerName: godel-scheduler
+      nodeSelector:
+        subCluster: subCluster-a
+      containers:
+        - name: nginx
+          image: nginx
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 1
+            requests:
+              cpu: 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-b
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      name: nginx-b
+  template:
+    metadata:
+      name: nginx-b
+      labels:
+        name: nginx-b
+    spec:
+      schedulerName: godel-scheduler
+      nodeSelector:
+        subCluster: subCluster-b
+      containers:
+        - name: nginx
+          image: nginx
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 1
+            requests:
+              cpu: 1
