@@ -21,7 +21,7 @@ Please refer to the below links for quick start guides on key features. Please n
 - Gang Scheduling
 - Job Level Affinity
 - SubCluster Concurrent Scheduling
-- Preemption
+- [Preemption](./docs/features/preemption.md)
 
 ## Contribution Guide
 Please refer to [Contribution](CONTRIBUTING.md).
