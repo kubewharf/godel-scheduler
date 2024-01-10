@@ -13,8 +13,15 @@ Thanks to the Gödel architecture, we can realize enhanced performance in terms 
 
 - While remaining compatible with the Kubernetes ecosystem and serving as a potential substitute for the Kubernetes scheduler, our framework distinguishes itself through performance and architectural advancements. Although the framework interface deviates slightly from that of the Kubernetes scheduler, its extensibility remains uncompromised. Scheduling plugins can be developed in a manner akin to Kubernetes.
 
-## Quick Start Guide
-Gödel supports Kubernetes versions from 1.18 up to 1.24.6. Using lower or higher Kubernetes versions may cause compatibility issues. For setup please refer to [Quickstart](./docs/quickstart.md).
+## Quick Start Guide for Key Features
+Please refer to the below links for quick start guides on key features. Please note that Gödel supports Kubernetes versions from 1.21.4 up to 1.24.6. Using lower or higher Kubernetes versions may cause compatibility issues.
+
+- [Basic Pod Scheduling](./docs/features/basic-pod.md)
+<TODO Link the corresponding Markdown pages here>
+- Gang Scheduling
+- Job Level Affinity
+- SubCluster Concurrent Scheduling
+- Preemption
 
 ## Contribution Guide
 Please refer to [Contribution](CONTRIBUTING.md).
