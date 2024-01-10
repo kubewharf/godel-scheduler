@@ -12,7 +12,7 @@ Please make sure the following dependencies are installed.
 - kubectl >= v1.19
 - docker >= 19.03
 - kind >= v0.17.0
-- go >= v1.19.4
+- go >= v1.21.4
 - kustomize >= v4.5.7
 
 ### 1. Clone the Gödel repo to your machine
