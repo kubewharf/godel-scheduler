@@ -1,0 +1,25 @@
+### pls reference the following link for detailed info
+### https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+### default owners for everything in the repo unless a later match takes precedence.
+* @NickrenREN
+
+### owners for community
+/docs/ @yuey002 @lintongj @sxy390
+/manifests/ @yuey002 @lintongj
+/hack/ @yuey002 @Liumeng-lambert
+
+### owners for dispatcher
+/cmd/dispatcher/ @binacs @Liumeng-lambert
+/pkg/dispatcher/ @binacs @Liumeng-lambert
+
+### owners for scheduler
+/cmd/scheduler/ @binacs @XinyiSong
+/pkg/scheduler/ @binacs @XinyiSong
+
+### owners for binder
+/cmd/binder/ @XinyiSong @Liumeng-lambert
+/pkg/binder/ @XinyiSong @Liumeng-lambert
+
+### owners for test
+/test/ @zryfish @lzlaa
