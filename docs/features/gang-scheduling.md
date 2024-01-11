@@ -12,6 +12,71 @@ This guide will walk you through setting up and using Gang Scheduling.
 Before you begin with Gang Scheduling, ensure you have a local KIND cluster installed with Gödel. 
 For detailed instructions, refer to the [Cluster Setup Guide](kind-cluster-setup.md).
 
+## Related Configurations
+
+Below are the YAML contents and descriptions for the related configuration used in this guide:
+
+### Pod Group Configuration
+
+The Pod Group configuration specifies the minimum number of members (`minMember`) required and the scheduling timeout in seconds (`scheduleTimeoutSeconds`).
+
+```yaml
+apiVersion: scheduling.godel.kubewharf.io/v1alpha1
+kind: PodGroup
+metadata:
+  generation: 1
+  name: test-podgroup
+spec:
+  minMember: 2
+  scheduleTimeoutSeconds: 300
+```
+
+### Pod Configuration
+
+This YAML configuration defines the first child pod (pod-1) within the Pod Group. It includes labels and annotations required for Gang Scheduling.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-1
+  labels:
+    name: nginx
+    # Pods must have this label set
+    godel.bytedance.com/pod-group-name: "test-podgroup"
+  annotations:
+    # Pods must have this annotation set
+    godel.bytedance.com/pod-group-name: "test-podgroup"
+spec:
+  schedulerName: godel-scheduler
+  containers:
+  - name: test
+    image: nginx
+    imagePullPolicy: IfNotPresent
+```
+
+The second child pod only varies in name.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-2
+  labels:
+    name: nginx
+    # Pods must have this label set
+    godel.bytedance.com/pod-group-name: "test-podgroup"
+  annotations:
+    # Pods must have this annotation set
+    godel.bytedance.com/pod-group-name: "test-podgroup"
+spec:
+  schedulerName: godel-scheduler
+  containers:
+  - name: test
+    image: nginx
+    imagePullPolicy: IfNotPresent
+```
+
 ## Using Gang Scheduling
 
 1. **Create a Pod Group:**
