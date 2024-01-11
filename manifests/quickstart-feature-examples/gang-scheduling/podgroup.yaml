@@ -1,0 +1,8 @@
+apiVersion: scheduling.godel.kubewharf.io/v1alpha1
+kind: PodGroup
+metadata:
+  generation: 1
+  name: test-podgroup
+spec:
+  minMember: 2
+  scheduleTimeoutSeconds: 300

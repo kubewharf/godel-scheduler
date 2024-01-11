@@ -17,8 +17,8 @@ Thanks to the Gödel architecture, we can realize enhanced performance in terms 
 Please refer to the below links for quick start guides on key features. Please note that Gödel supports Kubernetes versions from 1.21.4 up to 1.24.6. Using lower or higher Kubernetes versions may cause compatibility issues.
 
 - [Basic Pod Scheduling](./docs/features/basic-pod.md)
+- [Gang Scheduling](./docs/features/gang-scheduling.md)
 <TODO Link the corresponding Markdown pages here>
-- Gang Scheduling
 - Job Level Affinity
 - SubCluster Concurrent Scheduling
 - Preemption

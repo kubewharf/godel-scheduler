@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-2
+  labels:
+    name: nginx
+    # Pods must have this label set
+    godel.bytedance.com/pod-group-name: "test-podgroup"
+  annotations:
+    # Pods must have this annotation set
+    godel.bytedance.com/pod-group-name: "test-podgroup"
+spec:
+  schedulerName: godel-scheduler
+  containers:
+  - name: test
+    image: nginx
+    imagePullPolicy: IfNotPresent
