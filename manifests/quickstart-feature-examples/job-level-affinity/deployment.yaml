@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      name: nginx
+  template:
+    metadata:
+      name: nginx
+      labels:
+        name: nginx
+        godel.bytedance.com/pod-group-name: "nginx"
+      annotations:
+        godel.bytedance.com/pod-group-name: "nginx"
+    spec:
+      schedulerName: godel-scheduler
+      containers:
+        - name: nginx
+          image: nginx
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 1
+            requests:
+              cpu: 1

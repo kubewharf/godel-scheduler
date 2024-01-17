@@ -7,6 +7,6 @@ data:
   godel-scheduler-config: |+
     apiVersion: godelscheduler.config.kubewharf.io/v1beta1
     kind: GodelSchedulerConfiguration
-    subClusterKey: nodeLevel
+    subClusterKey: subCluster
     defaultProfile:
       disablePreemption: false

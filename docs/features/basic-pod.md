@@ -8,13 +8,13 @@ Please refer to [Cluster Setup Guide](kind-cluster-setup.md) for creating a loca
 ## Deploy Example Workloads
 We provided an example workload which designate godel-schduler as the scheduler.
 ```console
-$ grep schedulerName manifests/quickstart-feature-examples/basic-pod-scheduling/basic-pod-workload.yaml
+$ grep schedulerName manifests/quickstart-feature-examples/basic-pod-scheduling/deployment.yaml
       schedulerName: godel-scheduler
 ```
 
 Apply the example workload yaml file and check the scheduling result.
 ```console
-$ kubectl apply -f manifests/quickstart-feature-examples/basic-pod-scheduling/basic-pod-workload.yaml
+$ kubectl apply -f manifests/quickstart-feature-examples/basic-pod-scheduling/deployment.yaml
 deployment.apps/basic created
 
 $ kubectl get pods -l app=basic
