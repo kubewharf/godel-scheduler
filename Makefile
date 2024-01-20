@@ -64,7 +64,10 @@ docker-images: build e2e
 	./hack/make-rules/build-images.sh
 
 local-up: docker-images
-	bash ./hack/make-rules/local-up.sh
+	bash ./hack/make-rules/local-up.sh godel-demo-default
+
+local-up-labels: docker-images
+	bash ./hack/make-rules/local-up.sh godel-demo-customized-labels
 
 define GO_BUILD_HELP_INFO
 # Build code.

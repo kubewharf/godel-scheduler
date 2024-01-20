@@ -13,10 +13,11 @@ Thanks to the Gödel architecture, we can realize enhanced performance in terms 
 
 - While remaining compatible with the Kubernetes ecosystem and serving as a potential substitute for the Kubernetes scheduler, our framework distinguishes itself through performance and architectural advancements. Although the framework interface deviates slightly from that of the Kubernetes scheduler, its extensibility remains uncompromised. Scheduling plugins can be developed in a manner akin to Kubernetes.
 
+## Local Gödel Environment Setup with KIND
+We offered a guide to set up a local Kubernetes cluster installed with Gödel. Please refer to [Local Gödel Environment Setup with KIND](./docs/features/kind-cluster-setup.md) for details.
+
 ## Quick Start Guide for Key Features
 Please refer to the below links for quick start guides on key features. Please note that Gödel supports Kubernetes versions from 1.21.4 up to 1.24.6. Using lower or higher Kubernetes versions may cause compatibility issues.
-
-<!-- TODO: Link the corresponding Markdown pages below -->
 
 - [Basic Pod Scheduling](./docs/features/basic-pod.md)
 - [Gang Scheduling](./docs/features/gang-scheduling.md)
