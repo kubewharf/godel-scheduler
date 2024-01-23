@@ -21,8 +21,8 @@ To better illustrate the preemption features, let's assume there is one node wit
 
 **Note:** The `Capacity` and `Allocatable` of worker node **depend on your own Docker resources configuration**. Thus they are not guaranteed to be exactly the same with this guide. To try out this feature locally, you should tune the resources configuration in the example yaml files based on your own setup. For example, the author configured 8 CPU for Docker resources preference, so the worker node has 8 CPU in the guide.
 ```bash
-$ kubectl describe node godel-demo-worker   
-  Name:               godel-demo-worker
+$ kubectl describe node godel-demo-default-worker   
+  Name:               godel-demo-default-worker
   ...
   Capacity:
     cpu:                8
@@ -128,11 +128,16 @@ Gödel Scheduling System provides basic preemption features that are comparable 
    
       $ kubectl get event
         ...
-        0s          Normal    PreemptForPodSuccessfully   pod/nginx-preemptor   Pod can be placed by evicting some other pods, nominated node: godel-demo-worker, victims: [{Name:nginx-victim Namespace:default UID:b685ef99-20b8-43bb-9576-10d2ca09e2d6}], in node group: []
+        0s          Normal    PreemptForPodSuccessfully   pod/nginx-preemptor   Pod can be placed by evicting some other pods, nominated node: godel-demo-default-worker, victims: [{Name:nginx-victim Namespace:default UID:b685ef99-20b8-43bb-9576-10d2ca09e2d6}], in node group: []
         ...
       ```
    
        As we can see, the pod with a lower priority was preempted to accommodate the pod with a higher priority.
+   
+   3. Clean up the environment
+   ```bash
+   kubectl delete pod nginx-preemptor
+   ```
 
 #### Protection with PodDisruptionBudget
 
@@ -263,6 +268,11 @@ Gödel Scheduling System provides basic preemption features that are comparable 
 
     Based on the observation above, one replica of the low-priority deployment was preempted.
 
+3. Clean up the environment
+   ```bash
+   kubectl delete pod nginx-preemptor && kubectl delete deploy nginx-victim && kubectl delete pdb nginx-pdb
+   ```
+
 ### Gödel-specific Preemption
 
 Apart from the basic preemption functionalities shown above, extra protection behaviors are also honored in Gödel Scheduling System.
@@ -344,6 +354,10 @@ Specifically, only Pods with the preemptibility being enabled can preempted in a
    ```
    
    In this case, preemption will not happen because the preemptibility is not enabled.   
+3. Clean up the environment
+   ```bash
+   kubectl delete pod nginx-preemptor nginx-victim
+   ```
 
 #### Protection Duration
 
@@ -431,7 +445,10 @@ users will be able to specify the protection duration in seconds.
      NAME           READY   STATUS    RESTARTS   AGE
      nginx-preemptor   1/1     Running   0          78s
    ```
-
+3. Clean up the environment
+   ```bash
+   kubectl delete pod nginx-preemptor
+   ```
 ## Wrap-up
 In this doc, we share a Quickstart guide about selected functionalities of preemption in Gödel Scheduling System. 
 More advanced preemption features/strategies as well as the corresponding technical deep-dives can be expected.  

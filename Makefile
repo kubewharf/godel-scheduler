@@ -67,7 +67,7 @@ local-up: docker-images
 	bash ./hack/make-rules/local-up.sh godel-demo-default
 
 local-up-labels: docker-images
-	bash ./hack/make-rules/local-up.sh godel-demo-customized-labels
+	bash ./hack/make-rules/local-up.sh godel-demo-labels
 
 define GO_BUILD_HELP_INFO
 # Build code.
