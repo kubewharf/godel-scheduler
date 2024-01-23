@@ -7,7 +7,8 @@ This is a Quickstart guide that will walk you through how preemption works in th
 
 ## Local Cluster Bootstrap & Installation
 
-Please refer to [Cluster Setup Guide](kind-cluster-setup.md) for creating a local KIND cluster installed with Gödel.
+If you do not have a local Kubernetes cluster installed with Godel yet, please refer to the [Cluster Setup Guide](kind-cluster-setup.md) for creating a local KIND cluster installed with Gödel.
+
 
 ## How Preemption Works
 
@@ -16,17 +17,18 @@ Gödel scheduler tries to preempt (evict) lower priority Pods to make scheduling
 
 ### Quickstart Scenario
 
-To better illustrate the preemption features, let's assume there is one node with less than 4 CPU cores (actually 3.9 cores) available for scheduling.  
+To better illustrate the preemption features, let's assume there is one node with less than 8 CPU cores available for scheduling.
 
+**Note:** The `Capacity` and `Allocatable` of worker node **depend on your own Docker resources configuration**. Thus they are not guaranteed to be exactly the same with this guide. To try out this feature locally, you should tune the resources configuration in the example yaml files based on your own setup. For example, the author configured 8 CPU for Docker resources preference, so the worker node has 8 CPU in the guide.
 ```bash
-$ kubectl describe node kind-worker   
-  Name:               kind-worker
+$ kubectl describe node godel-demo-worker   
+  Name:               godel-demo-worker
   ...
   Capacity:
-    cpu:                4
+    cpu:                8
     ...
   Allocatable:
-    cpu:                4
+    cpu:                8
     ...
   ...
   Non-terminated Pods:          (2 in total)
@@ -49,7 +51,7 @@ Gödel Scheduling System provides basic preemption features that are comparable 
 
 #### Priority-based Preemption
 
-1. Create a pod with a lower priority, which requests 3 CPU cores.
+1. Create a pod with a lower priority, which requests 6 CPU cores.
 
    ```yaml
    ---
@@ -77,9 +79,9 @@ Gödel Scheduling System provides basic preemption features that are comparable 
            imagePullPolicy: IfNotPresent
            resources:
               limits:
-                 cpu: 3
+                 cpu: 6
               requests:
-                 cpu: 3
+                 cpu: 6
    ```
 
    ```bash
@@ -88,53 +90,53 @@ Gödel Scheduling System provides basic preemption features that are comparable 
      nginx-victim   1/1     Running   0          2s
    ```
 
-2. Create a pod with a higher priority, which requests 1 CPU core. 
+   2. Create a pod with a higher priority, which requests 3 CPU core. 
 
-   ```yaml
-   ---
-   apiVersion: scheduling.k8s.io/v1
-   kind: PriorityClass
-   metadata:
-   name: high-priority
-   value: 100
-   description: "a priority class with a high priority"
-   ---
-   apiVersion: v1
-   kind: Pod
-   metadata:
-   name: nginx-preemptor
-   spec:
-   schedulerName: godel-scheduler
-   priorityClassName: high-priority
-   containers:
-     - name: nginx-preemptor
-       image: nginx
-       imagePullPolicy: IfNotPresent
-       resources:
-         limits:
-           cpu: 1
-         requests:
-           cpu: 1
-   ```
+      ```yaml
+      ---
+      apiVersion: scheduling.k8s.io/v1
+      kind: PriorityClass
+      metadata:
+         name: high-priority
+      value: 100
+      description: "a priority class with a high priority"
+      ---
+      apiVersion: v1
+      kind: Pod
+      metadata:
+         name: nginx-preemptor
+      spec:
+         schedulerName: godel-scheduler
+         priorityClassName: high-priority
+         containers:
+           - name: nginx-preemptor
+             image: nginx
+             imagePullPolicy: IfNotPresent
+             resources:
+               limits:
+                 cpu: 3
+               requests:
+                 cpu: 3
+      ```
    
-    Remember, there is only 3.9 CPU cores available. So, preemption will be triggered when the high-priority Pod gets scheduled.
+       Remember, there is only 8 CPU cores available. So, preemption will be triggered when the high-priority Pod gets scheduled.
 
-   ```bash
-   $ kubectl get pod
-     NAME              READY   STATUS    RESTARTS   AGE
-     nginx-preemptor   1/1     Running   0          18s
+      ```bash
+      $ kubectl get pod
+        NAME              READY   STATUS    RESTARTS   AGE
+        nginx-preemptor   1/1     Running   0          18s
    
-   $ kubectl get event
-     ...
-     0s          Normal    PreemptForPodSuccessfully   pod/nginx-preemptor   Pod can be placed by evicting some other pods, nominated node: kind-worker, victims: [{Name:nginx-victim Namespace:default UID:b685ef99-20b8-43bb-9576-10d2ca09e2d6}], in node group: []
-     ...
-   ```
+      $ kubectl get event
+        ...
+        0s          Normal    PreemptForPodSuccessfully   pod/nginx-preemptor   Pod can be placed by evicting some other pods, nominated node: godel-demo-worker, victims: [{Name:nginx-victim Namespace:default UID:b685ef99-20b8-43bb-9576-10d2ca09e2d6}], in node group: []
+        ...
+      ```
    
-    As we can see, the pod with a lower priority was preempted to accommodate the pod with a higher priority.
+       As we can see, the pod with a lower priority was preempted to accommodate the pod with a higher priority.
 
 #### Protection with PodDisruptionBudget
 
-1. Create a 3-replica deployment with a lower priority, which requests 3 CPU cores in total. Meanwhile, a PodDisruptionBudget object with minAvailable being set to 3 is also created.
+1. Create a 3-replica deployment with a lower priority, which requests 6 CPU cores in total. Meanwhile, a PodDisruptionBudget object with minAvailable being set to 3 is also created.
     
    ```yaml
    ---
@@ -182,9 +184,9 @@ Gödel Scheduling System provides basic preemption features that are comparable 
                  imagePullPolicy: IfNotPresent
                  resources:
                     limits:
-                       cpu: 1
+                       cpu: 2
                     requests:
-                       cpu: 1 
+                       cpu: 2 
    ```
    
    ```bash
@@ -198,7 +200,7 @@ Gödel Scheduling System provides basic preemption features that are comparable 
      deployment.apps/nginx-victim   3/3     3            3           6s
    ```
 
-2. Create a pod with a higher priority, which requests 1 CPU core.
+2. Create a pod with a higher priority, which requests 3 CPU core.
 
    ```yaml
    ---
@@ -222,9 +224,9 @@ Gödel Scheduling System provides basic preemption features that are comparable 
            imagePullPolicy: IfNotPresent
            resources:
               limits:
-                 cpu: 1
+                 cpu: 3
               requests:
-                 cpu: 1
+                 cpu: 3
    ```
    
    In this case, preemption will not be triggered for scheduling the high-priority Pod above, due to the protection provided by the PodDisruptionBudget object.
@@ -295,9 +297,9 @@ Specifically, only Pods with the preemptibility being enabled can preempted in a
          imagePullPolicy: IfNotPresent
          resources:
            limits:
-             cpu: 3
+             cpu: 6
            requests:
-             cpu: 3
+             cpu: 6
    ```
 
    ```bash
@@ -329,9 +331,9 @@ Specifically, only Pods with the preemptibility being enabled can preempted in a
          imagePullPolicy: IfNotPresent
          resources:
            limits:
-             cpu: 1
+             cpu: 3
            requests:
-             cpu: 1
+             cpu: 3
    ```
 
    ```bash
@@ -377,9 +379,9 @@ users will be able to specify the protection duration in seconds.
          imagePullPolicy: IfNotPresent
          resources:
            limits:
-             cpu: 3
+             cpu: 6
            requests:
-             cpu: 3
+             cpu: 6
    ```
    
    ```bash
@@ -412,9 +414,9 @@ users will be able to specify the protection duration in seconds.
          imagePullPolicy: IfNotPresent
          resources:
            limits:
-             cpu: 1
+             cpu: 3
            requests:
-             cpu: 1
+             cpu: 3
    ```
    Within the protection duration, preemption will not be triggered. 
    ```bash

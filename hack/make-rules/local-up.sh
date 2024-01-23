@@ -7,7 +7,7 @@ set -e
 set -x
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-CLUSTER_NAME="godel-demo"
+CLUSTER_NAME="${1}"
 
 # create_cluster creates a kind cluster.
 # Parameters:
@@ -21,7 +21,7 @@ function create_cluster() {
 
 
 # 1. Create the local kind cluster
-create_cluster "${REPO_ROOT}"/manifests/quickstart-feature-examples/kind-config.yaml
+create_cluster "${REPO_ROOT}"/manifests/quickstart-feature-examples/${CLUSTER_NAME}.yaml
 
 # 2. Load godel docker images into the cluster
 kind load docker-image --nodes ${CLUSTER_NAME}-control-plane godel-local:latest --name ${CLUSTER_NAME}

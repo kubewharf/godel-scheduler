@@ -9,8 +9,7 @@ This guide will walk you through setting up and using Gang Scheduling.
 
 ## Local Cluster Bootstrap & Installation
 
-Before you begin with Gang Scheduling, ensure you have a local KIND cluster installed with Gödel. 
-For detailed instructions, refer to the [Cluster Setup Guide](kind-cluster-setup.md).
+If you do not have a local Kubernetes cluster installed with Godel yet, please refer to the [Cluster Setup Guide](kind-cluster-setup.md).
 
 ## Related Configurations
 

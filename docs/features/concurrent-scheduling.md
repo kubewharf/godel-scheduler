@@ -2,7 +2,10 @@
 This Quickstart guide demonstrates how to implement concurrent scheduling at the SubCluster level. Each SubCluster, defined by node labels, will possess its own distinct scheduling workflow. These workflows will execute simultaneously, ensuring efficient task management across the system.
 
 ## Local Cluster Bootstrap & Installation
-Please refer to [Cluster Setup Guide](kind-cluster-setup.md) for creating a local KIND cluster installed with Gödel.
+To try out this feature, we would need to set up a few labels for the Kubernetes cluster nodes. We provided a make command for you to boostrap such a cluster locally using KIND.
+```
+make local-up-labels
+```
 
 ## Related Configurations
 ### Node
@@ -81,3 +84,10 @@ I0108 22:38:36.183390       1 unit_scheduler.go:327] "Attempting to schedule uni
 ```
 
 From the log snippet above, it's clear that both pods, nginx-a (subCluster: subCluster-a) and nginx-b (subCluster: subCluster-b), are overlapping.
+
+Clean up the environment
+```
+$ kubectl delete -f manifests/quickstart-feature-examples/concurrent-scheduling/deployment.yaml
+deployment.apps "nginx-a" deleted
+deployment.apps "nginx-b" deleted
+```

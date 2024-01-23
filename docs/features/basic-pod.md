@@ -3,7 +3,7 @@ This Quickstart guide will walk you through how to schedule a pod using the Göd
 
 ## Local Cluster Bootstrap & Installation
 
-Please refer to [Cluster Setup Guide](kind-cluster-setup.md) for creating a local KIND cluster installed with Gödel.
+If you do not have a local Kubernetes cluster installed with Godel yet, please refer to the [Cluster Setup Guide](kind-cluster-setup.md) for creating a local KIND cluster installed with Gödel.
 
 ## Deploy Example Workloads
 We provided an example workload which designate godel-schduler as the scheduler.
