@@ -203,16 +203,14 @@ func renderBasePlugin(pluginCollection framework.PluginCollectionSet, baseKubele
 	return pluginCollection
 }
 
-// renderUnitQueueSortPluginSpec set the UnitQueueSortPluginSpec.
-func renderUnitQueueSortPluginSpec(profile *config.GodelSchedulerProfile) *framework.PluginSpec {
-	if profile != nil && profile.UnitQueueSortPlugin != nil {
-		return framework.NewPluginSpec(profile.UnitQueueSortPlugin.Name)
-	}
-	return defaultUnitQueueSortPluginSpec
-}
-
 func profileNeedPreemption(profile *config.GodelSchedulerProfile) bool {
-	return profile != nil && profile.DisablePreemption != nil && !*profile.DisablePreemption
+	if profile != nil && profile.DisablePreemption != nil {
+		// If the DeisablePreemption has already been set, return it's value directly.
+		return !*profile.DisablePreemption
+	}
+	// Otherwise, parse the value from default setting.
+	return !config.DefaultDisablePreemption
+
 }
 
 func parseProfilesBoolConfiguration(options schedulerOptions, checker func(*config.GodelSchedulerProfile) bool) bool {

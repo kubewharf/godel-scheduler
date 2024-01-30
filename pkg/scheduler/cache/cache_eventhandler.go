@@ -17,6 +17,8 @@ limitations under the License.
 package cache
 
 import (
+	"fmt"
+
 	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
@@ -33,8 +35,16 @@ func (cache *schedulerCache) assumedOrBoundPod(pod *v1.Pod) bool {
 }
 
 func (cache *schedulerCache) AssumePod(podInfo *framework.CachePodInfo) error {
+	key, err := framework.GetPodKey(podInfo.Pod)
+	if err != nil {
+		return err
+	}
+
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
+	if podState, _ := cache.handler.GetPodState(key); podState != nil {
+		return fmt.Errorf("pod %v was already in scheduler cache", key)
+	}
 	return cache.storeSwitch.Range(func(cs commonstores.CommonStore) error { return cs.AssumePod(podInfo) })
 }
 

@@ -31,7 +31,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/clock"
-	"k8s.io/apimachinery/pkg/util/sets"
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/events"
@@ -249,8 +248,8 @@ func (gs *unitScheduler) GetUnitStatus(unitKey string) unitstatus.UnitStatus {
 	return gs.Cache.GetUnitStatus(unitKey)
 }
 
-func (gs *unitScheduler) IsAssumedPod(pod *v1.Pod) (bool, error) {
-	return gs.Cache.IsAssumedPod(pod)
+func (gs *unitScheduler) IsCachedPod(pod *v1.Pod) (bool, error) {
+	return gs.Cache.IsCachedPod(pod)
 }
 
 func (gs *unitScheduler) GetNodeInfo(nodeName string) framework.NodeInfo {
@@ -507,7 +506,7 @@ func (gs *unitScheduler) scheduleUnitInNodeGroup(ctx context.Context, unitInfo *
 	unitInfo.FinishUnitTraceContext(tracing.SchedulerScheduleUnitSpan)
 
 	if gs.disablePreemption {
-		return core.TransferToUnitResult(unitInfo, scheduleResult.Details, scheduleResult.SuccessfulPods.UnsortedList(), scheduleResult.FailedPods.UnsortedList())
+		return core.TransferToUnitResult(unitInfo, scheduleResult.Details, scheduleResult.SuccessfulPods, scheduleResult.FailedPods)
 	}
 
 	unitInfo.StartUnitTraceContext(tracing.SchedulerScheduleSpan, tracing.SchedulerPreemptUnitSpan)
@@ -516,7 +515,7 @@ func (gs *unitScheduler) scheduleUnitInNodeGroup(ctx context.Context, unitInfo *
 	unitInfo.SetUnitTraceContextFields(tracing.SchedulerPreemptUnitSpan, tracing.WithMessageField(preemptResult.Marshal()))
 	unitInfo.SetUnitTraceContextFields(tracing.SchedulerPreemptUnitSpan, tracing.WithErrorFields(tracing.TruncateErrors(preemptResult.Details.GetErrors()))...)
 	unitInfo.FinishUnitTraceContext(tracing.SchedulerPreemptUnitSpan)
-	return core.TransferToUnitResult(unitInfo, preemptResult.Details, scheduleResult.SuccessfulPods.Union(preemptResult.SuccessfulPods).UnsortedList(), preemptResult.FailedPods.UnsortedList())
+	return core.TransferToUnitResult(unitInfo, preemptResult.Details, append(scheduleResult.SuccessfulPods, preemptResult.SuccessfulPods...), preemptResult.FailedPods)
 }
 
 func (gs *unitScheduler) resetRunningUnitInfo(ctx context.Context, unitInfo *core.SchedulingUnitInfo, result *core.UnitResult, nodeGroupName string) {
@@ -569,7 +568,7 @@ func (gs *unitScheduler) handleSchedulingUnitFailure(ctx context.Context, result
 		if apierrors.IsNotFound(err) {
 			klog.InfoS("WARN: failed to re-enqueue the pod cause it doesn't exist in informer cache", "pod", klog.KObj(podInfo.Pod))
 			_ = unitInfo.QueuedUnitInfo.DeletePod(podInfo)
-		} else if gs.skipPodUpdate(cachedPod) {
+		} else if gs.skipPodSchedule(cachedPod) {
 			klog.InfoS("WARN: failed to re-enqueue the pod cause it already exist in scheduler cache", "pod", klog.KObj(cachedPod))
 			_ = unitInfo.QueuedUnitInfo.DeletePod(podInfo)
 		} else {
@@ -666,55 +665,60 @@ func (gs *unitScheduler) updateFailedScheduleUnit(scheduleUnit framework.Schedul
 
 func (gs *unitScheduler) applyToCache(ctx context.Context, unitInfo *core.SchedulingUnitInfo, result *core.UnitResult) bool {
 	cache, switchType, subCluster := gs.Cache, gs.switchType, gs.subCluster
-	successfulPods := sets.NewInt()
 	for i, key := range result.SuccessfulPods {
 		runningPodInfo := unitInfo.DispatchedPods[key]
 		cachePodInfo := framework.MakeCachePodInfoWrapper().Pod(runningPodInfo.ClonedPod).Victims(runningPodInfo.Victims).Obj()
 
-		assumeTraceContext := runningPodInfo.Trace.NewTraceContext(tracing.SchedulerScheduleSpan, tracing.SchedulerAssumePodSpan)
+		traceContext := runningPodInfo.Trace.NewTraceContext(tracing.SchedulerScheduleSpan, tracing.SchedulerAssumePodSpan)
 		err := cache.AssumePod(cachePodInfo)
-		defer tracing.AsyncFinishTraceContext(assumeTraceContext, time.Now())
+		defer tracing.AsyncFinishTraceContext(traceContext, time.Now())
 
 		if err != nil {
-			klog.InfoS("Failed to assume pod in scheduler cache",
+			klog.ErrorS(err, "Failed to assume pod in scheduler cache, will forget the pod",
 				"switchType", switchType, "subCluster", subCluster,
 				"pod", klog.KObj(runningPodInfo.ClonedPod),
-				"node", runningPodInfo.NodeToPlace,
-				"err", err)
+				"node", runningPodInfo.NodeToPlace)
 
-			if unitInfo.QueuedUnitInfo.Type() == framework.PodGroupUnitType && unitInfo.MinMember > successfulPods.Len() {
-				msg := "Failed to assume pod in scheduler cache and result in a min-fail, ready to revert"
-				assumeTraceContext.WithFields(tracing.WithMessageField(msg))
-				klog.InfoS(msg, "numSuccessfulPods", len(result.SuccessfulPods), "podIndex", i)
+			if err := cache.ForgetPod(cachePodInfo); err != nil {
+				msg := "Failed to forget pod in scheduler cache after the assume pod failure occured"
+				traceContext.WithFields(tracing.WithMessageField(msg))
+				traceContext.WithFields(tracing.WithErrorField(err))
+				traceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
+				klog.ErrorS(err, msg, "pod", klog.KObj(runningPodInfo.ClonedPod), "node", runningPodInfo.NodeToPlace)
+			}
 
+			// Considering that there may be sequential dependencies during different Pods, once an AssumePod failure occured,
+			// subsequent operations will no longer continue.
+			//
+			// At the same time, we will decide to apply or roll back the previous operations based on whether the unit
+			// scheduling conditions are met.
+			if !unitInfo.EverScheduled && i < unitInfo.MinMember {
 				// For min-fail, we revert the operations and return false.
-				for index := range successfulPods {
+				msg := "Failed to assume pod in scheduler cache and result in a min-fail, ready to revert"
+				klog.InfoS(msg, "numSuccessfulPods", len(result.SuccessfulPods), "podIndex", i)
+				for index := 0; index < i; index++ {
 					runningPodInfo := unitInfo.DispatchedPods[result.SuccessfulPods[index]]
-
-					forgetTraceContext := runningPodInfo.Trace.NewTraceContext(tracing.SchedulerScheduleSpan, tracing.SchedulerForgetPodSpan,
-						tracing.WithResult(tracing.ResultSuccess))
-					err := cache.ForgetPod(cachePodInfo)
-					defer tracing.AsyncFinishTraceContext(forgetTraceContext, time.Now())
-
-					if err != nil {
+					previousTraceContext := runningPodInfo.Trace.GetTraceContext(tracing.SchedulerAssumePodSpan)
+					if err := cache.ForgetPod(cachePodInfo); err != nil {
 						msg := "Failed to forget pod in scheduler cache during revert"
-						forgetTraceContext.WithFields(tracing.WithMessageField(msg))
-						forgetTraceContext.WithFields(tracing.WithErrorField(err))
-						klog.InfoS(msg,
+						previousTraceContext.WithFields(tracing.WithMessageField(msg))
+						previousTraceContext.WithFields(tracing.WithErrorField(err))
+						previousTraceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
+						klog.ErrorS(err, msg,
 							"pod", klog.KObj(runningPodInfo.ClonedPod),
-							"node", runningPodInfo.NodeToPlace, "err", err)
+							"node", runningPodInfo.NodeToPlace)
 					}
 				}
 
-				// Remove all Pods from successfulPods, which failed to assume cache, and mark them as failedPods.
+				// Remove all Pods from successfulPods, which failed to assume cache, and mark them as FailedPods.
 				result.Details.AddPodsError(err, result.SuccessfulPods...)
 				result.FailedPods = append(result.FailedPods, result.SuccessfulPods...)
 				result.SuccessfulPods = []string{}
 				return false
 			} else {
-				msg := "Failed to assume pod in scheduler cache but the min-member can be met"
-				assumeTraceContext.WithFields(tracing.WithMessageField(msg))
-				klog.InfoS(msg, "numSuccessfulPods", len(result.SuccessfulPods), "podIndex", i)
+				msg := "Failed to assume pod in scheduler cache but the min-member can be met or unit ever scheduled"
+				traceContext.WithFields(tracing.WithMessageField(msg))
+				klog.InfoS(msg, "unitKey", unitInfo.UnitKey, "numSuccessfulPods", len(result.SuccessfulPods), "podIndex", i)
 
 				// Otherwise, move the left pods from successfulPods to failedPods and return true.
 				result.Details.AddPodsError(err, result.SuccessfulPods[i:]...)
@@ -723,8 +727,7 @@ func (gs *unitScheduler) applyToCache(ctx context.Context, unitInfo *core.Schedu
 				return true
 			}
 		} else {
-			assumeTraceContext.WithTags(tracing.WithResultTag(tracing.ResultSuccess))
-			successfulPods.Insert(i)
+			traceContext.WithTags(tracing.WithResultTag(tracing.ResultSuccess))
 		}
 	}
 	return true
@@ -829,15 +832,12 @@ func (gs *unitScheduler) PersistSuccessfulPods(ctx context.Context,
 	}
 }
 
-// skipPodUpdate checks whether the specified pod update should be ignored.
-// This function will return true if
-//   - The pod has already been assumed: pod is already in assumed cache or pod is set to assumed or preempted by annotation, AND
-//   - The pod has only its ResourceVersion, Spec.NodeName, Annotations, ManagedFields, Finalizers and/or Conditions updated.
-func (gs *unitScheduler) skipPodUpdate(pod *v1.Pod) bool {
-	// Non-assumed pods should never be skipped.
-	isAssumed, err := gs.Cache.IsAssumedPod(pod)
+func (gs *unitScheduler) skipPodSchedule(pod *v1.Pod) bool {
+	isCached, err := gs.Cache.IsCachedPod(pod)
 	if err != nil {
 		return false
 	}
-	return isAssumed || podutil.AssumedPod(pod) || podutil.BoundPod(pod)
+	// Since we got the Pod from informer cache, it's ok to call `podutil.AssumedPod` or `podutil.BoundPod` here.
+	return isCached || podutil.AssumedPod(pod) || podutil.BoundPod(pod)
+
 }

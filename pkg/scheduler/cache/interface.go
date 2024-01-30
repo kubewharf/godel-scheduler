@@ -77,6 +77,12 @@ type SchedulerCache interface {
 	// IsAssumedPod returns true if the pod is assumed and not expired.
 	IsAssumedPod(pod *v1.Pod) (bool, error)
 
+	// IsCachedPod returns true if this pod is cached by one of the following situations:
+	//  1. in memory scheduling decisions made by the current scheduler.
+	//  2. `assumed` pod state made by any scheduler.
+	//  3. `bound` pod state made by any scheduler.
+	IsCachedPod(pod *v1.Pod) (bool, error)
+
 	// SetNodeInPartition sets node in partition of scheduler
 	SetNodeInPartition(nodeName string) error
 

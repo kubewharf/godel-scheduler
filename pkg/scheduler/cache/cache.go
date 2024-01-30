@@ -223,6 +223,12 @@ func (cache *schedulerCache) IsAssumedPod(pod *v1.Pod) (bool, error) {
 	return cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).IsAssumedPod(pod)
 }
 
+func (cache *schedulerCache) IsCachedPod(pod *v1.Pod) (bool, error) {
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+	return cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).IsCachedPod(pod)
+}
+
 // GetPod might return a pod for which its node has already been deleted from
 // the main cache. This is useful to properly process pod update events.
 func (cache *schedulerCache) GetPod(pod *v1.Pod) (*v1.Pod, error) {

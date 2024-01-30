@@ -26,7 +26,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
@@ -168,8 +167,8 @@ func (f *UnitFramework) Scheduling(ctx context.Context, unitInfo *core.Schedulin
 	markIndex := !unitInfo.EverScheduled
 
 	result := &core.UnitSchedulingResult{
-		SuccessfulPods: sets.NewString(),
-		FailedPods:     sets.NewString(),
+		SuccessfulPods: []string{},
+		FailedPods:     []string{},
 		Details:        interpretabity.NewUnitSchedulingDetails(interpretabity.Scheduling, len(unitInfo.DispatchedPods)),
 	}
 
@@ -202,7 +201,7 @@ func (f *UnitFramework) Scheduling(ctx context.Context, unitInfo *core.Schedulin
 					"nodeGroup", nodeGroup.GetKey())
 
 				// TODO: more infos...
-				result.SuccessfulPods.Insert(podKey)
+				result.SuccessfulPods = append(result.SuccessfulPods, podKey)
 				result.Details.AddSuccessfulPods(podKey)
 
 				unitInfo.ScheduledIndex = (unitInfo.ScheduledIndex) + 1
@@ -218,7 +217,7 @@ func (f *UnitFramework) Scheduling(ctx context.Context, unitInfo *core.Schedulin
 					"nodeGroup", nodeGroup.GetKey(),
 					"err", err)
 
-				result.FailedPods.Insert(podKey)
+				result.FailedPods = append(result.FailedPods, podKey)
 				result.Details.AddPodsError(err, podKey)
 				// Move the rest pods belong to same template to FailedPods.
 				for j := i + 1; j < len(podKeysList); j++ {
@@ -230,7 +229,7 @@ func (f *UnitFramework) Scheduling(ctx context.Context, unitInfo *core.Schedulin
 						"unitKey", unitInfo.UnitKey,
 						"nodeGroup", nodeGroup.GetKey(),
 						"err", err)
-					result.FailedPods.Insert(podKey)
+					result.FailedPods = append(result.FailedPods, podKey)
 				}
 				break
 			}
@@ -238,7 +237,7 @@ func (f *UnitFramework) Scheduling(ctx context.Context, unitInfo *core.Schedulin
 
 		// TODO: revisit the quick logic.
 		templateCount--
-		if templateCount == 0 && !unitInfo.EverScheduled && unitInfo.AllMember-unitInfo.MinMember < result.FailedPods.Len() {
+		if templateCount == 0 && !unitInfo.EverScheduled && unitInfo.AllMember-unitInfo.MinMember < len(result.FailedPods) {
 			break
 		}
 	}
@@ -268,8 +267,8 @@ func (f *UnitFramework) Preempting(ctx context.Context, unitInfo *core.Schedulin
 	}
 
 	result := &core.UnitPreemptionResult{
-		SuccessfulPods: sets.NewString(),
-		FailedPods:     sets.NewString(),
+		SuccessfulPods: []string{},
+		FailedPods:     []string{},
 		Details:        interpretabity.NewUnitSchedulingDetails(interpretabity.Scheduling, needPreempt),
 	}
 
@@ -301,7 +300,7 @@ func (f *UnitFramework) Preempting(ctx context.Context, unitInfo *core.Schedulin
 				preemptTraceContext.WithFields(tracing.WithMessageField("Pod was able to preempt in this attempt"))
 
 				// TODO: more infos...
-				result.SuccessfulPods.Insert(podKey)
+				result.SuccessfulPods = append(result.SuccessfulPods, podKey)
 				result.Details.AddSuccessfulPods(podKey)
 
 				unitInfo.ScheduledIndex = (unitInfo.ScheduledIndex) + 1
@@ -314,7 +313,7 @@ func (f *UnitFramework) Preempting(ctx context.Context, unitInfo *core.Schedulin
 					"nodeGroup", nodeGroup.GetKey(),
 					"err", err)
 
-				result.FailedPods.Insert(podKey)
+				result.FailedPods = append(result.FailedPods, podKey)
 				result.Details.AddPodsError(err, podKey)
 
 				preemptTraceContext.WithFields(tracing.WithMessageField("Failed to preempt for pod in this attempt"))
@@ -330,14 +329,14 @@ func (f *UnitFramework) Preempting(ctx context.Context, unitInfo *core.Schedulin
 						"unitKey", unitInfo.UnitKey,
 						"nodeGroup", nodeGroup.GetKey(),
 						"err", err)
-					result.FailedPods.Insert(podKey)
+					result.FailedPods = append(result.FailedPods, podKey)
 					result.Details.AddPodsError(err, podKey)
 				}
 				break
 			}
 		}
 
-		if !unitInfo.EverScheduled && unitInfo.AllMember-unitInfo.MinMember < result.FailedPods.Len() {
+		if !unitInfo.EverScheduled && unitInfo.AllMember-unitInfo.MinMember < len(result.FailedPods) {
 			break
 		}
 	}
@@ -435,7 +434,7 @@ func (f *UnitFramework) scheduleOneUnitInstance(ctx context.Context, scheduledIn
 
 	// ATTENTION: For pods that require CrossNodesConstraints and are successfully scheduled, the cache will be cleared.
 	if fwk.HasCrossNodesConstraints(ctx, clonedPod) {
-		delete(statusByTemplate, runningUnitInfo.QueuedPodInfo.OwnerReferenceKey)
+		statusByTemplate[runningUnitInfo.QueuedPodInfo.OwnerReferenceKey] = make(framework.NodeToStatusMap)
 	}
 
 	// make these scheduled pods ordered so that binder can make better decisions
@@ -570,23 +569,19 @@ func (f *UnitFramework) skipPodSchedule(pod *v1.Pod) bool {
 		return true
 	}
 
-	// Case 2: pod has been assumed and pod updates could be skipped.
-	// An assumed pod can be added again to the scheduling queue if it got an update event
-	// during its previous scheduling cycle but before getting assumed.
-	//
-	// Non-assumed pods should never be skipped.
-	isAssumed, err := f.handle.IsAssumedPod(pod)
+	// Case 2: pod has been cached.
+	// An cached pod can be added again to the scheduling queue if it got an update event
+	// during its previous scheduling cycle.
+	isCached, err := f.handle.IsCachedPod(pod)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("failed to check whether pod %s/%s is assumed: %v", pod.Namespace, pod.Name, err))
 		return false
 	}
-	isAssumed = isAssumed || podutil.AssumedPod(pod) || podutil.BoundPod(pod)
-	if isAssumed {
-		klog.V(3).InfoS("Skipping assumed pod update", "pod", klog.KObj(pod))
-		return true
+	if isCached {
+		klog.V(3).InfoS("Skipping cached pod scheduling", "pod", klog.KObj(pod))
 	}
 
-	return false
+	return isCached
 }
 
 func errorStr(err error) string {

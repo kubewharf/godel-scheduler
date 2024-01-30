@@ -48,6 +48,6 @@ type SchedulerUnitFrameworkHandle interface {
 	SchedulerName() string
 
 	GetUnitStatus(string) unitstatus.UnitStatus
-	IsAssumedPod(pod *v1.Pod) (bool, error)
+	IsCachedPod(pod *v1.Pod) (bool, error)
 	GetNodeInfo(nodeName string) NodeInfo
 }

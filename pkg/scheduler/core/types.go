@@ -109,8 +109,8 @@ type UnitSchedulingResult struct {
 	Details *interpretabity.UnitSchedulingDetails
 
 	// TODO: store NodeToStatus etc.
-	SuccessfulPods sets.String
-	FailedPods     sets.String
+	SuccessfulPods []string
+	FailedPods     []string
 }
 
 func (usr *UnitSchedulingResult) Marshal() string {
@@ -121,8 +121,8 @@ type UnitPreemptionResult struct {
 	// Details is used to describe the detail of each attempted Pod.
 	Details *interpretabity.UnitSchedulingDetails
 
-	SuccessfulPods sets.String
-	FailedPods     sets.String
+	SuccessfulPods []string
+	FailedPods     []string
 }
 
 func (usr *UnitPreemptionResult) Marshal() string {

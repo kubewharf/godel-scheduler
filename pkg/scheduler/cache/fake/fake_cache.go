@@ -35,6 +35,7 @@ type Cache struct {
 	AssumeFunc       func(*v1.Pod)
 	ForgetFunc       func(*v1.Pod)
 	IsAssumedPodFunc func(*v1.Pod) bool
+	IsCachedPodFunc  func(*v1.Pod) bool
 	GetPodFunc       func(*v1.Pod) *v1.Pod
 	UnitStatus       *unitstatus.UnitStatusMap
 }
@@ -66,6 +67,11 @@ func (c *Cache) RemovePod(pod *v1.Pod) error { return nil }
 // IsAssumedPod is a fake method for testing.
 func (c *Cache) IsAssumedPod(pod *v1.Pod) (bool, error) {
 	return c.IsAssumedPodFunc(pod), nil
+}
+
+// IsCachedPod is a fake method for testing.
+func (c *Cache) IsCachedPod(pod *v1.Pod) (bool, error) {
+	return c.IsCachedPodFunc(pod), nil
 }
 
 // GetPod is a fake method for testing.
