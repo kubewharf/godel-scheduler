@@ -69,8 +69,8 @@ func (gs *MockUnitSchedulerHandle) GetUnitStatus(unitKey string) unitstatus.Unit
 	return gs.Cache.GetUnitStatus(unitKey)
 }
 
-func (gs *MockUnitSchedulerHandle) IsAssumedPod(pod *v1.Pod) (bool, error) {
-	return gs.Cache.IsAssumedPod(pod)
+func (gs *MockUnitSchedulerHandle) IsCachedPod(pod *v1.Pod) (bool, error) {
+	return gs.Cache.IsCachedPod(pod)
 }
 
 func (gs *MockUnitSchedulerHandle) GetNodeInfo(nodeName string) framework.NodeInfo {

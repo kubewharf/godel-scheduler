@@ -230,6 +230,16 @@ func (s *PodStore) IsAssumedPod(pod *v1.Pod) (bool, error) {
 	return b, nil
 }
 
+func (s *PodStore) IsCachedPod(pod *v1.Pod) (bool, error) {
+	key, err := framework.GetPodKey(pod)
+	if err != nil {
+		return false, err
+	}
+
+	ps, found := s.PodStates[key]
+	return found && ps != nil, nil
+}
+
 func (s *PodStore) GetPod(pod *v1.Pod) (*v1.Pod, error) {
 	key, err := framework.GetPodKey(pod)
 	if err != nil {
