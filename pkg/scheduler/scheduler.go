@@ -58,7 +58,8 @@ type Scheduler struct {
 	Name string
 	// SchedulerName here is the higher level scheduler name, which is used to select pods
 	// that godel schedulers should be responsible for and filter out irrelevant pods.
-	SchedulerName *string
+	SchedulerName            *string
+	TakeOverDefaultScheduler bool
 
 	// Close this to shut down the scheduler.
 	StopEverything         <-chan struct{}
@@ -91,6 +92,7 @@ type Scheduler struct {
 func New(
 	godelSchedulerName string,
 	schedulerName *string,
+	takeOverDefaultScheduler bool,
 	client clientset.Interface,
 	crdClient godelclient.Interface,
 	informerFactory informers.SharedInformerFactory,
@@ -117,7 +119,8 @@ func New(
 	mayHasPreemption := parseProfilesBoolConfiguration(options, profileNeedPreemption)
 
 	handlerWrapper := handler.MakeCacheHandlerWrapper().
-		SchedulerName(godelSchedulerName).SchedulerType(*schedulerName).SubCluster(framework.DefaultSubCluster).
+		SchedulerName(godelSchedulerName).TakeOverDefaultScheduler(takeOverDefaultScheduler).
+		SchedulerType(*schedulerName).SubCluster(framework.DefaultSubCluster).
 		TTL(15 * time.Minute).Period(10 * time.Second).StopCh(stopEverything).
 		PodLister(podLister).PodInformer(podInformer)
 	if mayHasPreemption {
@@ -126,16 +129,17 @@ func New(
 
 	// 2. Make Scheduler
 	sched := &Scheduler{
-		Name:                   godelSchedulerName,
-		SchedulerName:          schedulerName,
-		StopEverything:         stopEverything,
-		scheduledPodsHasSynced: informerFactory.Core().V1().Pods().Informer().HasSynced,
-		clock:                  globalClock,
-		client:                 client,
-		crdClient:              crdClient,
-		informerFactory:        informerFactory,
-		crdInformerFactory:     crdInformerFactory,
-		options:                options,
+		Name:                     godelSchedulerName,
+		SchedulerName:            schedulerName,
+		TakeOverDefaultScheduler: takeOverDefaultScheduler,
+		StopEverything:           stopEverything,
+		scheduledPodsHasSynced:   informerFactory.Core().V1().Pods().Informer().HasSynced,
+		clock:                    globalClock,
+		client:                   client,
+		crdClient:                crdClient,
+		informerFactory:          informerFactory,
+		crdInformerFactory:       crdInformerFactory,
+		options:                  options,
 
 		podLister: podLister,
 		pgLister:  crdInformerFactory.Scheduling().V1alpha1().PodGroups().Lister(),
@@ -261,7 +265,7 @@ func (sched *Scheduler) createDataSet(idx int, subCluster string, switchType fra
 		godelqueue.WithSubCluster(subCluster),
 		godelqueue.WithClock(sched.clock),
 	)
-	reconciler := reconciler.NewFailedTaskReconciler(sched.client, sched.informerFactory.Core().V1().Pods().Lister(), sched.commonCache, *sched.SchedulerName)
+	reconciler := reconciler.NewFailedTaskReconciler(sched.client, sched.informerFactory.Core().V1().Pods().Lister(), sched.commonCache, *sched.SchedulerName, sched.TakeOverDefaultScheduler)
 	unitScheduler := unitscheduler.NewUnitScheduler(
 		sched.Name,
 		switchType,

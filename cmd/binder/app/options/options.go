@@ -124,6 +124,7 @@ func (o *Options) Flags() (nfs cliflag.NamedFlagSets) {
 	fs.Int32Var(&o.BinderConfig.ClientConnection.Burst, "kube-api-burst", o.BinderConfig.ClientConnection.Burst, "burst to use while talking with kubernetes apiserver. This parameter is ignored if a config file is specified in --config.")
 
 	fs.StringVar(o.BinderConfig.SchedulerName, "scheduler-name", *o.BinderConfig.SchedulerName, "components will deal with pods that pod.Spec.SchedulerName is equal to scheduler-name / is default-scheduler or empty.")
+	fs.BoolVar(&o.BinderConfig.TakeOverDefaultScheduler, "takeover-default-scheduler", o.BinderConfig.TakeOverDefaultScheduler, "components will also accept pods that pod.Spec.SchedulerName == default-scheduler.")
 	fs.Int64Var(&o.BinderConfig.VolumeBindingTimeoutSeconds, "volume-binding-timeout-seconds", o.BinderConfig.VolumeBindingTimeoutSeconds, "timeout for binding pod volumes")
 
 	o.CombinedInsecureServing.AddFlags(nfs.FlagSet("insecure serving"))

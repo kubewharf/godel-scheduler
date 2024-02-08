@@ -47,6 +47,7 @@ type PodStateReconciler struct {
 	abnormalPodsQueue        workqueue.Interface
 	staleDispatchedPodsQueue workqueue.Interface
 	schedulerName            string
+	takeOverDefaultScheduler bool
 
 	dispatchedPodsStore store.DispatchInfo
 
@@ -61,14 +62,16 @@ func NewPodStateReconciler(client kubernetes.Interface,
 	schedulerLister schedulerv1alpha1.SchedulerLister,
 	nmNodeLister nodelisterv1alpha1.NMNodeLister,
 	schedulerName string,
+	takeOverDefaultScheduler bool,
 	dispatchedPodsStore store.DispatchInfo,
 	maintainer *schemaintainer.SchedulerMaintainer,
 ) *PodStateReconciler {
 	staleDispatchedPodsQueue := workqueue.NewNamed("stale-dispatched-pods-queue")
-	populator := NewDispatchedPodsPopulator(schedulerName, podLister, staleDispatchedPodsQueue, maintainer)
+	populator := NewDispatchedPodsPopulator(schedulerName, takeOverDefaultScheduler, podLister, staleDispatchedPodsQueue, maintainer)
 
 	return &PodStateReconciler{
 		schedulerName:            schedulerName,
+		takeOverDefaultScheduler: takeOverDefaultScheduler,
 		client:                   client,
 		podLister:                podLister,
 		nodeLister:               nodeLister,
@@ -146,7 +149,7 @@ func (psr *PodStateReconciler) StaleDispatchedPodsSyncer() {
 }
 
 func (psr *PodStateReconciler) updateStaleDispatchedStatePod(pod *corev1.Pod) error {
-	if podutil.DispatchedPodOfGodel(pod, psr.schedulerName) {
+	if podutil.DispatchedPodOfGodel(pod, psr.schedulerName, psr.takeOverDefaultScheduler) {
 		schedulerName := pod.Annotations[podutil.SchedulerAnnotationKey]
 		if psr.schedulerMaintainer.IsSchedulerInInactiveQueue(schedulerName) || !psr.schedulerMaintainer.SchedulerExist(schedulerName) {
 			klog.V(3).InfoS("Reset the dispatched pod to Pending state on inactive/nonexistent scheduler", "pod", klog.KObj(pod), "schedulerName", schedulerName)
@@ -206,7 +209,7 @@ func (psr *PodStateReconciler) AbnormalStatePodsSyncer() {
 
 // updatePodState tries to update pod state if it is abnormal
 func (psr *PodStateReconciler) updateAbnormalStatePod(pod *corev1.Pod) error {
-	abnormal := podutil.AbnormalPodStateOfGodel(pod, psr.schedulerName)
+	abnormal := podutil.AbnormalPodStateOfGodel(pod, psr.schedulerName, psr.takeOverDefaultScheduler)
 	if abnormal {
 		klog.V(3).InfoS("Reset the abnormal pod to Pending state", "pod", klog.KObj(pod))
 		// pod is still abnormal

@@ -34,7 +34,8 @@ import (
 )
 
 type FailedTaskReconciler struct {
-	schedulerName string
+	schedulerName            string
+	takeOverDefaultScheduler bool
 	// client syncs K8S object
 	client clientset.Interface
 
@@ -57,14 +58,16 @@ func NewFailedPatchTask(podInfo *framework.CachePodInfo) *FailedPatchTask {
 
 func NewFailedTaskReconciler(client clientset.Interface, podLister corelisters.PodLister,
 	schedulerCache godelcache.SchedulerCache, schedulerName string,
+	takeOverDefaultScheduler bool,
 ) *FailedTaskReconciler {
 	return &FailedTaskReconciler{
-		schedulerName:        schedulerName,
-		client:               client,
-		podLister:            podLister,
-		failedPatchTaskQueue: workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(5*time.Millisecond, 5*time.Second), "task-queue"),
-		schedulerCache:       schedulerCache,
-		stop:                 make(chan struct{}),
+		schedulerName:            schedulerName,
+		takeOverDefaultScheduler: takeOverDefaultScheduler,
+		client:                   client,
+		podLister:                podLister,
+		failedPatchTaskQueue:     workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(5*time.Millisecond, 5*time.Second), "task-queue"),
+		schedulerCache:           schedulerCache,
+		stop:                     make(chan struct{}),
 	}
 }
 
@@ -139,7 +142,7 @@ func (re *FailedTaskReconciler) checkPodState(latestPod *v1.Pod, err error, fpt 
 		return false
 	}
 
-	if !podutil.DispatchedPodOfGodel(latestPod, re.schedulerName) {
+	if !podutil.DispatchedPodOfGodel(latestPod, re.schedulerName, re.takeOverDefaultScheduler) {
 		// pod is not in dispatched state, we need to forget the pod from cache no matter what state it is now.
 		// if it is assumed or bound now, the pod will be added to cache and removed from assumed pods map
 		// if it is pending now, we need to remove this pod from assumed pod map too.

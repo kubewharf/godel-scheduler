@@ -31,7 +31,7 @@ import (
 )
 
 func (cache *schedulerCache) assumedOrBoundPod(pod *v1.Pod) bool {
-	return podutil.BoundPod(pod) || podutil.AssumedPodOfGodel(pod, cache.handler.SchedulerType())
+	return podutil.BoundPod(pod) || podutil.AssumedPodOfGodel(pod, cache.handler.SchedulerType(), cache.handler.TakeOverDefaultScheduler())
 }
 
 func (cache *schedulerCache) AssumePod(podInfo *framework.CachePodInfo) error {

@@ -576,10 +576,10 @@ func LegalPodResourceTypeAndLauncher(pod *v1.Pod) bool {
 	return true
 }
 
-func responsibleForPod(pod *v1.Pod, schedulerName string) bool {
+func responsibleForPod(pod *v1.Pod, schedulerName string, takeOverDefaultScheduler bool) bool {
 	return pod.Spec.SchedulerName == schedulerName ||
-		pod.Spec.SchedulerName == v1.DefaultSchedulerName ||
-		pod.Spec.SchedulerName == ""
+		(takeOverDefaultScheduler &&
+			(pod.Spec.SchedulerName == v1.DefaultSchedulerName || pod.Spec.SchedulerName == ""))
 }
 
 const RSKind = "ReplicaSet"

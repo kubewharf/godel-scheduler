@@ -280,7 +280,7 @@ func (binder *Binder) addPodToBinderQueue(obj interface{}) {
 		return
 	}
 
-	if !podutil.AssumedPodOfGodel(pod, *binder.SchedulerName) {
+	if !podutil.AssumedPodOfGodel(pod, *binder.SchedulerName, binder.TakeOverDefaultScheduler) {
 		klog.V(4).InfoS("Pod is not in assumed state", "pod", klog.KObj(pod))
 		return
 	}
@@ -317,8 +317,8 @@ func (binder *Binder) updatePodInBinderQueue(oldObj, newObj interface{}) {
 		return
 	}
 
-	if !podutil.AssumedPodOfGodel(newPod, *binder.SchedulerName) {
-		if podutil.AssumedPodOfGodel(oldPod, *binder.SchedulerName) {
+	if !podutil.AssumedPodOfGodel(newPod, *binder.SchedulerName, binder.TakeOverDefaultScheduler) {
+		if podutil.AssumedPodOfGodel(oldPod, *binder.SchedulerName, binder.TakeOverDefaultScheduler) {
 			// pod is reset to another state
 			// if changed to Bound, the waiting pod is allowed, it will be added to Bound map in waitingTasksManager,
 			// if reset to Pending/Dispatched by binder, the pod is rejected or failed after being allowed,
@@ -355,7 +355,7 @@ func (binder *Binder) deletePodFromBinderQueue(obj interface{}) {
 		return
 	}
 
-	if !podutil.AssumedPodOfGodel(pod, *binder.SchedulerName) {
+	if !podutil.AssumedPodOfGodel(pod, *binder.SchedulerName, binder.TakeOverDefaultScheduler) {
 		return
 	}
 

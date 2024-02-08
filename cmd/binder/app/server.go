@@ -161,6 +161,7 @@ func Run(ctx context.Context, cc binderappconfig.CompletedConfig) error {
 		ctx.Done(),
 		eventRecorder,
 		cc.BinderConfig.SchedulerName,
+		cc.BinderConfig.TakeOverDefaultScheduler,
 		cc.BinderConfig.VolumeBindingTimeoutSeconds,
 		binder.WithPluginsAndConfigs(cc.BinderConfig.Profile),
 	)

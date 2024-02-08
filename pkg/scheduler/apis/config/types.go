@@ -161,6 +161,10 @@ type GodelSchedulerConfiguration struct {
 	// SchedulerName specifies a scheduling system, scheduling components(dispatcher,
 	// scheduler, binder) will not accept a pod, unless pod.Spec.SchedulerName == SchedulerName
 	SchedulerName *string
+	// usually, we only accept pods that pod.Spec.SchedulerName == SchedulerName,
+	// if TakeOverDefaultScheduler is set, scheduling components will also accept pods
+	// that pod.Spec.SchedulerName == "default-scheduler".
+	TakeOverDefaultScheduler bool
 
 	// Tracer defines the configuration of tracer
 	Tracer *tracing.TracerConfiguration

@@ -60,7 +60,11 @@ type GodelSchedulerConfiguration struct {
 	// SchedulerName specifies a scheduling system, scheduling components(dispatcher,
 	// scheduler, binder) will not accept a pod, unless pod.Spec.SchedulerName == SchedulerName
 	SchedulerName *string `json:"schedulerName,omitempty"`
-	SubClusterKey *string `json:"subClusterKey,omitempty"`
+	// usually, we only accept pods that pod.Spec.SchedulerName == SchedulerName,
+	// if TakeOverDefaultScheduler is set, scheduling components will also accept pods
+	// that pod.Spec.SchedulerName == "default-scheduler".
+	TakeOverDefaultScheduler bool
+	SubClusterKey            *string `json:"subClusterKey,omitempty"`
 
 	// Tracer defines the configuration of tracer
 	Tracer *tracing.TracerConfiguration

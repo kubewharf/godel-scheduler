@@ -316,9 +316,10 @@ func TestDeletePodWithNominatedNode(t *testing.T) {
 	client, crdClient := clientsetfake.NewSimpleClientset(), godelclientfake.NewSimpleClientset()
 
 	binder := &Binder{
-		BinderCache:   binderCache,
-		BinderQueue:   binderQueue,
-		SchedulerName: &testSchedulerName,
+		BinderCache:              binderCache,
+		BinderQueue:              binderQueue,
+		SchedulerName:            &testSchedulerName,
+		TakeOverDefaultScheduler: true,
 		handle: NewFrameworkHandle(
 			client, crdClient,
 			informers.NewSharedInformerFactory(client, 0), crdinformers.NewSharedInformerFactory(crdClient, 0),

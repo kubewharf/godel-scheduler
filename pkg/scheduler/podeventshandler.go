@@ -29,11 +29,11 @@ import (
 )
 
 func (sched *Scheduler) assumedOrBoundPod(pod *v1.Pod) bool {
-	return podutil.BoundPod(pod) || podutil.AssumedPodOfGodel(pod, *sched.SchedulerName)
+	return podutil.BoundPod(pod) || podutil.AssumedPodOfGodel(pod, *sched.SchedulerName, sched.TakeOverDefaultScheduler)
 }
 
 func (sched *Scheduler) dispatchedPodOfThisScheduler(pod *v1.Pod) bool {
-	return podutil.DispatchedPodOfGodel(pod, *sched.SchedulerName) && podutil.DispatchedPodOfThisScheduler(pod, sched.Name)
+	return podutil.DispatchedPodOfGodel(pod, *sched.SchedulerName, sched.TakeOverDefaultScheduler) && podutil.DispatchedPodOfThisScheduler(pod, sched.Name)
 }
 
 func (sched *Scheduler) triggerQueueOnAssumedOrBoundPodAdd(pod *v1.Pod) error {

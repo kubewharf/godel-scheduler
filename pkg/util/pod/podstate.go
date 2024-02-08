@@ -170,27 +170,39 @@ func DispatchedPod(pod *v1.Pod) bool {
 	return false
 }
 
-func DispatchedPodOfGodel(pod *v1.Pod, schedulerName string) bool {
+func DispatchedPodOfGodel(
+	pod *v1.Pod,
+	schedulerName string,
+	takeOverDefaultScheduler bool,
+) bool {
 	if LegalPodResourceTypeAndLauncher(pod) &&
-		responsibleForPod(pod, schedulerName) &&
+		responsibleForPod(pod, schedulerName, takeOverDefaultScheduler) &&
 		DispatchedPod(pod) {
 		return true
 	}
 	return false
 }
 
-func AssumedPodOfGodel(pod *v1.Pod, schedulerName string) bool {
+func AssumedPodOfGodel(
+	pod *v1.Pod,
+	schedulerName string,
+	takeOverDefaultScheduler bool,
+) bool {
 	if LegalPodResourceTypeAndLauncher(pod) &&
-		responsibleForPod(pod, schedulerName) &&
+		responsibleForPod(pod, schedulerName, takeOverDefaultScheduler) &&
 		AssumedPod(pod) {
 		return true
 	}
 	return false
 }
 
-func PendingPodOfGodel(pod *v1.Pod, schedulerName string) bool {
+func PendingPodOfGodel(
+	pod *v1.Pod,
+	schedulerName string,
+	takeOverDefaultScheduler bool,
+) bool {
 	if LegalPodResourceTypeAndLauncher(pod) &&
-		responsibleForPod(pod, schedulerName) &&
+		responsibleForPod(pod, schedulerName, takeOverDefaultScheduler) &&
 		PendingPod(pod) {
 		return true
 	}
@@ -277,8 +289,12 @@ func AbnormalPodState(pod *v1.Pod) bool {
 	}
 }
 
-func AbnormalPodStateOfGodel(pod *v1.Pod, schedulerName string) bool {
-	if AbnormalPodState(pod) && responsibleForPod(pod, schedulerName) {
+func AbnormalPodStateOfGodel(
+	pod *v1.Pod,
+	schedulerName string,
+	takeOverDefaultScheduler bool,
+) bool {
+	if AbnormalPodState(pod) && responsibleForPod(pod, schedulerName, takeOverDefaultScheduler) {
 		return true
 	}
 	return false

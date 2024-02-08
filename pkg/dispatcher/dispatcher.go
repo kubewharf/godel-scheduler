@@ -94,7 +94,8 @@ type Dispatcher struct {
 
 	// SchedulerName here is the higher level scheduler name, which is used to select pods
 	// that godel schedulers should be responsible for and filter out irrelevant pods.
-	SchedulerName string
+	SchedulerName            string
+	TakeOverDefaultScheduler bool
 
 	recorder events.EventRecorder
 }
@@ -110,6 +111,7 @@ func New(
 	podGroupInformer schedulinginformer.PodGroupInformer,
 	priorityClassInformer schedinformers.PriorityClassInformer,
 	schedulerName string,
+	takeOverDefaultScheduler bool,
 	recorder events.EventRecorder,
 ) *Dispatcher {
 	metrics.Register()
@@ -127,9 +129,10 @@ func New(
 		DispatchInfo:         store.NewDispatchInfo(),
 		SchedulerLister:      schedulerInformer.Lister(),
 
-		maintainer:    maintainer,
-		shuffler:      shuffler,
-		SchedulerName: schedulerName,
+		maintainer:               maintainer,
+		shuffler:                 shuffler,
+		SchedulerName:            schedulerName,
+		TakeOverDefaultScheduler: takeOverDefaultScheduler,
 
 		NodeLister:          nodeInformer.Lister(),
 		NMNodeLister:        nmNodeInformer.Lister(),
@@ -140,7 +143,7 @@ func New(
 	}
 
 	reconciler := reconciler.NewPodStateReconciler(client, podInformer.Lister(), nodeInformer.Lister(),
-		schedulerInformer.Lister(), nmNodeInformer.Lister(), schedulerName, dispatcher.DispatchInfo, maintainer)
+		schedulerInformer.Lister(), nmNodeInformer.Lister(), schedulerName, takeOverDefaultScheduler, dispatcher.DispatchInfo, maintainer)
 
 	dispatcher.reconciler = reconciler
 
@@ -244,7 +247,7 @@ func (d *Dispatcher) dispatchingPod(ctx context.Context, podInfo *queue.QueuedPo
 
 	pod, err := d.podLister.Pods(namespace).Get(name)
 	if apierrs.IsNotFound(err) || pod.DeletionTimestamp != nil ||
-		!podutil.PendingPodOfGodel(pod, d.SchedulerName) {
+		!podutil.PendingPodOfGodel(pod, d.SchedulerName, d.TakeOverDefaultScheduler) {
 		// podInfo was deleted before or is being deleted, or is not in pending state now
 		// return directly without re-enqueuing the podInfo
 		return

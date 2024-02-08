@@ -45,6 +45,10 @@ type GodelBinderConfiguration struct {
 	// SchedulerName specifies a scheduling system, scheduling components(godel-dispatcher,
 	// godel-scheduler, godel-binder) will not accept a pod, unless pod.Spec.SchedulerName == SchedulerName
 	SchedulerName *string `json:"schedulerName,omitempty"`
+	// usually, we only accept pods that pod.Spec.SchedulerName == SchedulerName,
+	// if TakeOverDefaultScheduler is set, scheduling components will also accept pods
+	// that pod.Spec.SchedulerName == "default-scheduler".
+	TakeOverDefaultScheduler bool
 
 	// LeaderElection defines the configuration of leader election client.
 	LeaderElection componentbaseconfig.LeaderElectionConfiguration `json:"leaderElection"`

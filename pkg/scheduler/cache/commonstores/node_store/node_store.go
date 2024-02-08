@@ -264,7 +264,7 @@ func (s *NodeStore) RemoveCNR(cnr *katalystv1alpha1.CustomNodeResource) error {
 }
 
 func (s *NodeStore) AddPod(pod *v1.Pod) error {
-	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType()) {
+	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType(), s.handler.TakeOverDefaultScheduler()) {
 		return nil
 	}
 	nodeName := utils.GetNodeNameFromPod(pod)
@@ -301,7 +301,7 @@ func (s *NodeStore) UpdatePod(oldPod, newPod *v1.Pod) error {
 }
 
 func (s *NodeStore) RemovePod(pod *v1.Pod) error {
-	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType()) {
+	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType(), s.handler.TakeOverDefaultScheduler()) {
 		return nil
 	}
 	nodeName := utils.GetNodeNameFromPod(pod)

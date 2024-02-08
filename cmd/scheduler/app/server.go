@@ -163,6 +163,7 @@ func Run(ctx context.Context, cc schedulerserverconfig.CompletedConfig) error {
 	sched, err := godelscheduler.New(
 		cc.ComponentConfig.GodelSchedulerName,
 		cc.ComponentConfig.SchedulerName,
+		cc.ComponentConfig.TakeOverDefaultScheduler,
 		cc.Client,
 		cc.GodelCrdClient,
 		cc.InformerFactory,

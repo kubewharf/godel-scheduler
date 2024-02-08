@@ -312,7 +312,7 @@ func TestSchedulerPreemptionWithErrors(t *testing.T) {
 			Cache:      sCache,
 			Snapshot:   snapshot,
 			Queue:      queue,
-			Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, ""),
+			Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, "", true),
 			Scheduler:  godelScheduler,
 
 			nextUnit: func() *framework.QueuedUnitInfo {
@@ -435,7 +435,7 @@ func TestSchedulerPreemptionWithReserveError(t *testing.T) {
 		Cache:      sCache,
 		Snapshot:   snapshot,
 		Queue:      queue,
-		Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, ""),
+		Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, "", true),
 		Scheduler:  godelScheduler,
 
 		nextUnit: func() *framework.QueuedUnitInfo {
@@ -546,7 +546,7 @@ func TestSchedulerPreemption(t *testing.T) {
 		Cache:      sCache,
 		Snapshot:   snapshot,
 		Queue:      queue,
-		Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, ""),
+		Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, "", true),
 		Scheduler:  godelScheduler,
 
 		nextUnit: func() *framework.QueuedUnitInfo {
@@ -684,7 +684,7 @@ func TestScheduleUnit(t *testing.T) {
 		Cache:      sCache,
 		Snapshot:   snapshot,
 		Queue:      queue,
-		Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, ""),
+		Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, "", true),
 		Scheduler:  godelScheduler,
 
 		nextUnit: func() *framework.QueuedUnitInfo {
@@ -815,7 +815,7 @@ func TestScheduleUnit_PlacementFailure(t *testing.T) {
 		Cache:      sCache,
 		Snapshot:   snapshot,
 		Queue:      queue,
-		Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, ""),
+		Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, "", true),
 		Scheduler:  mockScheduler{result: core.PodScheduleResult{}, err: &framework.FitError{Pod: &v1.Pod{}}},
 
 		nextUnit: schedulingqueue.MakeNextUnitFunc(queue),
@@ -1090,7 +1090,7 @@ func TestScheduleUnitInNodeGroup_SinglePod(t *testing.T) {
 				Cache:      sCache,
 				Snapshot:   snapshot,
 				Queue:      queue,
-				Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, ""),
+				Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, "", true),
 				Scheduler:  podScheduler,
 
 				PluginRegistry: nil, // TODO:
@@ -2168,7 +2168,7 @@ func TestScheduleUnitInNodeGroup_PodGroup(t *testing.T) {
 				Cache:      sCache,
 				Snapshot:   snapshot,
 				Queue:      queue,
-				Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, ""),
+				Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, "", true),
 				Scheduler:  podScheduler,
 
 				PluginRegistry: nil, // TODO:

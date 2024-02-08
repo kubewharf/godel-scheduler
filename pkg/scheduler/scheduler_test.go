@@ -82,6 +82,7 @@ func TestSchedulerCreation(t *testing.T) {
 			_, err := New(
 				testSchedulerName,
 				&testSchedulerSysName,
+				true,
 				client,
 				crdClient,
 				informerFactory,
@@ -131,6 +132,7 @@ func TestInitSchedulerCRD(t *testing.T) {
 			testingScheduler, err := New(
 				testSchedulerName,
 				&testSchedulerSysName,
+				true,
 				client,
 				crdClient,
 				informerFactory,
@@ -170,6 +172,7 @@ func TestSchedulerStatusErrors(t *testing.T) {
 	testingScheduler, _ := New(
 		testSchedulerName,
 		&testSchedulerSysName,
+		true,
 		client,
 		crdClient,
 		informerFactory,
@@ -380,6 +383,7 @@ func TestScheduleUnitMultiScheduleSwitch(t *testing.T) {
 	s, _ := New(
 		testSchedulerSysName,
 		&testSchedulerSysName,
+		true,
 		client,
 		crdClient,
 		informerFactory,
@@ -592,6 +596,7 @@ func TestScheduleUnit_Preemption(t *testing.T) {
 	s, _ := New(
 		testSchedulerSysName,
 		&testSchedulerSysName,
+		true,
 		client,
 		crdClient,
 		informerFactory,
@@ -782,6 +787,7 @@ func TestScheduleUnit_RemoveVictims(t *testing.T) {
 	s, _ := New(
 		testSchedulerSysName,
 		&testSchedulerSysName,
+		true,
 		client,
 		crdClient,
 		informerFactory,

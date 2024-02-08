@@ -184,7 +184,7 @@ func (d *Dispatcher) addPodToDispatchedInfo(obj interface{}) {
 
 	d.DispatchInfo.AddPod(pod)
 
-	if podutil.DispatchedPodOfGodel(pod, d.SchedulerName) {
+	if podutil.DispatchedPodOfGodel(pod, d.SchedulerName, d.TakeOverDefaultScheduler) {
 		schedulerName := pod.Annotations[podutil.SchedulerAnnotationKey]
 		metrics.PodsInPartitionSizeInc(schedulerName, string(podutil.PodDispatched))
 	}
@@ -200,7 +200,7 @@ func (d *Dispatcher) deletePodFromDispatchedInfo(obj interface{}) {
 	klog.V(3).InfoS("Detected a Delete event for the dispatched pod", "pod", klog.KObj(pod))
 	d.DispatchInfo.RemovePod(pod)
 
-	if podutil.DispatchedPodOfGodel(pod, d.SchedulerName) {
+	if podutil.DispatchedPodOfGodel(pod, d.SchedulerName, d.TakeOverDefaultScheduler) {
 		schedulerName := pod.Annotations[podutil.SchedulerAnnotationKey]
 		metrics.PodsInPartitionSizeDec(schedulerName, string(podutil.PodDispatched))
 	}
@@ -220,10 +220,10 @@ func AddAllEventHandlers(
 			FilterFunc: func(obj interface{}) bool {
 				switch t := obj.(type) {
 				case *v1.Pod:
-					return podutil.PendingPodOfGodel(t, dispatcher.SchedulerName)
+					return podutil.PendingPodOfGodel(t, dispatcher.SchedulerName, dispatcher.TakeOverDefaultScheduler)
 				case cache.DeletedFinalStateUnknown:
 					if pod, ok := t.Obj.(*v1.Pod); ok {
-						return podutil.PendingPodOfGodel(pod, dispatcher.SchedulerName)
+						return podutil.PendingPodOfGodel(pod, dispatcher.SchedulerName, dispatcher.TakeOverDefaultScheduler)
 					}
 					klog.InfoS("Failed to convert object to *v1.Pod", "object", obj, "component", dispatcher)
 					return false
@@ -246,10 +246,10 @@ func AddAllEventHandlers(
 			FilterFunc: func(obj interface{}) bool {
 				switch t := obj.(type) {
 				case *v1.Pod:
-					return podutil.DispatchedPodOfGodel(t, dispatcher.SchedulerName)
+					return podutil.DispatchedPodOfGodel(t, dispatcher.SchedulerName, dispatcher.TakeOverDefaultScheduler)
 				case cache.DeletedFinalStateUnknown:
 					if pod, ok := t.Obj.(*v1.Pod); ok {
-						return podutil.DispatchedPodOfGodel(pod, dispatcher.SchedulerName)
+						return podutil.DispatchedPodOfGodel(pod, dispatcher.SchedulerName, dispatcher.TakeOverDefaultScheduler)
 					}
 					klog.InfoS("Failed to convert object to *v1.Pod", "object", obj, "component", dispatcher)
 					return false
@@ -555,7 +555,7 @@ func (d *Dispatcher) addPodToAbnormalQueue(obj interface{}) {
 		return
 	}
 
-	if abnormal := podutil.AbnormalPodStateOfGodel(pod, d.SchedulerName); abnormal {
+	if abnormal := podutil.AbnormalPodStateOfGodel(pod, d.SchedulerName, d.TakeOverDefaultScheduler); abnormal {
 		podKey, err := cache.MetaNamespaceKeyFunc(pod)
 		if err == nil {
 			d.reconciler.AbnormalPodsEnqueue(podKey)
@@ -571,7 +571,7 @@ func (d *Dispatcher) updatePodInAbnormalQueue(_, newObj interface{}) {
 		klog.InfoS("Failed to add pod to dispatched", "err", err)
 		return
 	}
-	if abnormal := podutil.AbnormalPodStateOfGodel(newPod, d.SchedulerName); abnormal {
+	if abnormal := podutil.AbnormalPodStateOfGodel(newPod, d.SchedulerName, d.TakeOverDefaultScheduler); abnormal {
 		podKey, err := cache.MetaNamespaceKeyFunc(newPod)
 		if err == nil {
 			d.reconciler.AbnormalPodsEnqueue(podKey)

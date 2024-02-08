@@ -33,17 +33,20 @@ import (
 // DispatchedPodsPopulator is the populator struct for collecting dispatched pods who are in inactive schedulers
 type DispatchedPodsPopulator struct {
 	schedulerName            string
+	takeOverDefaultScheduler bool
 	podLister                v1.PodLister
 	staleDispatchedPodsQueue workqueue.Interface
 	schedulerMaintainer      *schemaintainer.SchedulerMaintainer
 }
 
 // NewDispatchedPodsPopulator creates a new DispatchedPodsPopulator struct
-func NewDispatchedPodsPopulator(schedulerName string, podLister v1.PodLister, queue workqueue.Interface,
+func NewDispatchedPodsPopulator(schedulerName string, takeOverDefaultScheduler bool,
+	podLister v1.PodLister, queue workqueue.Interface,
 	maintainer *schemaintainer.SchedulerMaintainer,
 ) *DispatchedPodsPopulator {
 	return &DispatchedPodsPopulator{
 		schedulerName:            schedulerName,
+		takeOverDefaultScheduler: takeOverDefaultScheduler,
 		podLister:                podLister,
 		staleDispatchedPodsQueue: queue,
 		schedulerMaintainer:      maintainer,
@@ -65,7 +68,7 @@ func (dpp *DispatchedPodsPopulator) collectDispatchedPodsInInactiveSchedulers() 
 	}
 
 	for _, pod := range pods {
-		if podutil.DispatchedPodOfGodel(pod, dpp.schedulerName) {
+		if podutil.DispatchedPodOfGodel(pod, dpp.schedulerName, dpp.takeOverDefaultScheduler) {
 			schedulerName := pod.Annotations[podutil.SchedulerAnnotationKey]
 			if dpp.schedulerMaintainer.IsSchedulerInInactiveQueue(schedulerName) || !dpp.schedulerMaintainer.SchedulerExist(schedulerName) {
 				if podKey, err := cache.MetaNamespaceKeyFunc(pod); err != nil {

@@ -196,6 +196,7 @@ func (o *Options) Flags() (nfs cliflag.NamedFlagSets) {
 func (o *Options) addSchedulerConfigFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.ComponentConfig.GodelSchedulerName, "godel-scheduler-name", o.ComponentConfig.GodelSchedulerName, "godel scheduler name, to register scheduler crd.")
 	fs.StringVar(o.ComponentConfig.SchedulerName, "scheduler-name", *o.ComponentConfig.SchedulerName, "components will deal with pods that pod.Spec.SchedulerName is equal to scheduler-name / is default-scheduler or empty. This parameter overrides the value defined in config file, which is specified in --config.")
+	fs.BoolVar(&o.ComponentConfig.TakeOverDefaultScheduler, "takeover-default-scheduler", o.ComponentConfig.TakeOverDefaultScheduler, "components will also accept pods that pod.Spec.SchedulerName == default-scheduler.")
 	fs.StringVar(o.ComponentConfig.SubClusterKey, "sub-cluster-key", *o.ComponentConfig.SubClusterKey, "the key to determine a sub cluster. This parameter overrides the value defined in config file, which is specified in --config.")
 }
 

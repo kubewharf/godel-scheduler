@@ -79,7 +79,7 @@ func NewSnapshot(handler handler.CacheHandler) commonstores.CommonStore {
 }
 
 func (s *PreemptionStore) AddPod(pod *v1.Pod) error {
-	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType()) {
+	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType(), s.handler.TakeOverDefaultScheduler()) {
 		return nil
 	}
 	return s.podOp(pod, true)
@@ -109,7 +109,7 @@ func (s *PreemptionStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 }
 
 func (s *PreemptionStore) RemovePod(pod *v1.Pod) error {
-	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType()) {
+	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType(), s.handler.TakeOverDefaultScheduler()) {
 		return nil
 	}
 	return s.podOp(pod, false)

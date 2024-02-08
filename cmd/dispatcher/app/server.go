@@ -144,6 +144,7 @@ func Run(ctx context.Context, cc config.CompletedConfig) error {
 		cc.GodelCrdInformerFactory.Scheduling().V1alpha1().PodGroups(),
 		cc.InformerFactory.Scheduling().V1().PriorityClasses(),
 		*cc.DispatcherConfig.SchedulerName,
+		cc.DispatcherConfig.TakeOverDefaultScheduler,
 		getEventRecorder(&cc),
 	)
 

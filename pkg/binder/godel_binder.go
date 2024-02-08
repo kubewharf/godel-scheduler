@@ -61,7 +61,8 @@ const (
 type Binder struct {
 	// SchedulerName here is the higher level scheduler name, which is used to select pods
 	// that godel schedulers should be responsible for and filter out irrelevant pods.
-	SchedulerName *string
+	SchedulerName            *string
+	TakeOverDefaultScheduler bool
 	// Close this to shut down the scheduler.
 	StopEverything <-chan struct{}
 
@@ -105,6 +106,7 @@ func New(
 	stopCh <-chan struct{},
 	recorder events.EventRecorder,
 	schedulerName *string,
+	takeOverDefaultScheduler bool,
 	volumeBindingTimeoutSeconds int64,
 	opts ...Option,
 ) (*Binder, error) {
@@ -126,8 +128,9 @@ func New(
 	)
 
 	binder := &Binder{
-		SchedulerName:  schedulerName,
-		StopEverything: stopEverything,
+		SchedulerName:            schedulerName,
+		TakeOverDefaultScheduler: takeOverDefaultScheduler,
+		StopEverything:           stopEverything,
 
 		BinderCache: binderCache,
 		BinderQueue: binderQueue,

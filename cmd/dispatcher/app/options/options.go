@@ -122,6 +122,7 @@ func (o *Options) Flags() (nfs cliflag.NamedFlagSets) {
 	fs.Float32Var(&o.DispatcherConfig.ClientConnection.QPS, "kube-api-qps", o.DispatcherConfig.ClientConnection.QPS, "QPS to use while talking with kubernetes apiserver. This parameter is ignored if a config file is specified in --config.")
 	fs.Int32Var(&o.DispatcherConfig.ClientConnection.Burst, "kube-api-burst", o.DispatcherConfig.ClientConnection.Burst, "burst to use while talking with kubernetes apiserver. This parameter is ignored if a config file is specified in --config.")
 	fs.StringVar(o.DispatcherConfig.SchedulerName, "scheduler-name", *o.DispatcherConfig.SchedulerName, "components will deal with pods that pod.Spec.SchedulerName is equal to scheduler-name / is default-scheduler or empty.")
+	fs.BoolVar(&o.DispatcherConfig.TakeOverDefaultScheduler, "takeover-default-scheduler", o.DispatcherConfig.TakeOverDefaultScheduler, "components will also accept pods that pod.Spec.SchedulerName == default-scheduler.")
 
 	o.CombinedInsecureServing.AddFlags(nfs.FlagSet("insecure serving"))
 	o.DispatcherConfig.Tracer.AddFlags(nfs.FlagSet("tracer"))

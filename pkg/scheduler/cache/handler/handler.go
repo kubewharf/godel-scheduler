@@ -36,6 +36,7 @@ type (
 
 type CacheHandler interface {
 	SchedulerName() string
+	TakeOverDefaultScheduler() bool
 	SchedulerType() string
 	SubCluster() string
 	SwitchType() framework.SwitchType
@@ -63,10 +64,11 @@ type CacheHandler interface {
 }
 
 type handler struct {
-	schedulerName string
-	schedulerType string
-	subCluster    string
-	switchType    framework.SwitchType // Only be used in Snapshot.
+	schedulerName            string
+	takeOverDefaultScheduler bool
+	schedulerType            string
+	subCluster               string
+	switchType               framework.SwitchType // Only be used in Snapshot.
 
 	enabledStores sets.String
 
@@ -87,6 +89,7 @@ type handler struct {
 var _ CacheHandler = &handler{}
 
 func (h *handler) SchedulerName() string                  { return h.schedulerName }
+func (h *handler) TakeOverDefaultScheduler() bool         { return h.takeOverDefaultScheduler }
 func (h *handler) SchedulerType() string                  { return h.schedulerType }
 func (h *handler) SubCluster() string                     { return h.subCluster }
 func (h *handler) SwitchType() framework.SwitchType       { return h.switchType }
@@ -121,6 +124,11 @@ func (w *handlerWrapper) Obj() CacheHandler {
 
 func (w *handlerWrapper) SchedulerName(schedulerName string) *handlerWrapper {
 	w.obj.schedulerName = schedulerName
+	return w
+}
+
+func (w *handlerWrapper) TakeOverDefaultScheduler(takeOverDefaultScheduler bool) *handlerWrapper {
+	w.obj.takeOverDefaultScheduler = takeOverDefaultScheduler
 	return w
 }
 
