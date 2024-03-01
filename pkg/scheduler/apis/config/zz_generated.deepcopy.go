@@ -208,6 +208,20 @@ func (in *LoadAwareArgs) DeepCopyInto(out *LoadAwareArgs) {
 		*out = make([]ResourceSpec, len(*in))
 		copy(*out, *in)
 	}
+	if in.UsageThresholds != nil {
+		in, out := &in.UsageThresholds, &out.UsageThresholds
+		*out = make(map[v1.ResourceName]int64, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
+	if in.EstimatedScalingFactors != nil {
+		in, out := &in.EstimatedScalingFactors, &out.EstimatedScalingFactors
+		*out = make(map[v1.ResourceName]int64, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	return
 }
 

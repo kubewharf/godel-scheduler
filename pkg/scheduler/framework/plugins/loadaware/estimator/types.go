@@ -27,11 +27,13 @@ import (
 type FactoryFn func(args *config.LoadAwareArgs, handle framework.SchedulerFrameworkHandle) (Estimator, error)
 
 var Estimators = map[string]FactoryFn{
-	defaultEstimatorName: NewDefaultEstimator,
+	DefaultEstimatorName:    NewDefaultEstimator,
+	NodeMetricEstimatorName: NewNodeMetricEstimator,
 }
 
 type Estimator interface {
 	Name() string
+	ValidateNode(nodeInfo framework.NodeInfo, resourceType podutil.PodResourceType) *framework.Status
 	EstimatePod(pod *corev1.Pod) (*framework.Resource, error)
 	EstimateNode(info framework.NodeInfo, resourceType podutil.PodResourceType) (*framework.Resource, error)
 }

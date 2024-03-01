@@ -21,6 +21,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
+	loadawarestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/load_aware_store"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
 	pdbstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pdb_store"
 	podstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pod_store"
@@ -39,6 +40,7 @@ var orderedStoreNames = []commonstores.StoreName{
 	// pod related
 	preemptionstore.Name,
 	unitstatusstore.Name,
+	loadawarestore.Name,
 
 	nodestore.Name, // NodeStore be placed second to last.
 	podstore.Name,  // PodStore must be placed at the end.

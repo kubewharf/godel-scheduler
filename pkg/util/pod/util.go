@@ -408,6 +408,17 @@ func GetPodResourceType(pod *v1.Pod) (PodResourceType, error) {
 	return GuaranteedPod, nil
 }
 
+func GetResourceTypeFromQoS(qosLevel string) PodResourceType {
+	switch util.QoSLevel(qosLevel) {
+	case util.DedicatedCores, util.SharedCores:
+		return GuaranteedPod
+	case util.ReclaimedCores:
+		return BestEffortPod
+	default:
+	}
+	return GuaranteedPod
+}
+
 // GetPodLauncher return the launcher of the given pod, only kubelet and node-manager are allowed.
 func GetPodLauncher(pod *v1.Pod) (PodLauncher, error) {
 	if podLauncher, ok := pod.Annotations[PodLauncherAnnotationKey]; ok {
