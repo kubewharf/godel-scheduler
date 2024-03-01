@@ -21,17 +21,15 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
-	"github.com/kubewharf/godel-scheduler/pkg/util/features"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
 const (
-	defaultEstimatorName = "defaultEstimator"
+	DefaultEstimatorName = "defaultEstimator"
 
 	// DefaultMilliCPURequest defines default milli cpu request number.
 	DefaultMilliCPURequest int64 = 250 // 0.25 core
@@ -60,66 +58,11 @@ func NewDefaultEstimator(args *config.LoadAwareArgs, handle framework.SchedulerF
 }
 
 func (e *DefaultEstimator) Name() string {
-	return defaultEstimatorName
+	return DefaultEstimatorName
 }
 
-// addResourceList adds the resources in newList to list
-func addResourceList(list, newList corev1.ResourceList) {
-	for name, quantity := range newList {
-		if value, ok := list[name]; !ok {
-			list[name] = quantity.DeepCopy()
-		} else {
-			value.Add(quantity)
-			list[name] = value
-		}
-	}
-}
-
-// maxResourceList sets list to the greater of list/newList for every resource
-// either list
-func maxResourceList(list, new corev1.ResourceList) {
-	for name, quantity := range new {
-		if value, ok := list[name]; !ok {
-			list[name] = quantity.DeepCopy()
-			continue
-		} else {
-			if quantity.Cmp(value) > 0 {
-				list[name] = quantity.DeepCopy()
-			}
-		}
-	}
-}
-
-// PodRequestsAndLimits returns a dictionary of all defined resources summed up for all
-// containers of the pod. If PodOverhead feature is enabled, pod overhead is added to the
-// total container resource requests and to the total container limits which have a
-// non-zero quantity.
-func PodRequestsAndLimits(pod *corev1.Pod) (reqs, limits corev1.ResourceList) {
-	reqs, limits = corev1.ResourceList{}, corev1.ResourceList{}
-	for _, container := range pod.Spec.Containers {
-		addResourceList(reqs, container.Resources.Requests)
-		addResourceList(limits, container.Resources.Limits)
-	}
-	// init containers define the minimum of any resource
-	for _, container := range pod.Spec.InitContainers {
-		maxResourceList(reqs, container.Resources.Requests)
-		maxResourceList(limits, container.Resources.Limits)
-	}
-
-	// if PodOverhead feature is supported, add overhead for running a pod
-	// to the sum of requests and to non-zero limits:
-	if pod.Spec.Overhead != nil && utilfeature.DefaultFeatureGate.Enabled(features.PodOverhead) {
-		addResourceList(reqs, pod.Spec.Overhead)
-
-		for name, quantity := range pod.Spec.Overhead {
-			if value, ok := limits[name]; ok && !value.IsZero() {
-				value.Add(quantity)
-				limits[name] = value
-			}
-		}
-	}
-
-	return
+func (e *DefaultEstimator) ValidateNode(_ framework.NodeInfo, _ podutil.PodResourceType) *framework.Status {
+	return nil
 }
 
 func (e *DefaultEstimator) EstimatePod(pod *corev1.Pod) (*framework.Resource, error) {

@@ -133,7 +133,7 @@ func TestDefaultEstimator(t *testing.T) {
 			estimator, err := NewDefaultEstimator(&loadAwareSchedulingArgs, nil)
 			assert.NoError(t, err)
 			assert.NotNil(t, estimator)
-			assert.Equal(t, defaultEstimatorName, estimator.Name())
+			assert.Equal(t, DefaultEstimatorName, estimator.Name())
 
 			got, err := estimator.EstimatePod(tt.pod)
 			assert.NoError(t, err)

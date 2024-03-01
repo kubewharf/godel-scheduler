@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	LoadAwareName = "LoadAware"
+	Name = "LoadAware"
 )
 
 // resourceToWeightMap contains resource name and weight.
@@ -49,7 +49,10 @@ type LoadAware struct {
 	estimator estimator.Estimator
 }
 
-var _ = framework.ScorePlugin(&LoadAware{})
+var (
+	_ framework.FilterPlugin = &LoadAware{}
+	_ framework.ScorePlugin  = &LoadAware{}
+)
 
 var defaultLoadAwareArgs = config.LoadAwareArgs{
 	Resources: []config.ResourceSpec{
@@ -69,7 +72,15 @@ var defaultLoadAwareArgs = config.LoadAwareArgs{
 
 // Name returns name of the plugin. It is used in logs, etc.
 func (la *LoadAware) Name() string {
-	return LoadAwareName
+	return Name
+}
+
+func (la LoadAware) Filter(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
+	resourceType, err := framework.GetPodResourceType(state)
+	if err != nil {
+		return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get resource type of pod (%v/%v) from state", pod.Namespace, pod.Name))
+	}
+	return la.estimator.ValidateNode(nodeInfo, resourceType)
 }
 
 // Score invoked at the Score extension point.
@@ -118,58 +129,9 @@ func (la *LoadAware) Score(ctx context.Context, state *framework.CycleState, pod
 	return score, nil
 }
 
-// The unused capacity is calculated on a scale of 0-MaxNodeScore
-// 0 being the lowest priority and `MaxNodeScore` being the highest.
-// The more unused resources the higher the score is.
-func leastRequestedScore(requested, capacity int64) int64 {
-	if capacity == 0 {
-		return 0
-	}
-	if requested > capacity {
-		return 0
-	}
-
-	return ((capacity - requested) * int64(framework.MaxNodeScore)) / capacity
-}
-
-func loadAwareScore(resourceToWeightMap resourceToWeightMap, resourceUsed, allocatable *framework.Resource) int64 {
-	if len(resourceToWeightMap) == 0 || allocatable == nil {
-		return 0
-	}
-	var nodeScore, weightSum int64
-	for resourceName, weight := range resourceToWeightMap {
-		var resourceScore int64 = 0
-		switch resourceName {
-		case v1.ResourceCPU:
-			resourceScore = leastRequestedScore(resourceUsed.MilliCPU, allocatable.MilliCPU)
-		case v1.ResourceMemory:
-			resourceScore = leastRequestedScore(resourceUsed.Memory, allocatable.Memory)
-		}
-		nodeScore += resourceScore * weight
-		weightSum += weight
-	}
-	if weightSum == 0 {
-		return 0
-	}
-	return nodeScore / weightSum
-}
-
 // ScoreExtensions of the Score plugin.
 func (la *LoadAware) ScoreExtensions() framework.ScoreExtensions {
 	return nil
-}
-
-func GenerateResourceTypeNameToWeightMap(resources []config.ResourceSpec) ResourceTypeNameToWeightMap {
-	resTypeNameToWeightMap := make(ResourceTypeNameToWeightMap)
-	for _, res := range resources {
-		weightMap, ok := resTypeNameToWeightMap[res.ResourceType]
-		if !ok {
-			weightMap = make(resourceToWeightMap)
-		}
-		weightMap[v1.ResourceName(res.Name)] = res.Weight
-		resTypeNameToWeightMap[res.ResourceType] = weightMap
-	}
-	return resTypeNameToWeightMap
 }
 
 // NewLoadAware initializes a new plugin and returns it.

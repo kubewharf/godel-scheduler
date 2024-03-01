@@ -23,11 +23,13 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
+	loadawarestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/load_aware_store"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
 	pdbstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pdb_store"
 	podgroupstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/podgroup_store"
 	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
 // Snapshot is a snapshot of s NodeInfo and NodeTree order. The scheduler takes a
@@ -206,13 +208,23 @@ func (s *Snapshot) GetOwnerLabels(ownerType, ownerKey string) map[string]string 
 	return s.storeSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetOwnerLabels(ownerType, ownerKey)
 }
 
-// GetOwnerLabels return owner labels in snapshot.
+// GetOwnersForPDB return owner according to specific PDB in snapshot.
 //
 // Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) GetOwnersForPDB(key, ownerType string) []string {
 	// TODO: Remove GetOwnersForPDB interface and expose Store by ScheduleFrameworkHandler directly.
 	return s.storeSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetOwnersForPDB(key, ownerType)
+}
+
+func (s *Snapshot) GetLoadAwareNodeMetricInfo(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeMetricInfo {
+	// TODO: Remove GetLoadAwareNodeMetricInfo interface and expose Store by ScheduleFrameworkHandler directly.
+	return s.storeSwitch.Find(loadawarestore.Name).(*loadawarestore.LoadAwareStore).GetLoadAwareNodeMetricInfo(nodeName, resourceType)
+}
+
+func (s *Snapshot) GetLoadAwareNodeUsage(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeUsage {
+	// TODO: Remove GetLoadAwareNodeUsage interface and expose Store by ScheduleFrameworkHandler directly.
+	return s.storeSwitch.Find(loadawarestore.Name).(*loadawarestore.LoadAwareStore).GetLoadAwareNodeUsage(nodeName, resourceType)
 }
 
 // -------------------------------------- node slice for snapshot --------------------------------------

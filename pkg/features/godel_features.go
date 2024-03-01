@@ -72,6 +72,12 @@ const (
 	//
 	// Allows colocation
 	EnableColocation featuregate.Feature = "EnableColocation"
+
+	// owner: @libing.binacs
+	// alpha: for now
+	//
+	// Allows to describe node profile aggregated by pod spd
+	LoadAware featuregate.Feature = "LoadAware"
 )
 
 func init() {
@@ -90,4 +96,5 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	SchedulerConcurrentScheduling:           {Default: true, PreRelease: featuregate.Alpha},
 	SchedulerSubClusterConcurrentScheduling: {Default: true, PreRelease: featuregate.Alpha},
 	EnableColocation:                        {Default: false, PreRelease: featuregate.Alpha},
+	LoadAware:                               {Default: false, PreRelease: featuregate.Alpha},
 }

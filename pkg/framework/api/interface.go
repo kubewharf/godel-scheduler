@@ -36,6 +36,7 @@ import (
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/pkg/volume/scheduling"
 )
 
@@ -660,6 +661,8 @@ type SchedulerFrameworkHandle interface {
 	GetPDBItemListForOwner(ownerType, ownerKey string) (bool, bool, []string)
 	// Note: The function's underlying access is Snapshot, Snapshot operations are lock-free.
 	GetOwnerLabels(ownerType, ownerKey string) map[string]string
+	GetLoadAwareNodeMetricInfo(nodeName string, resourceType podutil.PodResourceType) *LoadAwareNodeMetricInfo
+	GetLoadAwareNodeUsage(nodeName string, resourceType podutil.PodResourceType) *LoadAwareNodeUsage
 
 	GetPreemptionFrameworkForPod(*v1.Pod) SchedulerPreemptionFramework
 	GetPreemptionPolicy(deployName string) string

@@ -1149,3 +1149,19 @@ func (s *GenerationStringSetImpl) Strings() []string {
 	}
 	return strs
 }
+
+// In order to minimize computational overhead as much as possible, only the CPU/mem fields are used here.
+// In the future, field expansion needs to be carried out based on actual needs
+type LoadAwareNodeUsage struct {
+	RequestMilliCPU int64
+	RequestMEM      int64
+	ProfileMilliCPU int64
+	ProfileMEM      int64
+}
+
+type LoadAwareNodeMetricInfo struct {
+	Name                 string
+	UpdateTime           metav1.Time
+	ProfileMilliCPUUsage int64
+	ProfileMEMUsage      int64
+}
