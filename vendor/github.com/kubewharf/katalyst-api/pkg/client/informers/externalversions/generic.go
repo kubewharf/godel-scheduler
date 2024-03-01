@@ -22,8 +22,12 @@ import (
 	"fmt"
 
 	v1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
+	v1alpha2 "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha2"
 	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	overcommitv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
+	recommendationv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
+	tidev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/tide/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
@@ -61,6 +65,10 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	case v1alpha1.SchemeGroupVersion.WithResource("verticalpodautoscalerrecommendations"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Autoscaling().V1alpha1().VerticalPodAutoscalerRecommendations().Informer()}, nil
 
+		// Group=autoscaling.katalyst.kubewharf.io, Version=v1alpha2
+	case v1alpha2.SchemeGroupVersion.WithResource("katalystverticalpodautoscalers"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Autoscaling().V1alpha2().KatalystVerticalPodAutoscalers().Informer()}, nil
+
 		// Group=config.katalyst.kubewharf.io, Version=v1alpha1
 	case configv1alpha1.SchemeGroupVersion.WithResource("customnodeconfigs"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Config().V1alpha1().CustomNodeConfigs().Informer()}, nil
@@ -70,6 +78,18 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		// Group=node.katalyst.kubewharf.io, Version=v1alpha1
 	case nodev1alpha1.SchemeGroupVersion.WithResource("customnoderesources"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Node().V1alpha1().CustomNodeResources().Informer()}, nil
+
+		// Group=overcommit.katalyst.kubewharf.io, Version=v1alpha1
+	case overcommitv1alpha1.SchemeGroupVersion.WithResource("nodeovercommitconfigs"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Overcommit().V1alpha1().NodeOvercommitConfigs().Informer()}, nil
+
+		// Group=recommendation.katalyst.kubewharf.io, Version=v1alpha1
+	case recommendationv1alpha1.SchemeGroupVersion.WithResource("resourcerecommends"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Recommendation().V1alpha1().ResourceRecommends().Informer()}, nil
+
+		// Group=tide.katalyst.kubewharf.io, Version=v1alpha1
+	case tidev1alpha1.SchemeGroupVersion.WithResource("tidenodepools"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Tide().V1alpha1().TideNodePools().Informer()}, nil
 
 		// Group=workload.katalyst.kubewharf.io, Version=v1alpha1
 	case workloadv1alpha1.SchemeGroupVersion.WithResource("serviceprofiledescriptors"):

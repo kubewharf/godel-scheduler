@@ -23,8 +23,12 @@ import (
 	"net/http"
 
 	autoscalingv1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/autoscaling/v1alpha1"
+	autoscalingv1alpha2 "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/autoscaling/v1alpha2"
 	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/config/v1alpha1"
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/node/v1alpha1"
+	overcommitv1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/overcommit/v1alpha1"
+	recommendationv1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/recommendation/v1alpha1"
+	tidev1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/tide/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/workload/v1alpha1"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
@@ -34,8 +38,12 @@ import (
 type Interface interface {
 	Discovery() discovery.DiscoveryInterface
 	AutoscalingV1alpha1() autoscalingv1alpha1.AutoscalingV1alpha1Interface
+	AutoscalingV1alpha2() autoscalingv1alpha2.AutoscalingV1alpha2Interface
 	ConfigV1alpha1() configv1alpha1.ConfigV1alpha1Interface
 	NodeV1alpha1() nodev1alpha1.NodeV1alpha1Interface
+	OvercommitV1alpha1() overcommitv1alpha1.OvercommitV1alpha1Interface
+	RecommendationV1alpha1() recommendationv1alpha1.RecommendationV1alpha1Interface
+	TideV1alpha1() tidev1alpha1.TideV1alpha1Interface
 	WorkloadV1alpha1() workloadv1alpha1.WorkloadV1alpha1Interface
 }
 
@@ -43,15 +51,24 @@ type Interface interface {
 // version included in a Clientset.
 type Clientset struct {
 	*discovery.DiscoveryClient
-	autoscalingV1alpha1 *autoscalingv1alpha1.AutoscalingV1alpha1Client
-	configV1alpha1      *configv1alpha1.ConfigV1alpha1Client
-	nodeV1alpha1        *nodev1alpha1.NodeV1alpha1Client
-	workloadV1alpha1    *workloadv1alpha1.WorkloadV1alpha1Client
+	autoscalingV1alpha1    *autoscalingv1alpha1.AutoscalingV1alpha1Client
+	autoscalingV1alpha2    *autoscalingv1alpha2.AutoscalingV1alpha2Client
+	configV1alpha1         *configv1alpha1.ConfigV1alpha1Client
+	nodeV1alpha1           *nodev1alpha1.NodeV1alpha1Client
+	overcommitV1alpha1     *overcommitv1alpha1.OvercommitV1alpha1Client
+	recommendationV1alpha1 *recommendationv1alpha1.RecommendationV1alpha1Client
+	tideV1alpha1           *tidev1alpha1.TideV1alpha1Client
+	workloadV1alpha1       *workloadv1alpha1.WorkloadV1alpha1Client
 }
 
 // AutoscalingV1alpha1 retrieves the AutoscalingV1alpha1Client
 func (c *Clientset) AutoscalingV1alpha1() autoscalingv1alpha1.AutoscalingV1alpha1Interface {
 	return c.autoscalingV1alpha1
+}
+
+// AutoscalingV1alpha2 retrieves the AutoscalingV1alpha2Client
+func (c *Clientset) AutoscalingV1alpha2() autoscalingv1alpha2.AutoscalingV1alpha2Interface {
+	return c.autoscalingV1alpha2
 }
 
 // ConfigV1alpha1 retrieves the ConfigV1alpha1Client
@@ -62,6 +79,21 @@ func (c *Clientset) ConfigV1alpha1() configv1alpha1.ConfigV1alpha1Interface {
 // NodeV1alpha1 retrieves the NodeV1alpha1Client
 func (c *Clientset) NodeV1alpha1() nodev1alpha1.NodeV1alpha1Interface {
 	return c.nodeV1alpha1
+}
+
+// OvercommitV1alpha1 retrieves the OvercommitV1alpha1Client
+func (c *Clientset) OvercommitV1alpha1() overcommitv1alpha1.OvercommitV1alpha1Interface {
+	return c.overcommitV1alpha1
+}
+
+// RecommendationV1alpha1 retrieves the RecommendationV1alpha1Client
+func (c *Clientset) RecommendationV1alpha1() recommendationv1alpha1.RecommendationV1alpha1Interface {
+	return c.recommendationV1alpha1
+}
+
+// TideV1alpha1 retrieves the TideV1alpha1Client
+func (c *Clientset) TideV1alpha1() tidev1alpha1.TideV1alpha1Interface {
+	return c.tideV1alpha1
 }
 
 // WorkloadV1alpha1 retrieves the WorkloadV1alpha1Client
@@ -117,11 +149,27 @@ func NewForConfigAndClient(c *rest.Config, httpClient *http.Client) (*Clientset,
 	if err != nil {
 		return nil, err
 	}
+	cs.autoscalingV1alpha2, err = autoscalingv1alpha2.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
 	cs.configV1alpha1, err = configv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
 		return nil, err
 	}
 	cs.nodeV1alpha1, err = nodev1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
+	cs.overcommitV1alpha1, err = overcommitv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
+	cs.recommendationV1alpha1, err = recommendationv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
+	cs.tideV1alpha1, err = tidev1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
 		return nil, err
 	}
@@ -151,8 +199,12 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
 	cs.autoscalingV1alpha1 = autoscalingv1alpha1.New(c)
+	cs.autoscalingV1alpha2 = autoscalingv1alpha2.New(c)
 	cs.configV1alpha1 = configv1alpha1.New(c)
 	cs.nodeV1alpha1 = nodev1alpha1.New(c)
+	cs.overcommitV1alpha1 = overcommitv1alpha1.New(c)
+	cs.recommendationV1alpha1 = recommendationv1alpha1.New(c)
+	cs.tideV1alpha1 = tidev1alpha1.New(c)
 	cs.workloadV1alpha1 = workloadv1alpha1.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)
