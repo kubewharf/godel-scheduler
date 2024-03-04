@@ -155,6 +155,13 @@ func (gs *podScheduler) ScheduleInSpecificNodeGroup(
 	usr *framework.UnitSchedulingRequest,
 	cachedStatusMap framework.NodeToStatusMap,
 ) (result core.PodScheduleResult, err error) {
+	defer func() {
+		// remove used cached node from statusMap
+		if err != nil && len(result.SuggestedHost) > 0 {
+			delete(cachedStatusMap, result.SuggestedHost)
+		}
+	}()
+
 	podTrace, _ := framework.GetPodTrace(state)
 
 	trace := utiltrace.New("Scheduling", utiltrace.Field{Key: "namespace", Value: pod.Namespace}, utiltrace.Field{Key: "name", Value: pod.Name})
@@ -203,8 +210,6 @@ func (gs *podScheduler) ScheduleInSpecificNodeGroup(
 				}
 
 				if fit {
-					// ATTENTION: cleanup nodeToStatus
-					delete(cachedStatusMap, nodeName)
 					preferTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("evaluate %d preferred nodes and select %v in scheduling", i+1, nodeName)))
 					preferTraceContext.WithTags(tracing.WithResultTag(tracing.ResultSuccess))
 					tracing.AsyncFinishTraceContext(preferTraceContext, time.Now())
@@ -231,14 +236,14 @@ func (gs *podScheduler) ScheduleInSpecificNodeGroup(
 			cacheNodesTraceContext := podTrace.NewTraceContext(tracing.SchedulerSchedulePodSpan, tracing.SchedulerGetCachedNodesSpan)
 			cacheNodesTraceContext.WithFields(tracing.WithPodOwnerField(podOwner))
 
-			scheduleResultForCachedNode, err := gs.GetCachedNodesAndSchedule(ctx, f, state, pod, podOwner, nodeGroup.GetKey())
+			result, err = gs.GetCachedNodesAndSchedule(ctx, f, state, pod, podOwner, nodeGroup.GetKey())
 			defer tracing.AsyncFinishTraceContext(cacheNodesTraceContext, time.Now())
 
 			if err == nil {
 				cacheNodesTraceContext.WithTags(tracing.WithResultTag(tracing.ResultSuccess))
 
 				klog.V(4).InfoS("Pod was scheduled based on cached nodes [cache hit]", "pod", klog.KObj(pod))
-				return scheduleResultForCachedNode, nil
+				return result, nil
 			} else {
 				cacheNodesTraceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
 				cacheNodesTraceContext.WithFields(tracing.WithErrorField(err))
@@ -329,8 +334,6 @@ func (gs *podScheduler) ScheduleInSpecificNodeGroup(
 		// Update NodeToStatusMap by template.
 		cachedStatusMap.Update(result.FilteredNodesStatuses)
 		if len(result.SuggestedHost) > 0 {
-			// Remove the node that will be reserved on.
-			delete(cachedStatusMap, result.SuggestedHost)
 			break // should return
 		}
 	}
