@@ -459,12 +459,11 @@ func (p *PriorityQueue) AddUnschedulableIfNotPresent(unitInfo *framework.QueuedU
 		return nil
 	}
 	var queue SubQueue
-	queue, prevUnitInfo, exists := p.findAndRemoveUnitFromQueue(unitInfo.UnitKey)
+	queue, unitInfoInSchedulingQueue, exists := p.findAndRemoveUnitFromQueue(unitInfo.UnitKey)
 	if exists {
 		klog.V(4).InfoS("SchedulingQueue AddUnschedulable, exist same unit and will merge them", "unitKey", unitInfo.UnitKey, "oldQueue", queue)
-		// We add the unitInfo to prevUnitInfo cause we may update the old pods.
-		prevUnitInfo.AddPods(unitInfo.GetPods())
-		unitInfo = prevUnitInfo
+		// add new coming pods into current unit
+		unitInfo.AddPodsIfNotPresent(unitInfoInSchedulingQueue.GetPods()...)
 	}
 	// Refresh the timestamp since the unit is re-added.
 	unitInfo.Timestamp = p.clock.Now()
@@ -475,7 +474,8 @@ func (p *PriorityQueue) AddUnschedulableIfNotPresent(unitInfo *framework.QueuedU
 	} else {
 		queue = p.unschedulableQ
 	}
-	klog.V(4).InfoS("SchedulingQueue AddUnschedulable, add to newQueue", "subCluster", p.subCluster, "qos", p.qos, "unitKey", unitInfo.UnitKey, "newQueue", queue)
+
+	klog.V(4).InfoS("SchedulingQueue AddUnschedulable, add to newQueue", "unitKey", unitInfo.UnitKey, "attempts", unitInfo.Attempts, "subCluster", p.subCluster, "qos", p.qos, "newQueue", queue)
 	p.metricsRecorder.recordIncoming(unitInfo, queue.String(), godelutil.ScheduleAttemptFailure)
 	p.priorityHeap.Add(unitInfo)
 	return queue.Add(unitInfo)

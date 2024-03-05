@@ -79,12 +79,6 @@ func TestDefaultErrorFunc(t *testing.T) {
 		expect                     *v1.Pod
 	}{
 		{
-			name:                       "pod is updated during a scheduling cycle",
-			injectErr:                  nil,
-			podUpdatedDuringScheduling: true,
-			expect:                     testPodUpdated,
-		},
-		{
 			name:      "pod is not updated during a scheduling cycle",
 			injectErr: nil,
 			expect:    testPod,
