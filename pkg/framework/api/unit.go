@@ -167,6 +167,20 @@ func (p *PodGroupUnit) AddPod(pod *QueuedPodInfo) error {
 	return nil
 }
 
+func (p *PodGroupUnit) AddPodsIfNotPresent(pods ...*QueuedPodInfo) error {
+	for _, pod := range pods {
+		if pod.Pod == nil {
+			continue
+		}
+
+		u := string(pod.Pod.UID)
+		if _, ok := p.queuedPodInfoMap[u]; !ok {
+			p.queuedPodInfoMap[u] = pod
+		}
+	}
+	return nil
+}
+
 func (p *PodGroupUnit) AddPods(pods []*QueuedPodInfo) error {
 	for _, pod := range pods {
 		if pod.Pod == nil {
@@ -461,8 +475,20 @@ func (s *SinglePodUnit) AddPod(pod *QueuedPodInfo) error {
 
 func (s *SinglePodUnit) AddPods(pods []*QueuedPodInfo) error {
 	if len(pods) != 1 {
-		return fmt.Errorf("invalid pods")
+		return fmt.Errorf("cannot add multiple pods")
 	}
+	return nil
+}
+
+func (s *SinglePodUnit) AddPodsIfNotPresent(pods ...*QueuedPodInfo) error {
+	if len(pods) != 1 {
+		return fmt.Errorf("cannot add multiple pods")
+	}
+
+	if s.Pod != nil {
+		return fmt.Errorf("pod already existed")
+	}
+
 	return nil
 }
 

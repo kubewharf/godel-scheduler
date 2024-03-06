@@ -843,6 +843,8 @@ type ScheduleUnit interface {
 	UpdatePod(pod *QueuedPodInfo) error
 	// DeletePod deletes QueuedPodInfo from the Unit
 	DeletePod(pod *QueuedPodInfo) error
+	// AddPodsIfNotPresent adds pods not existed in the Unit
+	AddPodsIfNotPresent(pods ...*QueuedPodInfo) error
 	GetTimeoutPeriod() int32
 	// GetAnnotations returns the annotations of the Unit
 	GetAnnotations() map[string]string
