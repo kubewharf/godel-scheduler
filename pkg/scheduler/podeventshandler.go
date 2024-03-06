@@ -36,7 +36,7 @@ func (sched *Scheduler) dispatchedPodOfThisScheduler(pod *v1.Pod) bool {
 	return podutil.DispatchedPodOfGodel(pod, *sched.SchedulerName) && podutil.DispatchedPodOfThisScheduler(pod, sched.Name)
 }
 
-func (sched *Scheduler) addAssumedOrBoundPodToQueue(pod *v1.Pod) error {
+func (sched *Scheduler) triggerQueueOnAssumedOrBoundPodAdd(pod *v1.Pod) error {
 	sched.ScheduleSwitch.Process(
 		ParseSwitchTypeForPod(pod),
 		func(dataSet ScheduleDataSet) {
@@ -46,7 +46,7 @@ func (sched *Scheduler) addAssumedOrBoundPodToQueue(pod *v1.Pod) error {
 	return nil
 }
 
-func (sched *Scheduler) updateAssumedOrBoundPodInQueue(oldPod, newPod *v1.Pod) error {
+func (sched *Scheduler) triggerQueueOnAssumedOrBoundPodUpdate(oldPod, newPod *v1.Pod) error {
 	sched.ScheduleSwitch.Process(
 		ParseSwitchTypeForPod(newPod),
 		func(dataSet ScheduleDataSet) {
@@ -56,7 +56,7 @@ func (sched *Scheduler) updateAssumedOrBoundPodInQueue(oldPod, newPod *v1.Pod) e
 	return nil
 }
 
-func (sched *Scheduler) deleteAssumedOrBoundPodFromQueue(pod *v1.Pod) error {
+func (sched *Scheduler) triggerQueueOnAssumedOrBoundPodDelete(pod *v1.Pod) error {
 	sched.ScheduleSwitch.Process(
 		ParseSwitchTypeForPod(pod),
 		func(dataSet ScheduleDataSet) {
@@ -196,7 +196,7 @@ func (sched *Scheduler) addPod(obj interface{}) {
 		klog.InfoS("Failed to add pod to scheduler cache", "err", err)
 	}
 	if sched.assumedOrBoundPod(pod) {
-		sched.addAssumedOrBoundPodToQueue(pod)
+		sched.triggerQueueOnAssumedOrBoundPodAdd(pod)
 	} else if sched.dispatchedPodOfThisScheduler(pod) {
 		sched.addDispatchedPodToQueue(pod)
 	}
@@ -216,15 +216,30 @@ func (sched *Scheduler) updatePod(oldObj, newObj interface{}) {
 
 	klog.V(3).InfoS("Detected an Update event for pod", "pod", klog.KObj(newPod))
 
-	if err := sched.commonCache.UpdatePod(oldPod, newPod); err != nil {
+	// Corresponding cache operations
+	if err := sched.updatePodInCache(oldPod, newPod); err != nil {
 		klog.InfoS("Failed to update pod in scheduler cache", "err", err)
 	}
 
-	podutil.FilteringUpdate(sched.assumedOrBoundPod, sched.addAssumedOrBoundPodToQueue, sched.updateAssumedOrBoundPodInQueue,
-		sched.deleteAssumedOrBoundPodFromQueue, oldPod, newPod)
+	// Corresponding Queue operations: add, update, or delete the pod from scheduler queues if the pod is in Dispatched status
+	{
+		podutil.FilteringUpdate(sched.dispatchedPodOfThisScheduler, sched.addDispatchedPodToQueue, sched.updateDispatchedPodInQueue,
+			sched.deleteDispatchedPodFromQueue, oldPod, newPod)
+	}
+}
 
-	podutil.FilteringUpdate(sched.dispatchedPodOfThisScheduler, sched.addDispatchedPodToQueue, sched.updateDispatchedPodInQueue,
-		sched.deleteDispatchedPodFromQueue, oldPod, newPod)
+func (sched *Scheduler) updatePodInCache(oldPod *v1.Pod, newPod *v1.Pod) error {
+	// First, updating pod information in the scheduler cache
+	if err := sched.commonCache.UpdatePod(oldPod, newPod); err != nil {
+		return err
+	}
+
+	// Second, as a cascading operation we need to update queues; because as the pod state changes, some unschedulable pods may become schedulable.
+	// For example, due to pod affinity-related reasons, a pod in the unschedulable queue becomes schedulable, then this unschedulable pod can be moved from the unschedulable queue to the ready or backoff queue for scheduling retries.
+	podutil.FilteringUpdate(sched.assumedOrBoundPod, sched.triggerQueueOnAssumedOrBoundPodAdd, sched.triggerQueueOnAssumedOrBoundPodUpdate,
+		sched.triggerQueueOnAssumedOrBoundPodDelete, oldPod, newPod)
+
+	return nil
 }
 
 func (sched *Scheduler) deletePod(obj interface{}) {
@@ -240,7 +255,7 @@ func (sched *Scheduler) deletePod(obj interface{}) {
 		klog.InfoS("Scheduler cache RemovePod failed", "err", err)
 	}
 	if sched.assumedOrBoundPod(pod) {
-		sched.deleteAssumedOrBoundPodFromQueue(pod)
+		sched.triggerQueueOnAssumedOrBoundPodDelete(pod)
 	} else {
 		// just in case
 		if err == nil {
