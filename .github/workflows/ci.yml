@@ -103,11 +103,6 @@ jobs:
         run: |
           echo "building images"
           make docker-images
-      
-      - run: |
-          env && \
-          pwd && \
-          ls
 
       - name: Create Kubernetes cluster
         uses: helm/kind-action@v1.8.0
@@ -118,7 +113,8 @@ jobs:
           kubectl_version: v1.24.6
           verbosity: 4
       
-      - run: |
+      - name: Load Images
+        run: |
           kind get clusters
           kubectl cluster-info
           kind load docker-image godel-local:latest
