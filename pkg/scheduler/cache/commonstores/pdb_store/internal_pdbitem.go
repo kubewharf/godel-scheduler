@@ -17,7 +17,7 @@ limitations under the License.
 package pdbstore
 
 import (
-	policy "k8s.io/api/policy/v1beta1"
+	policy "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"

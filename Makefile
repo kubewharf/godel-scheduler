@@ -277,6 +277,10 @@ manifests:
 debug-makefile:
 	$(MYMAKE) debug
 
+.PHONY: fmt
+fmt:
+	gofmt -w ./pkg ./cmd ./test
+
 # format all imports, `goimports` is required.
 goimports:
 	@hack/update-goimports.sh

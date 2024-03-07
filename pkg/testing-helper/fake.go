@@ -23,7 +23,7 @@ import (
 	schedulingv1a1listers "github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
-	policy "k8s.io/api/policy/v1beta1"
+	policy "k8s.io/api/policy/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,7 +33,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	appv1listers "k8s.io/client-go/listers/apps/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
-	policylisters "k8s.io/client-go/listers/policy/v1beta1"
+	policylisters "k8s.io/client-go/listers/policy/v1"
 	storagelisters "k8s.io/client-go/listers/storage/v1"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"

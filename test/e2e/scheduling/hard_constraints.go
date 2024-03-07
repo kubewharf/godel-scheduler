@@ -25,7 +25,7 @@ import (
 	"github.com/onsi/ginkgo"
 	_ "github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
-	nodev1beta1 "k8s.io/api/node/v1beta1"
+	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -283,16 +283,16 @@ var _ = SIGDescribe("SchedulingHardConstraints [Serial]", func() {
 			// Register a runtimeClass with overhead set as 25% of the available beard-seconds
 			handler = e2enode.PreconfiguredRuntimeClassHandler(framework.TestContext.ContainerRuntime)
 
-			rc := &nodev1beta1.RuntimeClass{
+			rc := &nodev1.RuntimeClass{
 				ObjectMeta: metav1.ObjectMeta{Name: handler},
 				Handler:    handler,
-				Overhead: &nodev1beta1.Overhead{
+				Overhead: &nodev1.Overhead{
 					PodFixed: v1.ResourceList{
 						beardsecond: resource.MustParse("250"),
 					},
 				},
 			}
-			_, err = cs.NodeV1beta1().RuntimeClasses().Create(context.TODO(), rc, metav1.CreateOptions{})
+			_, err = cs.NodeV1().RuntimeClasses().Create(context.TODO(), rc, metav1.CreateOptions{})
 			framework.ExpectNoError(err, "failed to create RuntimeClass resource")
 		})
 
@@ -313,7 +313,7 @@ var _ = SIGDescribe("SchedulingHardConstraints [Serial]", func() {
 			}
 
 			// remove RuntimeClass
-			cs.NodeV1beta1().RuntimeClasses().Delete(context.TODO(), e2enode.PreconfiguredRuntimeClassHandler(framework.TestContext.ContainerRuntime), metav1.DeleteOptions{})
+			cs.NodeV1().RuntimeClasses().Delete(context.TODO(), e2enode.PreconfiguredRuntimeClassHandler(framework.TestContext.ContainerRuntime), metav1.DeleteOptions{})
 		})
 
 		ginkgo.It("verify pod overhead is accounted for", func() {

@@ -23,7 +23,7 @@ permissions:
 jobs:
   format:
     name: Verify format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0
@@ -71,7 +71,7 @@ jobs:
 
   unit-test:
     name: Unit Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0
@@ -104,15 +104,21 @@ jobs:
           echo "building images"
           make docker-images
 
-      - name: Create Kubernetes cluster
+      - name: Install kind & kubectl
         uses: helm/kind-action@v1.8.0
         with:
-          node_image: kindest/node:v1.24.6
+          version: v0.20.0
+          install_only: true
           cluster_name: kind
           config: e2e-cluster/kind-config.yml
-          kubectl_version: v1.24.6
+          kubectl_version: v1.26.6
           verbosity: 4
       
+      - name: Create Kubernetes cluster
+        run: |
+          kind create cluster --image=kindest/node:v1.26.6 --config e2e-cluster/kind-config.yml && \
+          kind get kubeconfig > $HOME/.kube/config
+
       - name: Load Images
         run: |
           kind get clusters
