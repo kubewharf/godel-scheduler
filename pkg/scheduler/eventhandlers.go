@@ -27,7 +27,7 @@ import (
 	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
-	policy "k8s.io/api/policy/v1beta1"
+	policy "k8s.io/api/policy/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -898,7 +898,7 @@ func addAllEventHandlers(
 	)
 
 	if sched.mayHasPreemption {
-		informerFactory.Policy().V1beta1().PodDisruptionBudgets().Informer().AddEventHandler(
+		informerFactory.Policy().V1().PodDisruptionBudgets().Informer().AddEventHandler(
 			cache.ResourceEventHandlerFuncs{
 				AddFunc:    sched.onPdbAdd,
 				UpdateFunc: sched.onPdbUpdate,

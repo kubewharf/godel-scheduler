@@ -25,7 +25,7 @@ import (
 	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	v1 "k8s.io/api/core/v1"
-	policy "k8s.io/api/policy/v1beta1"
+	policy "k8s.io/api/policy/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
@@ -575,7 +575,7 @@ func addAllEventHandlers(
 		},
 	)
 
-	informerFactory.Policy().V1beta1().PodDisruptionBudgets().Informer().AddEventHandler(
+	informerFactory.Policy().V1().PodDisruptionBudgets().Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    binder.onPdbAdd,
 			UpdateFunc: binder.onPdbUpdate,
