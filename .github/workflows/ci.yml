@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - "*"
+    paths-ignore:
+      - 'docs/**'
+      - 'LICENSES/**'
+      - '**.md'
+
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - 'LICENSES/**'
+      - '**.md'
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Verify format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check go modules
+        run: |
+          go mod tidy && git add go.* &&
+          git diff --cached --exit-code || (echo 'Please run "go mod tidy" to sync Go modules' && exit 1);
+      - name: Verify gofmt
+        run: |
+          make fmt && git add pkg cmd tools test &&
+          git diff --cached --exit-code || (echo 'Please run "make fmt" to verify gofmt' && exit 1);
+          
+
+  build:
+    name: Build
+    runs-on: ubuntu-20.04
+    env:
+      PLATFORMS: linux/amd64
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e3 # v3.0.0
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+        with:
+          version: latest
+
+      - name: Available platforms
+        run: echo ${{ steps.buildx.outputs.platforms }}
+
+      - name: Prepare Host
+        run: |
+          curl -LO https://dl.k8s.io/release/v1.24.6/bin/linux/amd64/kubectl
+          chmod +x ./kubectl
+          sudo mv ./kubectl /usr/local/bin/kubectl
+
+  unit-test:
+    name: Unit Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Run UT
+        run: make unittest
+
+  e2e:
+    env:
+      PLATFORMS: linux/amd64
+    name: Kubernetes E2E Testing
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Set up go
+        uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build image
+        env:
+          ARCH: amd64
+        run: |
+          echo "building images"
+          make docker-images
+
+      - name: Create Kubernetes cluster
+        uses: helm/kind-action@v1.8.0
+        with:
+          node_image: kindest/node:v1.24.6
+          cluster_name: kind
+          config: e2e-cluster/kind-config.yml
+          kubectl_version: v1.24.6
+          verbosity: 4
+      
+      - name: Load Images
+        run: |
+          kind get clusters
+          kubectl cluster-info
+          kind load docker-image godel-local:latest
+
+      - name: Apply Godel Yamls
+        run: |
+          kubectl apply -k manifests/overlays/e2e-kind && \
+          kubectl taint nodes -l node-role.kubernetes.io/control-plane= node-role.kubernetes.io/control-plane-;
+
+      - name: Run e2e tests
+        run: |
+          kind get kubeconfig > $HOME/.kube/config
+          make e2e && \
+          ./bin/linux_amd64/e2e.test --kubeconfig=${HOME}/.kube/config
+

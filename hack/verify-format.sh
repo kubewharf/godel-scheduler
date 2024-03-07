@@ -1,4 +1,5 @@
 #!/bin/bash
+
 REPO_ROOT=${REPO_ROOT:-"$(cd "$(dirname "${BASH_SOURCE}")/.." && pwd -P)"}
 
 local_pkg=${LOCAL_PKG_PREFIX:-"github.com/kubewharf/godel-scheduler"}
