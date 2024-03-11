@@ -351,8 +351,9 @@ func (f *UnitFramework) scheduleOneUnitInstance(ctx context.Context, scheduledIn
 	runningUnitInfo *core.RunningUnitInfo, unitKey string, queuePriorityScore float64, unitCycleState, commonPreemptionState *framework.CycleState,
 	nodeGroup framework.NodeGroup,
 	usr *framework.UnitSchedulingRequest,
-) (bool, error) {
+) (success bool, err error) {
 	switchType, subCluster := f.handle.SwitchType(), f.handle.SubCluster()
+	godelScheduler := f.schedulerHooks.PodScheduler()
 
 	klog.V(4).InfoS("Attempting to schedule for pod",
 		"switchType", switchType, "subCluster", subCluster,
@@ -370,6 +371,15 @@ func (f *UnitFramework) scheduleOneUnitInstance(ctx context.Context, scheduledIn
 	}
 
 	start := time.Now()
+	defer func() {
+		// add schedule result metric
+		if success {
+			metrics.PodScheduled(podProperty, helper.SinceInSeconds(start))
+		} else if godelScheduler.DisablePreemption() {
+			metrics.PodUnschedulable(podProperty, helper.SinceInSeconds(start))
+		}
+	}()
+
 	podTrace := runningUnitInfo.Trace
 	scheduleTraceContext := podTrace.GetTraceContext(tracing.SchedulerSchedulePodSpan)
 
@@ -388,7 +398,6 @@ func (f *UnitFramework) scheduleOneUnitInstance(ctx context.Context, scheduledIn
 	schedulingCycleCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	godelScheduler := f.schedulerHooks.PodScheduler()
 	scheduleResult, err := godelScheduler.ScheduleInSpecificNodeGroup(schedulingCycleCtx, fwk, unitCycleState, commonPreemptionState, state, clonedPod, nodeGroup, usr, statusByTemplate[runningUnitInfo.QueuedPodInfo.OwnerReferenceKey])
 	metrics.ObservePodEvaluatedNodes(podProperty.SubCluster, string(podProperty.Qos), f.handle.SchedulerName(), float64(scheduleResult.NumberOfEvaluatedNodes))
 	metrics.ObservePodFeasibleNodes(podProperty.SubCluster, string(podProperty.Qos), f.handle.SchedulerName(), float64(scheduleResult.NumberOfFeasibleNodes))
@@ -396,8 +405,6 @@ func (f *UnitFramework) scheduleOneUnitInstance(ctx context.Context, scheduledIn
 	scheduleFailed := len(scheduleResult.SuggestedHost) == 0
 	// scheduling failed
 	if scheduleFailed {
-		metrics.PodUnschedulable(podProperty, helper.SinceInSeconds(start))
-
 		eventMsg := "Failed to schedule pod in node group: " + nodeGroup.GetKey() + ", error: " + errorStr(err)
 		f.schedulerHooks.EventRecorder().Eventf(clonedPod, nil, v1.EventTypeWarning, "FailToSchedule", core.ContinueAction, helper.TruncateMessage(eventMsg))
 
@@ -415,7 +422,6 @@ func (f *UnitFramework) scheduleOneUnitInstance(ctx context.Context, scheduledIn
 
 	message := "Succeeded to schedule pod in node group: " + nodeGroup.GetKey()
 	f.schedulerHooks.EventRecorder().Eventf(clonedPod, nil, v1.EventTypeWarning, "SchedulePodSuccessfully", core.ReturnAction, helper.TruncateMessage(message))
-	metrics.PodScheduled(podProperty, helper.SinceInSeconds(start))
 	scheduleTraceContext.WithFields(tracing.WithMessageField("Pod can be placed by scheduling"))
 
 	// reserve the requested resource and other information on the target node in advance before the API call
@@ -455,8 +461,9 @@ func (f *UnitFramework) preemptOneUnitInstance(ctx context.Context, scheduledInd
 	unitCycleState, commonPreemptionState *framework.CycleState,
 	nodeGroup framework.NodeGroup, nodeToStatus framework.NodeToStatusMap,
 	cachedNominatedNodes *framework.CachedNominatedNodes,
-) (bool, error) {
+) (success bool, err error) {
 	switchType, subCluster := f.handle.SwitchType(), f.handle.SubCluster()
+	godelScheduler := f.schedulerHooks.PodScheduler()
 
 	klog.V(4).InfoS("Attempting to preempt for pod",
 		"switchType", switchType, "subCluster", subCluster,
@@ -474,6 +481,17 @@ func (f *UnitFramework) preemptOneUnitInstance(ctx context.Context, scheduledInd
 	}
 
 	start := time.Now()
+	defer func() {
+		// add schedule & preemption result metric
+		if success {
+			metrics.PodNominated(podProperty, helper.SinceInSeconds(start))
+			metrics.PodScheduled(podProperty, helper.SinceInSeconds(start))
+		} else {
+			metrics.PodNominatedFailure(podProperty, helper.SinceInSeconds(start))
+			metrics.PodUnschedulable(podProperty, helper.SinceInSeconds(start))
+		}
+	}()
+
 	podTrace := runningUnitInfo.Trace
 	preemptionTraceContext := podTrace.GetTraceContext(tracing.SchedulerPreemptPodSpan)
 
@@ -496,17 +514,12 @@ func (f *UnitFramework) preemptOneUnitInstance(ctx context.Context, scheduledInd
 		cachedNominatedNodes.SetHasCrossNodesConstraints(hasCrossNodesConstraints)
 	}
 
-	preemptingStart := time.Now()
 	if runningUnitInfo.QueuedPodInfo != nil && runningUnitInfo.QueuedPodInfo.InitialPreemptAttemptTimestamp.IsZero() {
-		runningUnitInfo.QueuedPodInfo.InitialPreemptAttemptTimestamp = preemptingStart
+		runningUnitInfo.QueuedPodInfo.InitialPreemptAttemptTimestamp = start
 	}
 
-	godelScheduler := f.schedulerHooks.PodScheduler()
 	preemptionResult, err := godelScheduler.PreemptInSpecificNodeGroup(preemptionCycleCtx, fwk, pfwk, unitCycleState, commonPreemptionState, state, clonedPod, nodeGroup, nodeToStatus, cachedNominatedNodes)
 	if err != nil || preemptionResult.NominatedNode == nil {
-		metrics.PodNominatedFailure(podProperty, helper.SinceInSeconds(preemptingStart))
-		metrics.PodUnschedulable(podProperty, helper.SinceInSeconds(start))
-
 		klog.ErrorS(err, "Failed to run preemption", "switchType", switchType, "subCluster", subCluster, "podKey", podKey, "nodeGroup", nodeGroup.GetKey())
 		preemptionTraceContext.WithFields(tracing.WithReasonField(fmt.Sprintf("Failed to run preemption")), tracing.WithErrorField(err))
 		errMessage := fmt.Sprintf("Fail to preempt for this pod in node group: %v, err: %v", nodeGroup.GetKey(), err.Error())
@@ -525,9 +538,6 @@ func (f *UnitFramework) preemptOneUnitInstance(ctx context.Context, scheduledInd
 	preemptionTraceContext.WithFields(tracing.WithMessageField(message))
 	f.schedulerHooks.EventRecorder().Eventf(clonedPod, nil, v1.EventTypeNormal, "PreemptForPodSuccessfully", core.ContinueAction,
 		helper.TruncateMessage(message))
-
-	metrics.PodNominated(podProperty, helper.SinceInSeconds(preemptingStart))
-	metrics.PodScheduled(podProperty, helper.SinceInSeconds(start))
 
 	// reserve the requested resource and other information on the target node in advance before the API call
 	// so that we can do the update asynchronously
