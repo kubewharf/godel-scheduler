@@ -467,6 +467,7 @@ func checkCrossNodePreemptionForAssumedTask(podLister corelisters.PodLister, ass
 			// since we decide to (only) remove this failed preemptor from assumed tasks,
 			// this failed preemptor will not affect the return result (allPass -> if all assumed task finishes the preemption)
 			inProgress = false
+			return
 		}
 
 		inProgress = true
