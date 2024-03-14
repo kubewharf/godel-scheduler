@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -74,7 +75,7 @@ func Test_dispatchInfo_GetPodsOfOneScheduler(t *testing.T) {
 		schedulers    []string
 		addedPods     []*corev1.Pod
 		removedPods   []*corev1.Pod
-		want          []string
+		want          sets.String
 	}{
 		{
 			name:          "scheduler not exist",
@@ -86,7 +87,7 @@ func Test_dispatchInfo_GetPodsOfOneScheduler(t *testing.T) {
 				newSimplePodWithSchedulerName("test-ns", "pod3", "test-scheduler-3"),
 			},
 			removedPods: nil,
-			want:        nil,
+			want:        sets.NewString(),
 		},
 		{
 			name:          "no pods belong to scheduler",
@@ -98,7 +99,7 @@ func Test_dispatchInfo_GetPodsOfOneScheduler(t *testing.T) {
 				newSimplePodWithSchedulerName("test-ns", "pod3", "test-scheduler-3"),
 			},
 			removedPods: nil,
-			want:        nil,
+			want:        sets.NewString(),
 		},
 		{
 			name:          "pods have been deleted",
@@ -116,7 +117,7 @@ func Test_dispatchInfo_GetPodsOfOneScheduler(t *testing.T) {
 				newSimplePodWithSchedulerName("test-ns", "pod2", "test-scheduler-0"),
 				newSimplePodWithSchedulerName("test-ns", "pod3", "test-scheduler-0"),
 			},
-			want: nil,
+			want: sets.NewString(),
 		},
 		{
 			name:          "get pods belong to specified scheduler",
@@ -128,7 +129,7 @@ func Test_dispatchInfo_GetPodsOfOneScheduler(t *testing.T) {
 				newSimplePodWithSchedulerName("test-ns", "pod2", "test-scheduler-1"),
 				newSimplePodWithSchedulerName("test-ns", "pod3", "test-scheduler-1"),
 			},
-			want: []string{"test-ns/pod0", "test-ns/pod1"},
+			want: sets.NewString("test-ns/pod0", "test-ns/pod1"),
 		},
 	}
 	for _, tt := range tests {
@@ -146,7 +147,8 @@ func Test_dispatchInfo_GetPodsOfOneScheduler(t *testing.T) {
 				dq.RemovePod(pod)
 			}
 
-			if got := dq.GetPodsOfOneScheduler(tt.schedulerName); !reflect.DeepEqual(got, tt.want) {
+			got := sets.NewString(dq.GetPodsOfOneScheduler(tt.schedulerName)...)
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetPodsOfOneScheduler() = %v, want %v", got, tt.want)
 			}
 		})
