@@ -16,7 +16,26 @@ spec:
     singular: podgroup
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+      - description: The current status of the PodGroup
+        jsonPath: .status.phase
+        name: Status
+        priority: 1
+        type: string
+      - description: The minimal number of members/tasks to run the PodGroup
+        jsonPath: .spec.minMember
+        name: MinMember
+        priority: 1
+        type: integer
+      - description: The maximal time of tasks to wait before run the PodGroup
+        jsonPath: .spec.scheduleTimeoutSeconds
+        name: TimeoutSeconds
+        priority: 1
+        type: integer
+      - jsonPath: .metadata.creationTimestamp
+        name: Age
+        type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: PodGroup indicates a collection of Pods which will be used for
