@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -122,19 +123,19 @@ type MemoryHeadroomUtilBasedConfig struct {
 
 	// FreeBasedRatio is the estimation of free memory utilization, which can
 	// be used as system buffer to oversold memory.
-	// +kubectl:validation:Minimum=0
-	// +kubectl:validation:Maximum=1
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
 	// +optional
 	FreeBasedRatio *float64 `json:"freeBasedRatio,omitempty"`
 
 	// StaticBasedCapacity is the static oversold memory size by bytes
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	StaticBasedCapacity *float64 `json:"staticBasedCapacity,omitempty"`
 
 	// CacheBasedRatio is the rate of cache oversold, 0 means disable cache oversold
-	// +kubectl:validation:Minimum=0
-	// +kubectl:validation:Maximum=1
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
 	// +optional
 	CacheBasedRatio *float64 `json:"cacheBasedRatio,omitempty"`
 }
@@ -152,27 +153,27 @@ type CPUHeadroomUtilBasedConfig struct {
 
 	// TargetReclaimedCoreUtilization is the target reclaimed core utilization to be used for
 	// calculating the oversold cpu headroom
-	// +kubectl:validation:Minimum=0
-	// +kubectl:validation:Maximum=1
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
 	// +optional
 	TargetReclaimedCoreUtilization *float64 `json:"targetReclaimedCoreUtilization,omitempty"`
 
 	// MaxReclaimedCoreUtilization is the max reclaimed core utilization of reclaimed_cores pool,
 	// which is used to calculate the oversold cpu headroom, if zero means no limit
-	// +kubectl:validation:Minimum=0
-	// +kubectl:validation:Maximum=1
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
 	// +optional
 	MaxReclaimedCoreUtilization *float64 `json:"maxReclaimedCoreUtilization,omitempty"`
 
 	// MaxOversoldRate is the max oversold rate of cpu headroom to the actual size of
 	// reclaimed_cores pool
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	MaxOversoldRate *float64 `json:"maxOversoldRate,omitempty"`
 
 	// MaxHeadroomCapacityRate is the max headroom capacity rate of cpu headroom to the total
 	// cpu capacity of node
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	MaxHeadroomCapacityRate *float64 `json:"maxHeadroomCapacityRate,omitempty"`
 }
@@ -197,6 +198,10 @@ type EvictionConfig struct {
 	// +optional
 	MemoryPressureEvictionConfig *MemoryPressureEvictionConfig `json:"memoryPressureEvictionConfig,omitempty"`
 
+	// RootfsPressureEvictionConfig is the config for rootfs pressure eviction
+	// +optional
+	RootfsPressureEvictionConfig *RootfsPressureEvictionConfig `json:"rootfsPressureEvictionConfig,omitempty"`
+
 	// ReclaimedResourcesEvictionConfig is the config for reclaimed resources' eviction
 	// +optional
 	ReclaimedResourcesEvictionConfig *ReclaimedResourcesEvictionConfig `json:"reclaimedResourcesEvictionConfig,omitempty"`
@@ -208,9 +213,14 @@ type ReclaimedResourcesEvictionConfig struct {
 	EvictionThreshold map[v1.ResourceName]float64 `json:"evictionThreshold"`
 
 	// GracePeriod is the grace period of reclaimed resources' eviction
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	GracePeriod *int64 `json:"gracePeriod,omitempty"`
+
+	// ThresholdMetToleranceDuration is the tolerance duration before eviction.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	ThresholdMetToleranceDuration *int64 `json:"thresholdMetToleranceDuration,omitempty"`
 }
 
 type CPUPressureEvictionConfig struct {
@@ -221,7 +231,7 @@ type CPUPressureEvictionConfig struct {
 	// LoadUpperBoundRatio is the upper bound ratio of cpuset pool load, if the load
 	// of the target cpuset pool is greater than the load upper bound repeatedly, the
 	// eviction will be triggered
-	// +kubectl:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	LoadUpperBoundRatio *float64 `json:"loadUpperBoundRatio,omitempty"`
 
@@ -229,8 +239,8 @@ type CPUPressureEvictionConfig struct {
 	// over the upper bound to the total number of times the load is measured, if the
 	// percentage is greater than the load threshold met percentage, the eviction or
 	// node tainted will be triggered
-	// +kubectl:validation:Minimum=0
-	// +kubectl:validation:Maximum=1
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
 	// +optional
 	LoadThresholdMetPercentage *float64 `json:"loadThresholdMetPercentage,omitempty"`
 
@@ -254,7 +264,7 @@ type CPUPressureEvictionConfig struct {
 	// can be set by the pod, if the cpu suppression tolerance rate of the pod is greater
 	// than the maximum cpu suppression tolerance rate, the cpu suppression tolerance rate
 	// of the pod will be set to the maximum cpu suppression tolerance rate
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	MaxSuppressionToleranceRate *float64 `json:"maxSuppressionToleranceRate,omitempty"`
 
@@ -265,7 +275,7 @@ type CPUPressureEvictionConfig struct {
 	MinSuppressionToleranceDuration *metav1.Duration `json:"minSuppressionToleranceDuration,omitempty"`
 
 	// GracePeriod is the grace period of cpu pressure eviction
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	GracePeriod *int64 `json:"gracePeriod,omitempty"`
 }
@@ -279,23 +289,32 @@ type MemoryPressureEvictionConfig struct {
 	// +optional
 	EnableSystemLevelEviction *bool `json:"enableSystemLevelEviction,omitempty"`
 
+	// NumaVictimMinimumUtilizationThreshold is the victim's minimum memory usage on a NUMA node, if a pod
+	// uses less memory on a NUMA node than this threshold,it won't be evicted by this NUMA's memory pressure.
+	// +optional
+	NumaVictimMinimumUtilizationThreshold *float64 `json:"numaVictimMinimumUtilizationThreshold,omitempty"`
+
 	// NumaFreeBelowWatermarkTimesThreshold is the threshold for the number of
 	// times NUMA's free memory falls below the watermark
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	NumaFreeBelowWatermarkTimesThreshold *int `json:"numaFreeBelowWatermarkTimesThreshold,omitempty"`
 
 	// NumaFreeBelowWatermarkTimesThreshold is the threshold for the rate of
 	// kswapd reclaiming rate
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	SystemKswapdRateThreshold *int `json:"systemKswapdRateThreshold,omitempty"`
 
 	// SystemKswapdRateExceedDurationThreshold is the threshold for the duration the kswapd reclaiming rate
 	// exceeds the threshold
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	SystemKswapdRateExceedDurationThreshold *int `json:"systemKswapdRateExceedDurationThreshold,omitempty"`
+
+	// SystemFreeMemoryThresholdMinimum is the system free memory threshold minimum.
+	// +optional
+	SystemFreeMemoryThresholdMinimum *resource.Quantity `json:"systemFreeMemoryThresholdMinimum,omitempty"`
 
 	// NumaEvictionRankingMetrics is the metrics used to rank pods for eviction
 	// at the NUMA level
@@ -314,12 +333,12 @@ type MemoryPressureEvictionConfig struct {
 	EnableRSSOveruseEviction *bool `json:"enableRSSOveruseEviction,omitempty"`
 
 	// RSSOveruseRateThreshold is the threshold for the rate of rss
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	RSSOveruseRateThreshold *float64 `json:"rssOveruseRateThreshold,omitempty"`
 
 	// GracePeriod is the grace period of memory pressure eviction
-	// +kubectl:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	GracePeriod *int64 `json:"gracePeriod,omitempty"`
 }
@@ -358,6 +377,58 @@ type SystemLoadPressureEvictionConfig struct {
 	// threshold is greater than this percentage
 	// +optional
 	ThresholdMetPercentage *float64 `json:"thresholdMetPercentage,omitempty"`
+}
+
+type RootfsPressureEvictionConfig struct {
+	// EnableRootfsPressureEviction is whether to enable rootfs pressure eviction.
+	// +optional
+	EnableRootfsPressureEviction *bool `json:"enableRootfsPressureEviction,omitempty"`
+
+	// MinimumFreeThreshold is a threshold for a node.
+	// Once the rootfs free space of current node is lower than this threshold, the eviction manager will try to evict some pods.
+	// For example: "200Gi", "10%".
+	// +optional
+	// +kubebuilder:validation:Pattern=`^(0|[1-9][0-9]*)(\.[0-9]+)?%?$|^(0|[1-9][0-9]*)([kKmMGTPeE]i?)$`
+	MinimumFreeThreshold string `json:"minimumFreeThreshold,omitempty"`
+
+	// MinimumInodesFreeThreshold is a threshold for a node.
+	// Once the rootfs free inodes of current node is lower than this threshold, the eviction manager will try to evict some pods.
+	// For example: "100000", "10%".
+	// +optional
+	// +kubebuilder:validation:Pattern=`^(0|[1-9]\d*)(\.\d+)?%?$|^\d+$`
+	MinimumInodesFreeThreshold string `json:"minimumInodesFreeThreshold,omitempty"`
+
+	// PodMinimumUsedThreshold is a threshold for all pods.
+	// The eviction manager will ignore this pod if its rootfs used in bytes is lower than this threshold.
+	// For example: "200Gi", "1%".
+	// +optional
+	// +kubebuilder:validation:Pattern=`^(0|[1-9][0-9]*)(\.[0-9]+)?%?$|^(0|[1-9][0-9]*)([kKmMGTPeE]i?)$`
+	PodMinimumUsedThreshold string `json:"podMinimumUsedThreshold,omitempty"`
+
+	// PodMinimumInodesUsedThreshold is a threshold for all pods.
+	// The eviction manager will ignore this pod if its rootfs inodes used is lower than this threshold.
+	// For example: "1000", "1%".
+	// +optional
+	// +kubebuilder:validation:Pattern=`^(0|[1-9]\d*)(\.\d+)?%?$|^\d+$`
+	PodMinimumInodesUsedThreshold string `json:"podMinimumInodesUsedThreshold,omitempty"`
+
+	// ReclaimedQoSPodUsedPriorityThreshold is a threshold for all offline pods.
+	// The eviction manager will prioritize the eviction of offline pods that reach this threshold.
+	// For example: "100Gi", "1%".
+	// +optional
+	// +kubebuilder:validation:Pattern=`^(0|[1-9][0-9]*)(\.[0-9]+)?%?$|^(0|[1-9][0-9]*)([kKmMGTPeE]i?)$`
+	ReclaimedQoSPodUsedPriorityThreshold string `json:"reclaimedQoSPodUsedPriorityThreshold,omitempty"`
+
+	// ReclaimedQoSPodInodesUsedPriorityThreshold is a threshold for all offline pods.
+	// The eviction manager will prioritize the eviction of reclaimed pods that reach this threshold.
+	// For example: "500", "1%".
+	// +optional
+	// +kubebuilder:validation:Pattern=`^(0|[1-9]\d*)(\.\d+)?%?$|^\d+$`
+	ReclaimedQoSPodInodesUsedPriorityThreshold string `json:"reclaimedQoSPodInodesUsedPriorityThreshold,omitempty"`
+
+	// GracePeriod is the grace period of pod deletion
+	// +optional
+	GracePeriod *int64 `json:"gracePeriod,omitempty"`
 }
 
 // NumaEvictionRankingMetric is the metrics used to rank pods for eviction at the

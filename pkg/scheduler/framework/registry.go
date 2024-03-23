@@ -120,7 +120,7 @@ func NewInTreeRegistry() Registry {
 		noderesources.AdaptiveCpuToMemRatioName: noderesources.NewAdaptiveCpuToMemRatio,
 		noderesources.NodeResourcesAffinityName: noderesources.NewNodeResourcesAffinity,
 
-		loadaware.LoadAwareName: loadaware.NewLoadAware,
+		loadaware.Name: loadaware.NewLoadAware,
 	}
 }
 
