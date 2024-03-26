@@ -28,7 +28,7 @@ spec:
       containers:
         - name: dispatcher
           image: godel-local:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           command: ["/usr/local/bin/dispatcher"]
           args:
             - "--leader-elect=false"

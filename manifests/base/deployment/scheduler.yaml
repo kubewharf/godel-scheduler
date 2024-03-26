@@ -28,7 +28,7 @@ spec:
       containers:
         - name: scheduler
           image: godel-local:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           command: ["/usr/local/bin/scheduler"]
           args:
             - "--leader-elect=false"
