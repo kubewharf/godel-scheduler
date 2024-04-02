@@ -66,9 +66,9 @@ This configuration controls how PodGroups are scheduled within the cluster, base
      affinity:
        podGroupAffinity:
          preferred:
-         - topologyKey: tce.kubernetes.io/nettoripv6
+         - topologyKey: nettoripv6
          required:
-         - topologyKey: tce.kubernetes.io/netminipodipv6
+         - topologyKey: netminipodipv6
      minMember: 100
      scheduleTimeoutSeconds: 3000
      ```
@@ -114,9 +114,9 @@ This configuration controls how PodGroups are scheduled within the cluster, base
       affinity:
         podGroupAffinity:
         preferred:
-        - topologyKey: tce.kubernetes.io/nettoripv6
+        - topologyKey: nettoripv6
         required:
-        - topologyKey: tce.kubernetes.io/netminipodipv6
+        - topologyKey: netminipodipv6
         # SortRule
         sortRules:
         - order: Descending
