@@ -15,7 +15,7 @@ This approach is particularly beneficial for tasks involving extensive network c
 
 In complex tasks, like running large-scale computational models, the network communication between Pods imposes significant demands on network bandwidth.
 Job Level Affinity addresses this by ensuring that Pods are placed within optimal network segments, such as within the same switch or minimizing the crossing of top-level switches.
-In the network topology tree (e.g., bigPod -> miniPod -> tor -> node), it's crucial that physical nodes (leaf nodes) are as close as possible to each other as closer leaf nodes mean less network communication overhead and more efficient network.
+In the network topology tree (e.g., Topo1 -> Topo2 -> Topo3 -> node), it's crucial that physical nodes (leaf nodes) are as close as possible to each other as closer leaf nodes mean less network communication overhead and more efficient network.
 Job Level Affinity strives to schedule Pods to minimize this distance, enhancing network performance.
 
 ### Key Features of Job Level Affinity
@@ -66,9 +66,9 @@ This configuration controls how PodGroups are scheduled within the cluster, base
      affinity:
        podGroupAffinity:
          preferred:
-         - topologyKey: nettoripv6
+         - topologyKey: topo3ipv6
          required:
-         - topologyKey: netminipodipv6
+         - topologyKey: topo2ipv6
      minMember: 100
      scheduleTimeoutSeconds: 3000
      ```
@@ -93,10 +93,10 @@ This configuration controls how PodGroups are scheduled within the cluster, base
           nodeSelector:
             nodeSelectorTerms:
               - matchExpressions:
-                - key: tor
+                - key: topo3
                   operator: In
                   values:
-                  - tor-0-1-7
+                  - topo3-0-1-7
     ```
 
 3. **Configure SortRule in PodGroup Spec**:
@@ -114,9 +114,9 @@ This configuration controls how PodGroups are scheduled within the cluster, base
       affinity:
         podGroupAffinity:
         preferred:
-        - topologyKey: nettoripv6
+        - topologyKey: topo3ipv6
         required:
-        - topologyKey: netminipodipv6
+        - topologyKey: topo2ipv6
         # SortRule
         sortRules:
         - order: Descending
@@ -137,9 +137,9 @@ The design of the Job Level Affinity feature in the Godel Scheduler encompasses 
 
 With the introduction of the Job Level Affinity feature, the Godel Scheduler now effectively supports complex, multi-layer network topologies.
 This enhancement allows users to precisely specify affinity requirements for PodGroups.
-Pods within a PodGroup are mandated to be scheduled within the same larger network segment, known as a BigPod, based on required affinity. 
-Additionally, to further optimize network efficiency and resource utilization, Pods are preferentially scheduled within smaller, more localized network segments within a BigPod, known as MiniPods, based on preferred podgroup affinity.
-In scenarios where a single MiniPod cannot accommodate an entire PodGroup, the scheduler intelligently distributes the PodGroup to nearby MiniPods within the same BigPod, thus minimizing inefficient network crossings. 
+Pods within a PodGroup are mandated to be scheduled within the same larger network segment, which we refer to as Topo1, based on required affinity. 
+Additionally, to further optimize network efficiency and resource utilization, Pods are preferentially scheduled within smaller, more localized network segments within Topo1, referred to as Topo2, based on preferred podgroup affinity.
+In scenarios where a single Topo2 cannot accommodate an entire PodGroup, the scheduler intelligently distributes the PodGroup to nearby Topo2s within the same Topo1, thus minimizing inefficient network crossings.
 The following diagram provides a visual representation of this hierarchical network topology, illustrating how layers are structured:
 ![Network Topology Diagram](network_topology_diagram.png)
 
@@ -186,11 +186,11 @@ graph TD
 
 ### 2. **NodeCircle Support for NodeSelector**:
 
-With the implementation of Job Level Affinity in the Godel Scheduler, business applications are assured of being scheduled within the same BigPod network segment and, as much as possible, within the same MiniPod segment.
-However, within a single MiniPod segment, machines may vary in terms of their nodeLevel.
+With the implementation of Job Level Affinity in the Godel Scheduler, business applications are assured of being scheduled within the same Topo1 network segment and, as much as possible, within the same Topo2 segment.
+However, within a single Topo2 segment, machines may vary in terms of their nodeLevel.
 To address this, the Godel Scheduler has been enhanced to leverage Job Level Affinity capabilities along with nodeSelector information, ensuring that applications are scheduled on machines with the specified nodeLevel.
 
-In the process of dividing NodeCircles, a NodeCircle corresponding to a MiniPod might include nodes with various other nodeLevels.
+In the process of dividing NodeCircles, a NodeCircle corresponding to a Topo2 might include nodes with various other nodeLevels.
 This diversity can lead to significant computational overhead for the scheduler, particularly when the podGroup is large and contains many nodes of unintended nodeLevels.
 Consequently, this situation could substantially weaken the effectiveness of resource-based NodeCircle sorting.
 Thus, incorporating nodeSelector semantics in the division of NodeCircles is essential.
