@@ -20,8 +20,12 @@ package fake
 
 import (
 	autoscalingv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
+	autoscalingv1alpha2 "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha2"
 	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	overcommitv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
+	recommendationv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
+	tidev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/tide/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -35,8 +39,12 @@ var codecs = serializer.NewCodecFactory(scheme)
 
 var localSchemeBuilder = runtime.SchemeBuilder{
 	autoscalingv1alpha1.AddToScheme,
+	autoscalingv1alpha2.AddToScheme,
 	configv1alpha1.AddToScheme,
 	nodev1alpha1.AddToScheme,
+	overcommitv1alpha1.AddToScheme,
+	recommendationv1alpha1.AddToScheme,
+	tidev1alpha1.AddToScheme,
 	workloadv1alpha1.AddToScheme,
 }
 

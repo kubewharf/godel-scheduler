@@ -250,4 +250,12 @@ type LoadAwareArgs struct {
 
 	// Estimator indicates the expected Estimator to use
 	Estimator string `json:"estimator,omitempty"`
+
+	FilterExpiredNodeMetrics    bool                      `json:"filterExpiredNodeMetrics,omitempty"`
+	NodeMetricExpirationSeconds int64                     `json:"nodeMetricExpirationSeconds,omitempty"`
+	UsageThresholds             map[v1.ResourceName]int64 `json:"usageThresholds,omitempty"`
+
+	// EstimatedScalingFactors indicates the factor when estimating resource usage.
+	// Is CPU scaling factor is 80, estimated CPU = 80 / 100 * request.cpu
+	EstimatedScalingFactors map[v1.ResourceName]int64 `json:"estimatedScalingFactors,omitempty"`
 }

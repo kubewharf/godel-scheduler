@@ -35,6 +35,7 @@ import (
 	schedulerruntime "github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/runtime"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/util"
 	"github.com/kubewharf/godel-scheduler/pkg/util/constraints"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
 const TestSchedulerName = "test-scheduler"
@@ -93,6 +94,14 @@ func (mfh *MockSchedulerFrameworkHandle) GetPDBItemListForOwner(ownerType, owner
 
 func (mfh *MockSchedulerFrameworkHandle) GetOwnerLabels(ownerType, ownerKey string) map[string]string {
 	return mfh.nodeInfoSnapshot.GetOwnerLabels(ownerType, ownerKey)
+}
+
+func (mfh *MockSchedulerFrameworkHandle) GetLoadAwareNodeMetricInfo(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeMetricInfo {
+	return mfh.nodeInfoSnapshot.GetLoadAwareNodeMetricInfo(nodeName, resourceType)
+}
+
+func (mfh *MockSchedulerFrameworkHandle) GetLoadAwareNodeUsage(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeUsage {
+	return mfh.nodeInfoSnapshot.GetLoadAwareNodeUsage(nodeName, resourceType)
 }
 
 func (mfh *MockSchedulerFrameworkHandle) retrievePluginsFromPodConstraints(pod *v1.Pod, constraintAnnotationKey string) (*framework.PluginCollection, error) {

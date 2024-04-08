@@ -673,6 +673,14 @@ func (gs *podScheduler) GetOwnerLabels(ownerType, ownerKey string) map[string]st
 	return gs.snapshot.GetOwnerLabels(ownerType, ownerKey)
 }
 
+func (gs *podScheduler) GetLoadAwareNodeMetricInfo(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeMetricInfo {
+	return gs.snapshot.GetLoadAwareNodeMetricInfo(nodeName, resourceType)
+}
+
+func (gs *podScheduler) GetLoadAwareNodeUsage(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeUsage {
+	return gs.snapshot.GetLoadAwareNodeUsage(nodeName, resourceType)
+}
+
 func needCacheNodesForPod(pod *v1.Pod, podOwner string) bool {
 	// TODO: figure out whether pod group affinity && bin-packing-first will affect the checking logic
 	var cacheNodes bool // default value: false

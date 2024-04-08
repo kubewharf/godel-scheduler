@@ -107,6 +107,10 @@ type CustomNodeResourceStatus struct {
 	// Conditions is an array of current observed cnr conditions.
 	// +optional
 	Conditions []CNRCondition `json:"conditions,omitempty"`
+
+	// NodeMetricStatus report node real-time metrics
+	// +optional
+	NodeMetricStatus *NodeMetricStatus `json:"nodeMetricStatus,omitempty"`
 }
 
 type TopologyPolicy string
@@ -132,6 +136,12 @@ const (
 
 	// TopologyPolicyBestEffortPodLevel represents best-effort policy and pod level.
 	TopologyPolicyBestEffortPodLevel TopologyPolicy = "BestEffortPodLevel"
+
+	// TopologyPolicyNumericContainerLevel represents numeric policy and container level.
+	TopologyPolicyNumericContainerLevel TopologyPolicy = "NumericContainerLevel"
+
+	// TopologyPolicyNumericPodLevel represents numeric policy and pod level.
+	TopologyPolicyNumericPodLevel TopologyPolicy = "NumericPodLevel"
 )
 
 // CNRCondition contains condition information for a cnr.
@@ -271,4 +281,48 @@ type CustomNodeResourceList struct {
 
 	// items is the list of CNRs
 	Items []CustomNodeResource `json:"items"`
+}
+
+// NodeMetricStatus defines the observed state of NodeMetric
+type NodeMetricStatus struct {
+	// UpdateTime is the last time this NodeMetricStatus was updated.
+	UpdateTime metav1.Time `json:"updateTime"`
+
+	// NodeMetric contains the metrics for this node.
+	NodeMetric *NodeMetricInfo `json:"nodeMetric,omitempty"`
+
+	// GroupMetric contains the metrics aggregated by QoS level groups
+	GroupMetric []GroupMetricInfo `json:"groupMetric,omitempty"`
+}
+
+type ResourceMetric struct {
+	CPU    *resource.Quantity `json:"cpu,omitempty"`
+	Memory *resource.Quantity `json:"memory,omitempty"`
+}
+
+type ResourceUsage struct {
+	// NUMAUsage contains the real-time resource usage for each NUMA
+	NUMAUsage []NUMAMetricInfo `json:"numaUsage,omitempty"`
+
+	// GenericUsage contains the real-time resource usage
+	GenericUsage *ResourceMetric `json:"genericUsage,omitempty"`
+}
+
+type GroupMetricInfo struct {
+	// +kubebuilder:validation:Enum=reclaimed_cores;shared_cores;dedicated_cores;system_cores
+	QoSLevel      string `json:"QoSLevel"`
+	ResourceUsage `json:",inline"`
+	// PodList indicates the pods belongs to this qos group, in format of {namespace}/{name}.
+	// Pods that have been scheduled but are not listed in the PodList need to be estimated by the scheduler.
+	PodList []string `json:"podList,omitempty"`
+}
+
+type NodeMetricInfo struct {
+	ResourceUsage `json:",inline"`
+}
+
+type NUMAMetricInfo struct {
+	NUMAId int `json:"numaId"`
+	// Usage contains the real-time resource usage for this NUMA node
+	Usage *ResourceMetric `json:"usage"`
 }

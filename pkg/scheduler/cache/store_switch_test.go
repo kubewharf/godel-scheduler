@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
+	loadawarestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/load_aware_store"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
 	pdbstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pdb_store"
 	podstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pod_store"
@@ -51,6 +52,7 @@ func Test_makeStoreSwitch(t *testing.T) {
 			want: []commonstores.StoreName{
 				podgroupstore.Name,
 				unitstatusstore.Name,
+				loadawarestore.Name,
 				nodestore.Name,
 				podstore.Name,
 			},
@@ -67,6 +69,7 @@ func Test_makeStoreSwitch(t *testing.T) {
 				podgroupstore.Name,
 				preemptionstore.Name,
 				unitstatusstore.Name,
+				loadawarestore.Name,
 				nodestore.Name,
 				podstore.Name,
 			},

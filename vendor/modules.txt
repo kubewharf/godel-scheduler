@@ -194,36 +194,59 @@ github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions/s
 github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions/scheduling/v1alpha1
 github.com/kubewharf/godel-scheduler-api/pkg/client/listers/node/v1alpha1
 github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1
-# github.com/kubewharf/katalyst-api v0.1.16
+# github.com/kubewharf/katalyst-api v0.4.1-0.20240222122824-be538f641f58
 ## explicit; go 1.17
 github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha2
 github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/apis/tide/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/scheme
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/autoscaling/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/autoscaling/v1alpha1/fake
+github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/autoscaling/v1alpha2
+github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/autoscaling/v1alpha2/fake
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/config/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/config/v1alpha1/fake
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/node/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/node/v1alpha1/fake
+github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/overcommit/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/overcommit/v1alpha1/fake
+github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/recommendation/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/recommendation/v1alpha1/fake
+github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/tide/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/tide/v1alpha1/fake
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/workload/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/workload/v1alpha1/fake
 github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions
 github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/autoscaling
 github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/autoscaling/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/autoscaling/v1alpha2
 github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/config
 github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/config/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/internalinterfaces
 github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/node
 github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/node/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/overcommit
+github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/overcommit/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/recommendation
+github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/recommendation/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/tide
+github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/tide/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/workload
 github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/workload/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/client/listers/autoscaling/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/listers/autoscaling/v1alpha2
 github.com/kubewharf/katalyst-api/pkg/client/listers/config/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/client/listers/node/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/listers/overcommit/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/listers/recommendation/v1alpha1
+github.com/kubewharf/katalyst-api/pkg/client/listers/tide/v1alpha1
 github.com/kubewharf/katalyst-api/pkg/client/listers/workload/v1alpha1
 # github.com/magiconair/properties v1.8.5
 ## explicit; go 1.13

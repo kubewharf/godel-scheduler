@@ -7,7 +7,7 @@ require (
 	github.com/evanphx/json-patch v4.12.0+incompatible
 	github.com/google/go-cmp v0.5.9
 	github.com/kubewharf/godel-scheduler-api v0.0.0-20231129083306-7282cca41429
-	github.com/kubewharf/katalyst-api v0.1.16
+	github.com/kubewharf/katalyst-api v0.4.1-0.20240222122824-be538f641f58
 	github.com/onsi/ginkgo v1.14.0
 	github.com/onsi/gomega v1.19.0
 	github.com/pkg/errors v0.9.1
