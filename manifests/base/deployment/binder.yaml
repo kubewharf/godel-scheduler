@@ -28,7 +28,7 @@ spec:
       containers:
         - name: binder
           image: godel-local:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           command: ["/usr/local/bin/binder"]
           args:
             - "--leader-elect=false"

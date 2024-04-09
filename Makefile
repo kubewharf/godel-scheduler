@@ -60,7 +60,7 @@ all build:
 	$(MYMAKE) go build $(WHAT)
 endif
 
-docker-images: build e2e
+docker-images:
 	./hack/make-rules/build-images.sh
 
 local-up: docker-images
