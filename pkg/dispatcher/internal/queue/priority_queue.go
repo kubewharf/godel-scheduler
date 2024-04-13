@@ -25,7 +25,7 @@ type PriorityQueue struct {
 	queue priorityQueue
 }
 
-// LessFn is the func declaration used by sort or priority queue.
+// LessFunc is the func declaration used by sort or priority queue.
 type LessFunc func(interface{}, interface{}) bool
 
 // CompareFn is the func declaration used by sort or priority queue.

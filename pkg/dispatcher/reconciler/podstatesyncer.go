@@ -213,10 +213,9 @@ func (psr *PodStateReconciler) updateAbnormalStatePod(pod *corev1.Pod) error {
 		// blindly resetting to pending state
 		// TODO: add more fine-grained checking and resetting operations
 		return psr.resetPodToPendingState(pod)
-	} else {
-		// pod returns back to normal state, return directly
-		return nil
 	}
+	// pod returns back to normal state, return directly
+	return nil
 }
 
 // resetPodToPendingState resets pod state to Pending

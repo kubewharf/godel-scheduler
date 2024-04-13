@@ -296,24 +296,24 @@ func (uis *unitInfos) Enqueue(podInfo *QueuedPodInfo) {
 	uis.readyUnitPods.Add(podInfo)
 }
 
-func (p *unitInfos) GetAssignedSchedulerForPodGroupUnit(pg *v1alpha1.PodGroup) string {
-	p.Lock()
-	defer p.Unlock()
+func (uis *unitInfos) GetAssignedSchedulerForPodGroupUnit(pg *v1alpha1.PodGroup) string {
+	uis.Lock()
+	defer uis.Unlock()
 	unitKey := generateUnitKeyFromPodGroup(pg)
-	if ui, exist := p.units[unitKey]; exist {
+	if ui, exist := uis.units[unitKey]; exist {
 		return ui.scheduler
 	}
 	return ""
 }
 
-func (p *unitInfos) AssignSchedulerToPodGroupUnit(pg *v1alpha1.PodGroup, schedName string, forceUpdate bool) error {
-	p.Lock()
-	defer p.Unlock()
+func (uis *unitInfos) AssignSchedulerToPodGroupUnit(pg *v1alpha1.PodGroup, schedName string, forceUpdate bool) error {
+	uis.Lock()
+	defer uis.Unlock()
 	unitKey := generateUnitKeyFromPodGroup(pg)
-	ui := p.units[unitKey]
+	ui := uis.units[unitKey]
 	if ui == nil {
-		p.units[unitKey] = NewUnitInfo()
-		ui = p.units[unitKey]
+		uis.units[unitKey] = NewUnitInfo()
+		ui = uis.units[unitKey]
 	}
 	if forceUpdate {
 		ui.scheduler = schedName

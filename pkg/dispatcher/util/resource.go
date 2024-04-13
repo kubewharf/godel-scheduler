@@ -49,7 +49,7 @@ func (r DRFResource) IsInit() bool {
 	return r != DRFResource{}
 }
 
-// SetSpecificResourceValue sets the resource value for that specific
+// SetResourceValue sets the resource value for that specific
 // resource type.
 func (r *DRFResource) SetResourceValue(rName v1.ResourceName, quantity int64) {
 	switch rName {
@@ -86,7 +86,7 @@ func (r *DRFResource) IsZero(rn v1.ResourceName) bool {
 	}
 }
 
-// Add is used to add the two resources
+// AddResource is used to add the two resources
 func (r *DRFResource) AddResource(rr DRFResource) *DRFResource {
 	r.MilliCPU += rr.MilliCPU
 	r.Memory += rr.Memory
@@ -94,7 +94,7 @@ func (r *DRFResource) AddResource(rr DRFResource) *DRFResource {
 	return r
 }
 
-// Sub subtracts two Resource objects.
+// SubResource subtracts two Resource objects.
 func (r *DRFResource) SubResource(rr DRFResource) *DRFResource {
 	r.MilliCPU -= rr.MilliCPU
 	r.Memory -= rr.Memory

@@ -88,9 +88,8 @@ func (gs *GodelScheduler) SetSchedulerInActive() {
 	gs.active = false
 }
 
-func (gs *GodelScheduler) SetScheduler(scheduler *schedulerapi.Scheduler) error {
+func (gs *GodelScheduler) SetScheduler(scheduler *schedulerapi.Scheduler) {
 	gs.scheduler = scheduler
-	return nil
 }
 
 func (gs *GodelScheduler) GetScheduler() *schedulerapi.Scheduler {
