@@ -38,7 +38,7 @@ func (maintainer *SchedulerMaintainer) AddScheduler(scheduler *schedulerapi.Sche
 // we assume the caller has already got the lock
 func (maintainer *SchedulerMaintainer) updateSchedulerBasedOnSchedulerCRD(scheduler *schedulerapi.Scheduler) {
 	if maintainer.generalSchedulers[scheduler.Name] == nil {
-		// schedulers is not added before, add it to active schedulers map directly
+		// schedulers are not added before, add it to active schedulers map directly
 		gs := sche.NewGodelSchedulerWithSchedulerCRD(scheduler)
 		metrics.SchedulerSizeInc(metrics.ActiveScheduler)
 		maintainer.generalSchedulers[scheduler.Name] = gs
