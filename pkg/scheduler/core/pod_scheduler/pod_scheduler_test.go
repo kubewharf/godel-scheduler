@@ -46,12 +46,15 @@ import (
 )
 
 func TestSelectHost(t *testing.T) {
-	scheduler := podScheduler{}
+	scheduler := podScheduler{
+		isolatedCache: isolatedcache.NewIsolatedCache(),
+	}
 	tests := []struct {
 		name          string
 		list          framework.NodeScoreList
 		possibleHosts sets.String
 		expectsErr    bool
+		podOwner      string
 	}{
 		{
 			name: "unique properly ordered scores",
@@ -61,6 +64,7 @@ func TestSelectHost(t *testing.T) {
 			},
 			possibleHosts: sets.NewString("machine2.1"),
 			expectsErr:    false,
+			podOwner:      "foo",
 		},
 		{
 			name: "equal scores",
@@ -72,6 +76,7 @@ func TestSelectHost(t *testing.T) {
 			},
 			possibleHosts: sets.NewString("machine1.2", "machine1.3", "machine2.1"),
 			expectsErr:    false,
+			podOwner:      "bar",
 		},
 		{
 			name: "out of order scores",
@@ -84,21 +89,46 @@ func TestSelectHost(t *testing.T) {
 			},
 			possibleHosts: sets.NewString("machine1.1", "machine1.2", "machine1.3"),
 			expectsErr:    false,
+			podOwner:      "Alice",
 		},
 		{
 			name:          "empty priority list",
 			list:          []framework.NodeScore{},
 			possibleHosts: sets.NewString(),
 			expectsErr:    true,
+			podOwner:      "Bob",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			lastCacheSize := 0
 			// increase the randomness
 			for i := 0; i < 10; i++ {
 				// TODO: add unit test cases for caching node logic
-				got, err := scheduler.selectHostAndCacheResults(test.list, &v1.Pod{}, "", "", &framework.UnitSchedulingRequest{})
+				got, err := scheduler.selectHostAndCacheResults(test.list, &v1.Pod{}, test.podOwner, "", &framework.UnitSchedulingRequest{})
+				nodes := scheduler.isolatedCache.GetOrderedNodesForPodOwner(test.podOwner)
+				currCacheSize := len(nodes)
+				expectedCacheSize := lastCacheSize
+				// exclude the selected node
+				if len(test.list) > 1 {
+					expectedCacheSize += len(test.list) - 1
+				}
+
+				if currCacheSize != expectedCacheSize {
+					t.Errorf("Unexpected cache size, expected %d but got %d", currCacheSize, expectedCacheSize)
+				}
+				lastCacheSize = currCacheSize
+
+				// Check newly cached nodes
+				newlyCachedNodes := nodes[lastCacheSize:]
+				selectedNode := got
+				for _, newlyCachedNode := range newlyCachedNodes {
+					if selectedNode == newlyCachedNode {
+						t.Errorf("Unexpected cached node %s, selected node should not be cached", selectedNode)
+					}
+				}
+
 				if test.expectsErr {
 					if err == nil {
 						t.Error("Unexpected non-error")
