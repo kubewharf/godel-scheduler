@@ -50,11 +50,12 @@ func TestSelectHost(t *testing.T) {
 		isolatedCache: isolatedcache.NewIsolatedCache(),
 	}
 	tests := []struct {
-		name          string
-		list          framework.NodeScoreList
-		possibleHosts sets.String
-		expectsErr    bool
-		podOwner      string
+		name               string
+		list               framework.NodeScoreList
+		possibleHosts      sets.String
+		expectsErr         bool
+		podOwner           string
+		expectedCacheSizes []int
 	}{
 		{
 			name: "unique properly ordered scores",
@@ -62,9 +63,10 @@ func TestSelectHost(t *testing.T) {
 				{Name: "machine1.1", Score: 1},
 				{Name: "machine2.1", Score: 2},
 			},
-			possibleHosts: sets.NewString("machine2.1"),
-			expectsErr:    false,
-			podOwner:      "foo",
+			possibleHosts:      sets.NewString("machine2.1"),
+			expectsErr:         false,
+			podOwner:           "Peter",
+			expectedCacheSizes: []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
 		},
 		{
 			name: "equal scores",
@@ -74,9 +76,10 @@ func TestSelectHost(t *testing.T) {
 				{Name: "machine1.3", Score: 2},
 				{Name: "machine2.1", Score: 2},
 			},
-			possibleHosts: sets.NewString("machine1.2", "machine1.3", "machine2.1"),
-			expectsErr:    false,
-			podOwner:      "bar",
+			possibleHosts:      sets.NewString("machine1.2", "machine1.3", "machine2.1"),
+			expectsErr:         false,
+			podOwner:           "Jack",
+			expectedCacheSizes: []int{3, 6, 9, 12, 15, 18, 21, 24, 27, 30},
 		},
 		{
 			name: "out of order scores",
@@ -87,16 +90,18 @@ func TestSelectHost(t *testing.T) {
 				{Name: "machine3.1", Score: 1},
 				{Name: "machine1.3", Score: 3},
 			},
-			possibleHosts: sets.NewString("machine1.1", "machine1.2", "machine1.3"),
-			expectsErr:    false,
-			podOwner:      "Alice",
+			possibleHosts:      sets.NewString("machine1.1", "machine1.2", "machine1.3"),
+			expectsErr:         false,
+			podOwner:           "Alice",
+			expectedCacheSizes: []int{4, 8, 12, 16, 20, 24, 28, 32, 36, 40},
 		},
 		{
-			name:          "empty priority list",
-			list:          []framework.NodeScore{},
-			possibleHosts: sets.NewString(),
-			expectsErr:    true,
-			podOwner:      "Bob",
+			name:               "empty priority list",
+			list:               []framework.NodeScore{},
+			possibleHosts:      sets.NewString(),
+			expectsErr:         true,
+			podOwner:           "Bob",
+			expectedCacheSizes: []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		},
 	}
 
@@ -106,23 +111,17 @@ func TestSelectHost(t *testing.T) {
 			// increase the randomness
 			for i := 0; i < 10; i++ {
 				// TODO: add unit test cases for caching node logic
-				got, err := scheduler.selectHostAndCacheResults(test.list, &v1.Pod{}, test.podOwner, "", &framework.UnitSchedulingRequest{})
+				selectedNode, err := scheduler.selectHostAndCacheResults(test.list, &v1.Pod{}, test.podOwner, "", &framework.UnitSchedulingRequest{})
 				nodes := scheduler.isolatedCache.GetOrderedNodesForPodOwner(test.podOwner)
-				currCacheSize := len(nodes)
-				expectedCacheSize := lastCacheSize
-				// exclude the selected node
-				if len(test.list) > 1 {
-					expectedCacheSize += len(test.list) - 1
-				}
 
-				if currCacheSize != expectedCacheSize {
-					t.Errorf("Unexpected cache size, expected %d but got %d", currCacheSize, expectedCacheSize)
+				currCacheSize := len(nodes)
+				if currCacheSize != test.expectedCacheSizes[i] {
+					t.Errorf("Unexpected cache size, expected %d but got %d", currCacheSize, test.expectedCacheSizes[i])
 				}
 				lastCacheSize = currCacheSize
 
 				// Check newly cached nodes
 				newlyCachedNodes := nodes[lastCacheSize:]
-				selectedNode := got
 				for _, newlyCachedNode := range newlyCachedNodes {
 					if selectedNode == newlyCachedNode {
 						t.Errorf("Unexpected cached node %s, selected node should not be cached", selectedNode)
@@ -137,8 +136,8 @@ func TestSelectHost(t *testing.T) {
 					if err != nil {
 						t.Errorf("Unexpected error: %v", err)
 					}
-					if !test.possibleHosts.Has(got) {
-						t.Errorf("got %s is not in the possible map %v", got, test.possibleHosts)
+					if !test.possibleHosts.Has(selectedNode) {
+						t.Errorf("got %s is not in the possible map %v", selectedNode, test.possibleHosts)
 					}
 				}
 			}
