@@ -54,7 +54,7 @@ func TestSelectHost(t *testing.T) {
 		list               framework.NodeScoreList
 		possibleHosts      sets.String
 		expectsErr         bool
-		podOwner           string
+		pod                *v1.Pod
 		expectedCacheSizes []int
 	}{
 		{
@@ -63,9 +63,10 @@ func TestSelectHost(t *testing.T) {
 				{Name: "machine1.1", Score: 1},
 				{Name: "machine2.1", Score: 2},
 			},
-			possibleHosts:      sets.NewString("machine2.1"),
-			expectsErr:         false,
-			podOwner:           "Peter",
+			possibleHosts: sets.NewString("machine2.1"),
+			expectsErr:    false,
+			pod: testinghelper.MakePod().Namespace("default").Name("pod1").UID("pod1").
+				ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs1", UID: "rs1"}).Obj(),
 			expectedCacheSizes: []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
 		},
 		{
@@ -76,9 +77,10 @@ func TestSelectHost(t *testing.T) {
 				{Name: "machine1.3", Score: 2},
 				{Name: "machine2.1", Score: 2},
 			},
-			possibleHosts:      sets.NewString("machine1.2", "machine1.3", "machine2.1"),
-			expectsErr:         false,
-			podOwner:           "Jack",
+			possibleHosts: sets.NewString("machine1.2", "machine1.3", "machine2.1"),
+			expectsErr:    false,
+			pod: testinghelper.MakePod().Namespace("default").Name("pod2").UID("pod2").
+				ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs2", UID: "rs2"}).Obj(),
 			expectedCacheSizes: []int{3, 6, 9, 12, 15, 18, 21, 24, 27, 30},
 		},
 		{
@@ -90,17 +92,19 @@ func TestSelectHost(t *testing.T) {
 				{Name: "machine3.1", Score: 1},
 				{Name: "machine1.3", Score: 3},
 			},
-			possibleHosts:      sets.NewString("machine1.1", "machine1.2", "machine1.3"),
-			expectsErr:         false,
-			podOwner:           "Alice",
+			possibleHosts: sets.NewString("machine1.1", "machine1.2", "machine1.3"),
+			expectsErr:    false,
+			pod: testinghelper.MakePod().Namespace("default").Name("pod3").UID("pod3").
+				ControllerRef(metav1.OwnerReference{Kind: "StatefulSet", Name: "sts3", UID: "sts3"}).Obj(),
 			expectedCacheSizes: []int{4, 8, 12, 16, 20, 24, 28, 32, 36, 40},
 		},
 		{
-			name:               "empty priority list",
-			list:               []framework.NodeScore{},
-			possibleHosts:      sets.NewString(),
-			expectsErr:         true,
-			podOwner:           "Bob",
+			name:          "empty priority list",
+			list:          []framework.NodeScore{},
+			possibleHosts: sets.NewString(),
+			expectsErr:    true,
+			pod: testinghelper.MakePod().Namespace("default").Name("pod4").UID("pod4").
+				ControllerRef(metav1.OwnerReference{Kind: "StatefulSet", Name: "sts4", UID: "sts4"}).Obj(),
 			expectedCacheSizes: []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		},
 	}
@@ -108,15 +112,18 @@ func TestSelectHost(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lastCacheSize := 0
+			// get mock pod owner
+			podOwner := podutil.GetPodOwner(test.pod)
 			// increase the randomness
 			for i := 0; i < 10; i++ {
 				// TODO: add unit test cases for caching node logic
-				selectedNode, err := scheduler.selectHostAndCacheResults(test.list, &v1.Pod{}, test.podOwner, "", &framework.UnitSchedulingRequest{})
-				nodes := scheduler.isolatedCache.GetOrderedNodesForPodOwner(test.podOwner)
+
+				selectedNode, err := scheduler.selectHostAndCacheResults(test.list, &v1.Pod{}, podOwner, "", &framework.UnitSchedulingRequest{})
+				nodes := scheduler.isolatedCache.GetOrderedNodesForPodOwner(podOwner)
 
 				currCacheSize := len(nodes)
 				if currCacheSize != test.expectedCacheSizes[i] {
-					t.Errorf("Unexpected cache size, expected %d but got %d", currCacheSize, test.expectedCacheSizes[i])
+					t.Errorf("Unexpected cache size, expected %d but got %d", test.expectedCacheSizes[i], currCacheSize)
 				}
 				lastCacheSize = currCacheSize
 
