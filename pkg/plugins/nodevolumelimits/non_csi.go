@@ -95,7 +95,7 @@ func NewGCEPD(informerFactory informers.SharedInformerFactory) (*NonCSILimits, e
 	return newNonCSILimitsWithInformerFactory(gcePDVolumeFilterType, informerFactory), nil
 }
 
-// nonCSILimits contains information to check the max number of volumes for a plugin.
+// NonCSILimits contains information to check the max number of volumes for a plugin.
 type NonCSILimits struct {
 	name           string
 	filter         VolumeFilter
@@ -128,10 +128,10 @@ func newNonCSILimitsWithInformerFactory(
 // number of volumes which match a filter that it requests, and those that are already present.
 //
 // DEPRECATED
-// All cloudprovider specific predicates defined here are deprecated in favour of CSI volume limit
+// All cloud provider specific predicates defined here are deprecated in favour of CSI volume limit
 // predicate - MaxCSIVolumeCountPred.
 //
-// The predicate looks for both volumes used directly, as well as PVC volumes that are backed by relevant volume
+// The predicate looks for both volumes used directly, and PVC volumes that are backed by relevant volume
 // types, counts the number of unique volumes, and rejects the new pod if it would place the total count over
 // the maximum.
 func newNonCSILimits(
@@ -182,7 +182,7 @@ func newNonCSILimits(
 	return pl
 }
 
-// Filter invoked at the filter extension point.
+// FitsNonCSILimits invoked at the filter extension point.
 func (pl *NonCSILimits) FitsNonCSILimits(ctx context.Context, s *framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
 	var (
 		nodeName       string

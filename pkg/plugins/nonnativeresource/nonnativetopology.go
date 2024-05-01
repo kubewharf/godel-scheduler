@@ -65,9 +65,8 @@ func FeasibleNonNativeTopology(pod *v1.Pod,
 
 	if len(podAllocations) == 0 {
 		return FitsNonNativeTopology(pod, resourcesRequests, nodeInfo, podLister)
-	} else {
-		return CheckNonNativeTopology(pod, resourcesRequests, nodeInfo, podLister, podAllocations)
 	}
+	return CheckNonNativeTopology(pod, resourcesRequests, nodeInfo, podLister, podAllocations)
 }
 
 func FitsNonNativeTopology(
@@ -124,15 +123,9 @@ func resourcesSufficientForSharedCoresPods(unavailableNumaList []int, nodeInfo f
 	available := nodeInfo.GetResourcesAvailableForSharedCoresPods(unavailableNumaList)
 	requests := nodeInfo.GetResourcesRequestsOfSharedCoresPods()
 	if podRequests == nil {
-		if !satisfyRequestsForExistingSharedCoresPods(available, requests) {
-			return false
-		}
-	} else {
-		if !satisfyRequestsForIncomingSharedCoresPods(available, requests, podRequests) {
-			return false
-		}
+		return satisfyRequestsForExistingSharedCoresPods(available, requests)
 	}
-	return true
+	return satisfyRequestsForIncomingSharedCoresPods(available, requests, podRequests)
 }
 
 func numaOverUsed(numaForSharedCores int64, numaForSocketPods int64, numasUnavailable int64, numaCapacity int64) bool {

@@ -37,7 +37,7 @@ type PodRequest struct {
 	Err             error
 }
 
-// computePodResourceRequest returns a framework.Resource that covers the largest
+// ComputePodResourceRequest returns a framework.Resource that covers the largest
 // width in each resource dimension. Because init-containers run sequentially, we collect
 // the max in each dimension iteratively. In contrast, we sum the resource vectors for
 // regular containers since they run simultaneously.

@@ -59,7 +59,7 @@ func TestGroupPodsGetLeastGroup(t *testing.T) {
 	g.addPod("scheduler1", "pod2")
 	g.addPod("scheduler2", "pod3")
 	group := g.getLeastGroup()
-	if group != "scheduler2" && group == "scheduler1" {
+	if group == "scheduler1" {
 		t.Errorf("unexpected result, group: %s", group)
 	}
 }

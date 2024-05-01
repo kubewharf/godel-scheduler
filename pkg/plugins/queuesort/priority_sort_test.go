@@ -37,79 +37,27 @@ func TestLess(t *testing.T) {
 		expected bool
 	}{
 		{
-			name: "p1.priority less than p2.priority",
-			p1: &framework.QueuedPodInfo{
-				Pod: &v1.Pod{
-					Spec: v1.PodSpec{
-						Priority: &lowPriority,
-					},
-				},
-			},
-			p2: &framework.QueuedPodInfo{
-				Pod: &v1.Pod{
-					Spec: v1.PodSpec{
-						Priority: &highPriority,
-					},
-				},
-			},
+			name:     "p1.priority less than p2.priority",
+			p1:       makeQueuedPodInfo(lowPriority, t1),
+			p2:       makeQueuedPodInfo(highPriority, t1),
 			expected: false, // p2 should be ahead of p1 in the queue
 		},
 		{
-			name: "p1.priority greater than p2.priority",
-			p1: &framework.QueuedPodInfo{
-				Pod: &v1.Pod{
-					Spec: v1.PodSpec{
-						Priority: &highPriority,
-					},
-				},
-			},
-			p2: &framework.QueuedPodInfo{
-				Pod: &v1.Pod{
-					Spec: v1.PodSpec{
-						Priority: &lowPriority,
-					},
-				},
-			},
+			name:     "p1.priority greater than p2.priority",
+			p1:       makeQueuedPodInfo(highPriority, t1),
+			p2:       makeQueuedPodInfo(lowPriority, t1),
 			expected: true, // p1 should be ahead of p2 in the queue
 		},
 		{
-			name: "equal priority. p1 is added to schedulingQ earlier than p2",
-			p1: &framework.QueuedPodInfo{
-				Pod: &v1.Pod{
-					Spec: v1.PodSpec{
-						Priority: &highPriority,
-					},
-				},
-				Timestamp: t1,
-			},
-			p2: &framework.QueuedPodInfo{
-				Pod: &v1.Pod{
-					Spec: v1.PodSpec{
-						Priority: &highPriority,
-					},
-				},
-				Timestamp: t2,
-			},
+			name:     "equal priority. p1 is added to schedulingQ earlier than p2",
+			p1:       makeQueuedPodInfo(highPriority, t1),
+			p2:       makeQueuedPodInfo(highPriority, t2),
 			expected: true, // p1 should be ahead of p2 in the queue
 		},
 		{
-			name: "equal priority. p2 is added to schedulingQ earlier than p1",
-			p1: &framework.QueuedPodInfo{
-				Pod: &v1.Pod{
-					Spec: v1.PodSpec{
-						Priority: &highPriority,
-					},
-				},
-				Timestamp: t2,
-			},
-			p2: &framework.QueuedPodInfo{
-				Pod: &v1.Pod{
-					Spec: v1.PodSpec{
-						Priority: &highPriority,
-					},
-				},
-				Timestamp: t1,
-			},
+			name:     "equal priority. p2 is added to schedulingQ earlier than p1",
+			p1:       makeQueuedPodInfo(highPriority, t2),
+			p2:       makeQueuedPodInfo(highPriority, t1),
 			expected: false, // p2 should be ahead of p1 in the queue
 		},
 	} {
@@ -118,5 +66,16 @@ func TestLess(t *testing.T) {
 				t.Errorf("expected %v, got %v", tt.expected, got)
 			}
 		})
+	}
+}
+
+func makeQueuedPodInfo(priority int32, timestamp time.Time) *framework.QueuedPodInfo {
+	return &framework.QueuedPodInfo{
+		Pod: &v1.Pod{
+			Spec: v1.PodSpec{
+				Priority: &priority,
+			},
+		},
+		Timestamp: timestamp,
 	}
 }

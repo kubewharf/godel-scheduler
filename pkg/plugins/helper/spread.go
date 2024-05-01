@@ -50,24 +50,25 @@ func DefaultSelector(pod *v1.Pod, sl corelisters.ServiceLister, cl corelisters.R
 
 	if rss, err := rsl.GetPodReplicaSets(pod); err == nil {
 		for _, rs := range rss {
-			if other, err := metav1.LabelSelectorAsSelector(rs.Spec.Selector); err == nil {
-				if r, ok := other.Requirements(); ok {
-					selector = selector.Add(r...)
-				}
-			}
+			selector = addPodSelectorFromLabelSelector(selector, rs.Spec.Selector)
 		}
 	}
 
 	if sss, err := ssl.GetPodStatefulSets(pod); err == nil {
 		for _, ss := range sss {
-			if other, err := metav1.LabelSelectorAsSelector(ss.Spec.Selector); err == nil {
-				if r, ok := other.Requirements(); ok {
-					selector = selector.Add(r...)
-				}
-			}
+			selector = addPodSelectorFromLabelSelector(selector, ss.Spec.Selector)
 		}
 	}
 
+	return selector
+}
+
+func addPodSelectorFromLabelSelector(selector labels.Selector, labelSelector *metav1.LabelSelector) labels.Selector {
+	if other, err := metav1.LabelSelectorAsSelector(labelSelector); err == nil {
+		if r, ok := other.Requirements(); ok {
+			selector = selector.Add(r...)
+		}
+	}
 	return selector
 }
 
