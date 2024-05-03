@@ -141,7 +141,10 @@ func (w *waitingPodsList) removeExistedOrCreateWaitingPods(pod *v1.Pod) *waiting
 }
 
 func (w *waitingPodsList) Add(obj interface{}) error {
-	pod := obj.(*v1.Pod)
+	pod, ok := obj.(*v1.Pod)
+	if !ok {
+		return fmt.Errorf("failed to convert obj %T to *v1.Pod", obj)
+	}
 	podInfo := newQueuedPodInfo(pod, w.clock)
 	wp := w.removeExistedOrCreateWaitingPods(pod)
 	wp.pods[pod.UID] = podInfo
@@ -149,7 +152,11 @@ func (w *waitingPodsList) Add(obj interface{}) error {
 }
 
 func (w *waitingPodsList) Update(oldObj, newObj interface{}) error {
-	oldPod, newPod := oldObj.(*v1.Pod), newObj.(*v1.Pod)
+	oldPod, ok1 := oldObj.(*v1.Pod)
+	newPod, ok2 := newObj.(*v1.Pod)
+	if !ok1 || !ok2 {
+		return fmt.Errorf("failed to convert oldObj %T, newObj %T to *v1.Pod", oldObj, newObj)
+	}
 	// We assume that the oldPod and the newPod belong to a same unit.
 	wp := w.removeExistedOrCreateWaitingPods(newPod)
 	if oldPodInfo, ok := wp.pods[oldPod.UID]; ok {
@@ -162,7 +169,10 @@ func (w *waitingPodsList) Update(oldObj, newObj interface{}) error {
 }
 
 func (w *waitingPodsList) Delete(obj interface{}) error {
-	pod := obj.(*v1.Pod)
+	pod, ok := obj.(*v1.Pod)
+	if !ok {
+		return fmt.Errorf("failed to convert obj %T to *v1.Pod", obj)
+	}
 	wp := w.removeExistedOrCreateWaitingPods(pod)
 	delete(wp.pods, pod.UID)
 	if len(wp.pods) > 0 {

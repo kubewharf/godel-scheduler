@@ -349,7 +349,7 @@ func (p *PriorityQueue) updatePodInWaitingList(oldPod, newPod *v1.Pod) error {
 		p.waitingPodsList[oldPod.UID] = updatePod(oldPodInfo, newPod)
 		return nil
 	}
-	return fmt.Errorf("pod %s/%s not found in waiting list.", oldPod.Namespace, oldPod.Name)
+	return fmt.Errorf("pod %s/%s not found in waiting list", oldPod.Namespace, oldPod.Name)
 }
 
 func (p *PriorityQueue) deletePodInWaitingList(pod *v1.Pod) error {
@@ -538,7 +538,7 @@ func (p *PriorityQueue) checkWaitingPod() {
 	}
 }
 
-// MakeNextPodFunc returns a function to retrieve the next pod from a given
+// MakeNextUnitFunc returns a function to retrieve the next pod from a given
 // active queue
 func MakeNextUnitFunc(queue BinderQueue) func() *framework.QueuedUnitInfo {
 	return func() *framework.QueuedUnitInfo {
