@@ -56,7 +56,7 @@ type CSILimits struct {
 	translator InTreeToCSITranslator
 }
 
-// Filter invoked at the filter extension point.
+// FitsCSILimits invoked at the filter extension point.
 func (pl *CSILimits) FitsCSILimits(ctx context.Context, s *framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
 	var nodeName string
 
@@ -256,7 +256,7 @@ func (pl *CSILimits) getCSIDriverInfoFromSC(csiNode *storagev1.CSINode, pvc *v1.
 	return provisioner, volumeHandle
 }
 
-// New initializes a new plugin and returns it.
+// NewCSILimits initializes a new plugin and returns it.
 func NewCSILimits(informerFactory informers.SharedInformerFactory) *CSILimits {
 	csiNodeLister := getCSINodeListerIfEnabled(informerFactory)
 	pvLister := informerFactory.Core().V1().PersistentVolumes().Lister()
