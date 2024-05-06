@@ -26,23 +26,24 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
-const Name commonstores.StoreName = "PodStore"
+const Name commonstore.StoreName = "PodStore"
 
-func (c *PodStore) Name() commonstores.StoreName {
+func (c *PodStore) Name() commonstore.StoreName {
 	return Name
 }
 
 func init() {
-	commonstores.GlobalRegistry.Register(
+	commonstores.GlobalRegistries.Register(
 		Name,
-		func(h handler.CacheHandler) bool { return true },
+		func(h commoncache.CacheHandler) bool { return true },
 		NewCache,
 		NewSnapshot)
 }
@@ -50,9 +51,9 @@ func init() {
 // ---------------------------------------------------------------------------------------
 
 type PodStore struct {
-	commonstores.BaseStore
-	storeType commonstores.StoreType
-	handler   handler.CacheHandler
+	commonstore.BaseStore
+	storeType commonstore.StoreType
+	handler   commoncache.CacheHandler
 
 	// The following data will only be used in the cache
 
@@ -63,12 +64,12 @@ type PodStore struct {
 	PodStates map[string]*framework.CachePodState
 }
 
-var _ commonstores.CommonStore = &PodStore{}
+var _ commonstore.Store = &PodStore{}
 
-func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
+func NewCache(handler commoncache.CacheHandler) commonstore.Store {
 	return &PodStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Cache,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Cache,
 		handler:   handler,
 
 		AssumedPods: make(map[string]bool),
@@ -76,10 +77,10 @@ func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
 	}
 }
 
-func NewSnapshot(handler handler.CacheHandler) commonstores.CommonStore {
+func NewSnapshot(handler commoncache.CacheHandler) commonstore.Store {
 	return &PodStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Snapshot,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Snapshot,
 		handler:   handler,
 
 		AssumedPods: make(map[string]bool),
@@ -107,7 +108,7 @@ func (s *PodStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 		}
 		if ps, _ := s.GetPodState(key); ps != nil {
 			// Use the pod stored in Cache instead of oldPod.
-			if err := s.RemovePod(ps.Pod); err != nil {
+			if err := s.DeletePod(ps.Pod); err != nil {
 				return err
 			}
 		}
@@ -121,7 +122,7 @@ func (s *PodStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 	return nil
 }
 
-func (s *PodStore) RemovePod(pod *v1.Pod) error {
+func (s *PodStore) DeletePod(pod *v1.Pod) error {
 	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType()) {
 		return nil
 	}
@@ -129,7 +130,7 @@ func (s *PodStore) RemovePod(pod *v1.Pod) error {
 }
 
 func (s *PodStore) AssumePod(podInfo *framework.CachePodInfo) error {
-	if s.storeType == commonstores.Snapshot {
+	if s.storeType == commonstore.Snapshot {
 		return nil
 	}
 
@@ -147,7 +148,7 @@ func (s *PodStore) AssumePod(podInfo *framework.CachePodInfo) error {
 }
 
 func (s *PodStore) ForgetPod(podInfo *framework.CachePodInfo) error {
-	if s.storeType == commonstores.Snapshot {
+	if s.storeType == commonstore.Snapshot {
 		return nil
 	}
 
@@ -177,7 +178,7 @@ func (s *PodStore) ForgetPod(podInfo *framework.CachePodInfo) error {
 	return fmt.Errorf("pod %v/%v wasn't assumed so cannot be forgotten", podInfo.Pod.Namespace, podInfo.Pod.Name)
 }
 
-func (s *PodStore) UpdateSnapshot(_ commonstores.CommonStore) error {
+func (s *PodStore) UpdateSnapshot(_ commonstore.Store) error {
 	return nil
 }
 
@@ -270,7 +271,7 @@ func (s *PodStore) FinishReserving(pod *v1.Pod, now time.Time) error {
 	klog.V(5).InfoS("Finished binding for pod. It can be expired", "pod", klog.KObj(pod))
 	currState, ok := s.PodStates[key]
 	if ok && s.AssumedPods[key] {
-		dl := now.Add(s.handler.TTL())
+		dl := now.Add(s.handler.PodAssumedTTL())
 		currState.BindingFinished = true
 		currState.Deadline = &dl
 	}

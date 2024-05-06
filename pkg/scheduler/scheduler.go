@@ -35,13 +35,13 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
 	cachedebugger "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/debugger"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	podscheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler/core/pod_scheduler"
 	unitscheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler/core/unit_scheduler"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/metrics"
@@ -116,9 +116,9 @@ func New(
 
 	mayHasPreemption := parseProfilesBoolConfiguration(options, profileNeedPreemption)
 
-	handlerWrapper := handler.MakeCacheHandlerWrapper().
-		SchedulerName(godelSchedulerName).SchedulerType(*schedulerName).SubCluster(framework.DefaultSubCluster).
-		TTL(15 * time.Minute).Period(10 * time.Second).StopCh(stopEverything).
+	handlerWrapper := commoncache.MakeCacheHandlerWrapper().
+		ComponentName(godelSchedulerName).SchedulerType(*schedulerName).SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(15 * time.Minute).Period(10 * time.Second).StopCh(stopEverything).
 		PodLister(podLister).PodInformer(podInformer)
 	if mayHasPreemption {
 		handlerWrapper.EnableStore(string(preemptionstore.Name))
@@ -223,7 +223,7 @@ func (sched *Scheduler) createDataSet(idx int, subCluster string, switchType fra
 		preemptionPluginArgs[pluginArgs.Name] = &pluginArgs
 	}
 
-	handler := handler.MakeCacheHandlerWrapper().
+	handler := commoncache.MakeCacheHandlerWrapper().
 		SubCluster(subCluster).SwitchType(switchType).
 		EnableStore(schedulerutil.FilterTrueKeys(subClusterConfig.EnableStore)...).
 		PodLister(sched.podLister).

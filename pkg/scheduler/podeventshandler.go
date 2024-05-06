@@ -251,7 +251,7 @@ func (sched *Scheduler) deletePod(obj interface{}) {
 
 	klog.V(3).InfoS("Detected a Delete event for pod", "state", podutil.GetPodState(pod.Annotations), "pod", podutil.GetPodKey(pod))
 
-	if err = sched.commonCache.RemovePod(pod); err != nil {
+	if err = sched.commonCache.DeletePod(pod); err != nil {
 		klog.InfoS("Scheduler cache RemovePod failed", "err", err)
 	}
 	if sched.assumedOrBoundPod(pod) {

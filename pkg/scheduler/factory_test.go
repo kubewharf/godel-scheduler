@@ -29,9 +29,9 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	godelqueue "github.com/kubewharf/godel-scheduler/pkg/scheduler/queue"
 )
 
@@ -104,9 +104,9 @@ func TestDefaultErrorFunc(t *testing.T) {
 
 			queue := godelqueue.NewPriorityQueue(nil, nil, nil, nil, godelqueue.WithClock(clock.NewFakeClock(time.Now())))
 
-			schedulerCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			schedulerCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj())
 

@@ -902,7 +902,7 @@ func TestEphemeralStorageResource(t *testing.T) {
 				t.Error(err)
 			}
 
-			if err := cache.RemovePod(tt.pod); err != nil {
+			if err := cache.DeletePod(tt.pod); err != nil {
 				t.Fatalf("RemovePod failed: %v", err)
 			}
 			if _, err := cache.GetPod(tt.pod); err == nil {
@@ -964,7 +964,7 @@ func TestRemovePod(t *testing.T) {
 				}
 			}
 
-			if err := cache.RemovePod(tt.pod); err != nil {
+			if err := cache.DeletePod(tt.pod); err != nil {
 				t.Fatalf("RemovePod failed: %v", err)
 			}
 
@@ -1193,7 +1193,7 @@ func TestNodeOperators(t *testing.T) {
 			}
 
 			// the node can be removed even if it still has pods.
-			if err := cache.RemoveNode(node); err != nil {
+			if err := cache.DeleteNode(node); err != nil {
 				t.Error(err)
 			}
 			if n, err := cache.GetNode(node.Name); err != nil {
@@ -1211,7 +1211,7 @@ func TestNodeOperators(t *testing.T) {
 
 			// removing pods for the removed node still succeeds.
 			for _, p := range test.pods {
-				if err := cache.RemovePod(p); err != nil {
+				if err := cache.DeletePod(p); err != nil {
 					t.Error(err)
 				}
 				if _, err := cache.GetPod(p); err == nil {

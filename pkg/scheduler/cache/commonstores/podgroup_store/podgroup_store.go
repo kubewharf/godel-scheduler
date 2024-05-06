@@ -21,23 +21,24 @@ import (
 
 	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
 	unitutil "github.com/kubewharf/godel-scheduler/pkg/util/unit"
 )
 
-const Name commonstores.StoreName = "PodGroupStore"
+const Name commonstore.StoreName = "PodGroupStore"
 
-func (c *PodGroupStore) Name() commonstores.StoreName {
+func (c *PodGroupStore) Name() commonstore.StoreName {
 	return Name
 }
 
 func init() {
-	commonstores.GlobalRegistry.Register(
+	commonstores.GlobalRegistries.Register(
 		Name,
-		func(h handler.CacheHandler) bool { return true },
+		func(h commoncache.CacheHandler) bool { return true },
 		NewCache,
 		NewSnapshot)
 }
@@ -45,27 +46,27 @@ func init() {
 // ---------------------------------------------------------------------------------------
 
 type PodGroupStore struct {
-	commonstores.BaseStore
-	storeType commonstores.StoreType
-	handler   handler.CacheHandler
+	commonstore.BaseStore
+	storeType commonstore.StoreType
+	handler   commoncache.CacheHandler
 
 	store generationstore.Store
 }
 
-func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
+func NewCache(handler commoncache.CacheHandler) commonstore.Store {
 	return &PodGroupStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Cache,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Cache,
 		handler:   handler,
 
 		store: generationstore.NewListStore(),
 	}
 }
 
-func NewSnapshot(handler handler.CacheHandler) commonstores.CommonStore {
+func NewSnapshot(handler commoncache.CacheHandler) commonstore.Store {
 	return &PodGroupStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Snapshot,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Snapshot,
 		handler:   handler,
 
 		store: generationstore.NewRawStore(),
@@ -77,18 +78,18 @@ func (s *PodGroupStore) AddPodGroup(podGroup *schedulingv1a1.PodGroup) error {
 	return nil
 }
 
-func (s *PodGroupStore) RemovePodGroup(podGroup *schedulingv1a1.PodGroup) error {
+func (s *PodGroupStore) DeletePodGroup(podGroup *schedulingv1a1.PodGroup) error {
 	s.store.Delete(unitutil.GetPodGroupKey(podGroup))
 	return nil
 }
 
 func (s *PodGroupStore) UpdatePodGroup(oldPodGroup, newPodGroup *schedulingv1a1.PodGroup) error {
-	s.RemovePodGroup(oldPodGroup)
+	s.DeletePodGroup(oldPodGroup)
 	s.AddPodGroup(newPodGroup)
 	return nil
 }
 
-func (s *PodGroupStore) UpdateSnapshot(store commonstores.CommonStore) error {
+func (s *PodGroupStore) UpdateSnapshot(store commonstore.Store) error {
 	cache, snapshot := framework.TransferGenerationStore(s.store, store.(*PodGroupStore).store)
 	cache.UpdateRawStore(
 		snapshot,

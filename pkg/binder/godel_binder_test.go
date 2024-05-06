@@ -1127,8 +1127,8 @@ func TestPreemptAndResolveSameNodeConflict(t *testing.T) {
 
 	assert.Equal(t, 1, len(binder.BinderQueue.PendingPods()))
 	podInfo.NewlyAssumedButStillInHandling = true
-	pCache.RemovePod(testpod1)
-	pCache.RemovePod(testpod2)
+	pCache.DeletePod(testpod1)
+	pCache.DeletePod(testpod2)
 	informerFactory.Core().V1().Pods().Informer().GetIndexer().Delete(testpod1)
 	informerFactory.Core().V1().Pods().Informer().GetIndexer().Delete(testpod2)
 

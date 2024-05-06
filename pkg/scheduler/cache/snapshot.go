@@ -21,6 +21,8 @@ import (
 
 	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
 	loadawarestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/load_aware_store"
@@ -28,7 +30,6 @@ import (
 	pdbstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pdb_store"
 	podgroupstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/podgroup_store"
 	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -38,31 +39,32 @@ import (
 // Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 type Snapshot struct {
-	handler handler.CacheHandler
+	commonstore.CommonStoresSwitch
+
+	handler commoncache.CacheHandler
 
 	nodeSlices *nodeSlices
-
-	storeSwitch *CommonStoresSwitch
 }
 
 var _ framework.SharedLister = &Snapshot{}
 
 // NewEmptySnapshot initializes a Snapshot struct and returns it.
-func NewEmptySnapshot(handler handler.CacheHandler) *Snapshot {
+func NewEmptySnapshot(handler commoncache.CacheHandler) *Snapshot {
 	nodeSlices := newNodeSlices()
 
 	s := &Snapshot{
+		CommonStoresSwitch: commonstore.MakeStoreSwitch(handler, commonstore.Snapshot, commonstores.GlobalRegistries, orderedStoreNames),
+
 		handler: handler,
 
 		nodeSlices: nodeSlices,
-
-		storeSwitch: makeStoreSwitch(handler, commonstores.Snapshot),
 	}
-	nodeStore := s.storeSwitch.Find(nodestore.Name)
+	nodeStore := s.CommonStoresSwitch.Find(nodestore.Name)
 	nodeStore.(*nodestore.NodeStore).AfterAdd = func(n framework.NodeInfo) { nodeSlices.update(n, true) }
 	nodeStore.(*nodestore.NodeStore).AfterDelete = func(n framework.NodeInfo) { nodeSlices.update(n, false) }
 
 	handler.SetNodeHandler(nodeStore.(*nodestore.NodeStore).GetNodeInfo)
+	handler.SetPodOpFunc(podOpFunc(s.CommonStoresSwitch))
 
 	return s
 }
@@ -80,7 +82,7 @@ func (s *Snapshot) MakeBasicNodeGroup() framework.NodeGroup {
 // Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) GetNodeInfo(nodeName string) framework.NodeInfo {
-	return s.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+	return s.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
 }
 
 // NodeInfos returns a NodeInfoLister.
@@ -143,7 +145,7 @@ func (s *Snapshot) HavePodsWithRequiredAntiAffinityList() []framework.NodeInfo {
 // Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) Get(nodeName string) (framework.NodeInfo, error) {
-	if nodeInfo := s.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName); nodeInfo != nil {
+	if nodeInfo := s.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName); nodeInfo != nil {
 		if nodeInfo.GetNode() != nil || nodeInfo.GetNMNode() != nil {
 			return nodeInfo, nil
 		}
@@ -156,7 +158,7 @@ func (s *Snapshot) Get(nodeName string) (framework.NodeInfo, error) {
 // Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) AssumePod(podInfo *framework.CachePodInfo) error {
-	return s.storeSwitch.Range(func(cs commonstores.CommonStore) error { return cs.AssumePod(podInfo) })
+	return s.CommonStoresSwitch.Range(func(cs commonstore.Store) error { return cs.AssumePod(podInfo) })
 }
 
 // ForgetPod remove pod and add-back victims in snapshot.
@@ -164,7 +166,7 @@ func (s *Snapshot) AssumePod(podInfo *framework.CachePodInfo) error {
 // Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) ForgetPod(podInfo *framework.CachePodInfo) error {
-	return s.storeSwitch.Range(func(cs commonstores.CommonStore) error { return cs.ForgetPod(podInfo) })
+	return s.CommonStoresSwitch.Range(func(cs commonstore.Store) error { return cs.ForgetPod(podInfo) })
 }
 
 // GetPreemptorsByVictim return preemptors by victim.
@@ -173,7 +175,7 @@ func (s *Snapshot) ForgetPod(podInfo *framework.CachePodInfo) error {
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) GetPreemptorsByVictim(node, victim string) []string {
 	// TODO: Remove GetPreemptorsByVictim interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.storeSwitch.Find(preemptionstore.Name).(*preemptionstore.PreemptionStore).GetPreemptorsByVictim(node, victim)
+	return s.CommonStoresSwitch.Find(preemptionstore.Name).(*preemptionstore.PreemptionStore).GetPreemptorsByVictim(node, victim)
 }
 
 // GetPDBItemList return PDB items in snapshot.
@@ -182,12 +184,12 @@ func (s *Snapshot) GetPreemptorsByVictim(node, victim string) []string {
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) GetPDBItemList() []framework.PDBItem {
 	// TODO: Remove GetPDBItemList interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.storeSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetPDBItemList()
+	return s.CommonStoresSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetPDBItemList()
 }
 
 func (s *Snapshot) GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGroup, error) {
 	// TODO: Remove GetPodGroupInfo interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.storeSwitch.Find(podgroupstore.Name).(*podgroupstore.PodGroupStore).GetPodGroupInfo(podGroupName)
+	return s.CommonStoresSwitch.Find(podgroupstore.Name).(*podgroupstore.PodGroupStore).GetPodGroupInfo(podGroupName)
 }
 
 // GetPDBItemListForOwner return PDB items for the owner in snapshot.
@@ -196,7 +198,7 @@ func (s *Snapshot) GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGrou
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) GetPDBItemListForOwner(ownerType, ownerKey string) (bool, bool, []string) {
 	// TODO: Remove GetPDBItemListForOwner interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.storeSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetPDBsForOwner(ownerType, ownerKey)
+	return s.CommonStoresSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetPDBsForOwner(ownerType, ownerKey)
 }
 
 // GetOwnerLabels return owner labels in snapshot.
@@ -205,7 +207,7 @@ func (s *Snapshot) GetPDBItemListForOwner(ownerType, ownerKey string) (bool, boo
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) GetOwnerLabels(ownerType, ownerKey string) map[string]string {
 	// TODO: Remove GetOwnerLabels interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.storeSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetOwnerLabels(ownerType, ownerKey)
+	return s.CommonStoresSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetOwnerLabels(ownerType, ownerKey)
 }
 
 // GetOwnersForPDB return owner according to specific PDB in snapshot.
@@ -214,17 +216,17 @@ func (s *Snapshot) GetOwnerLabels(ownerType, ownerKey string) map[string]string 
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) GetOwnersForPDB(key, ownerType string) []string {
 	// TODO: Remove GetOwnersForPDB interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.storeSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetOwnersForPDB(key, ownerType)
+	return s.CommonStoresSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetOwnersForPDB(key, ownerType)
 }
 
 func (s *Snapshot) GetLoadAwareNodeMetricInfo(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeMetricInfo {
 	// TODO: Remove GetLoadAwareNodeMetricInfo interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.storeSwitch.Find(loadawarestore.Name).(*loadawarestore.LoadAwareStore).GetLoadAwareNodeMetricInfo(nodeName, resourceType)
+	return s.CommonStoresSwitch.Find(loadawarestore.Name).(*loadawarestore.LoadAwareStore).GetLoadAwareNodeMetricInfo(nodeName, resourceType)
 }
 
 func (s *Snapshot) GetLoadAwareNodeUsage(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeUsage {
 	// TODO: Remove GetLoadAwareNodeUsage interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.storeSwitch.Find(loadawarestore.Name).(*loadawarestore.LoadAwareStore).GetLoadAwareNodeUsage(nodeName, resourceType)
+	return s.CommonStoresSwitch.Find(loadawarestore.Name).(*loadawarestore.LoadAwareStore).GetLoadAwareNodeUsage(nodeName, resourceType)
 }
 
 // -------------------------------------- node slice for snapshot --------------------------------------

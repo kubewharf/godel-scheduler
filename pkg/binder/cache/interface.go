@@ -60,7 +60,7 @@ import (
 //   - Both "Expired" and "Deleted" are valid end states. In case of some problems, e.g. network issue,
 //     a pod might have changed its state (e.g. added and deleted) without delivering notification to the cache.
 type BinderCache interface {
-	commoncache.ClusterCache
+	commoncache.ClusterEventsHandler
 
 	// Dump takes a snapshot of the current cache. This is used for debugging
 	// purposes only and shouldn't be confused with UpdateSnapshot function.

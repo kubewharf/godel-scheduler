@@ -26,27 +26,28 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/klog/v2"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	"github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	utilfeatures "github.com/kubewharf/godel-scheduler/pkg/util/features"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
 	nodeutil "github.com/kubewharf/godel-scheduler/pkg/util/node"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
-const Name commonstores.StoreName = "NodeStore"
+const Name commonstore.StoreName = "NodeStore"
 
-func (c *NodeStore) Name() commonstores.StoreName {
+func (c *NodeStore) Name() commonstore.StoreName {
 	return Name
 }
 
 func init() {
-	commonstores.GlobalRegistry.Register(
+	commonstores.GlobalRegistries.Register(
 		Name,
-		func(h handler.CacheHandler) bool { return true },
+		func(h commoncache.CacheHandler) bool { return true },
 		NewCache,
 		NewSnapshot)
 }
@@ -69,9 +70,9 @@ func nodeInfoBelongToSubCluster(n framework.NodeInfo, matchedSubCluster string) 
 
 // -------------------------------------- NodeStore --------------------------------------
 type NodeStore struct {
-	commonstores.BaseStore
-	storeType commonstores.StoreType
-	handler   handler.CacheHandler
+	commonstore.BaseStore
+	storeType commonstore.StoreType
+	handler   commoncache.CacheHandler
 
 	Store generationstore.Store // Holds all nodes including those that have been Deleted but still have residual pods.
 	// `Deleted` holds all the nodes:
@@ -86,12 +87,12 @@ type NodeStore struct {
 	imageStates map[string]*imageState
 }
 
-var _ commonstores.CommonStore = &NodeStore{}
+var _ commonstore.Store = &NodeStore{}
 
-func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
+func NewCache(handler commoncache.CacheHandler) commonstore.Store {
 	return &NodeStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Cache,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Cache,
 		handler:   handler,
 
 		Store:       generationstore.NewListStore(),
@@ -100,10 +101,10 @@ func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
 	}
 }
 
-func NewSnapshot(handler handler.CacheHandler) commonstores.CommonStore {
+func NewSnapshot(handler commoncache.CacheHandler) commonstore.Store {
 	return &NodeStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Snapshot,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Snapshot,
 		handler:   handler,
 
 		Store:       generationstore.NewRawStore(),
@@ -123,7 +124,7 @@ func (s *NodeStore) AddNode(node *v1.Node) error {
 		nodeInfo = framework.NewNodeInfo()
 	}
 	s.addNodeImageStates(node, nodeInfo)
-	nodeInfo.SetNodeInSchedulerPartition(nodeutil.NodeOfThisScheduler(node.Annotations, s.handler.SchedulerName()))
+	nodeInfo.SetNodeInSchedulerPartition(nodeutil.NodeOfThisScheduler(node.Annotations, s.handler.ComponentName()))
 	err := nodeInfo.SetNode(node)
 	s.Add(node.GetName(), nodeInfo)
 	return err
@@ -138,7 +139,7 @@ func (s *NodeStore) AddNMNode(nmNode *nodev1alpha1.NMNode) error {
 	} else {
 		nodeInfo = framework.NewNodeInfo()
 	}
-	nodeInfo.SetNMNodeInSchedulerPartition(nodeutil.NodeOfThisScheduler(nmNode.Annotations, s.handler.SchedulerName()))
+	nodeInfo.SetNMNodeInSchedulerPartition(nodeutil.NodeOfThisScheduler(nmNode.Annotations, s.handler.ComponentName()))
 	err := nodeInfo.SetNMNode(nmNode)
 	s.Add(nmNode.GetName(), nodeInfo)
 	return err
@@ -167,7 +168,7 @@ func (s *NodeStore) UpdateNode(oldNode, newNode *v1.Node) error {
 		nodeInfo = framework.NewNodeInfo()
 	}
 	s.addNodeImageStates(newNode, nodeInfo)
-	nodeInfo.SetNodeInSchedulerPartition(nodeutil.NodeOfThisScheduler(newNode.Annotations, s.handler.SchedulerName()))
+	nodeInfo.SetNodeInSchedulerPartition(nodeutil.NodeOfThisScheduler(newNode.Annotations, s.handler.ComponentName()))
 	err := nodeInfo.SetNode(newNode)
 	s.Add(newNode.GetName(), nodeInfo)
 	return err
@@ -182,7 +183,7 @@ func (s *NodeStore) UpdateNMNode(oldNMNode, newNMNode *nodev1alpha1.NMNode) erro
 	} else {
 		nodeInfo = framework.NewNodeInfo()
 	}
-	nodeInfo.SetNMNodeInSchedulerPartition(nodeutil.NodeOfThisScheduler(newNMNode.Annotations, s.handler.SchedulerName()))
+	nodeInfo.SetNMNodeInSchedulerPartition(nodeutil.NodeOfThisScheduler(newNMNode.Annotations, s.handler.ComponentName()))
 	err := nodeInfo.SetNMNode(newNMNode)
 	s.Add(newNMNode.GetName(), nodeInfo)
 	return err
@@ -200,7 +201,7 @@ func (s *NodeStore) UpdateCNR(oldCNR, newCNR *katalystv1alpha1.CustomNodeResourc
 	return err
 }
 
-func (s *NodeStore) RemoveNode(node *v1.Node) error {
+func (s *NodeStore) DeleteNode(node *v1.Node) error {
 	var nodeInfo framework.NodeInfo
 	if obj := s.Get(node.GetName()); obj != nil {
 		nodeInfo = obj
@@ -221,7 +222,7 @@ func (s *NodeStore) RemoveNode(node *v1.Node) error {
 	return nil
 }
 
-func (s *NodeStore) RemoveNMNode(nmNode *nodev1alpha1.NMNode) error {
+func (s *NodeStore) DeleteNMNode(nmNode *nodev1alpha1.NMNode) error {
 	var nodeInfo framework.NodeInfo
 	if obj := s.Get(nmNode.GetName()); obj != nil {
 		nodeInfo = obj
@@ -241,9 +242,9 @@ func (s *NodeStore) RemoveNMNode(nmNode *nodev1alpha1.NMNode) error {
 	return nil
 }
 
-// RemoveCNR removes custom node resource.
+// DeleteCNR removes custom node resource.
 // The node might be still in the node tree because their deletion events didn't arrive yet.
-func (s *NodeStore) RemoveCNR(cnr *katalystv1alpha1.CustomNodeResource) error {
+func (s *NodeStore) DeleteCNR(cnr *katalystv1alpha1.CustomNodeResource) error {
 	var nodeInfo framework.NodeInfo
 	if obj := s.Get(cnr.Name); obj != nil {
 		nodeInfo = obj
@@ -286,7 +287,7 @@ func (s *NodeStore) UpdatePod(oldPod, newPod *v1.Pod) error {
 		}
 		if ps, _ := s.handler.GetPodState(key); ps != nil {
 			// Use the pod stored in Cache instead of oldPod.
-			if err := s.RemovePod(ps.Pod); err != nil {
+			if err := s.DeletePod(ps.Pod); err != nil {
 				return err
 			}
 		}
@@ -300,7 +301,7 @@ func (s *NodeStore) UpdatePod(oldPod, newPod *v1.Pod) error {
 	return nil
 }
 
-func (s *NodeStore) RemovePod(pod *v1.Pod) error {
+func (s *NodeStore) DeletePod(pod *v1.Pod) error {
 	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType()) {
 		return nil
 	}
@@ -341,7 +342,7 @@ func (s *NodeStore) AssumePod(podInfo *framework.CachePodInfo) error {
 	}
 	nodeInfo.AddPod(podInfo.Pod)
 
-	if s.storeType == commonstores.Snapshot {
+	if s.storeType == commonstore.Snapshot {
 		if podInfo.Victims != nil && len(podInfo.Victims.Pods) > 0 {
 			for _, victim := range podInfo.Victims.Pods {
 				if err := nodeInfo.RemovePod(victim, true); err != nil {
@@ -367,7 +368,7 @@ func (s *NodeStore) ForgetPod(podInfo *framework.CachePodInfo) error {
 	if err := nodeInfo.RemovePod(podInfo.Pod, false); err != nil {
 		return err
 	}
-	if s.storeType == commonstores.Snapshot {
+	if s.storeType == commonstore.Snapshot {
 		if podInfo.Victims != nil && len(podInfo.Victims.Pods) > 0 {
 			for _, victim := range podInfo.Victims.Pods {
 				nodeInfo.AddPod(victim)
@@ -386,7 +387,7 @@ func (s *NodeStore) ForgetPod(podInfo *framework.CachePodInfo) error {
 	return nil
 }
 
-func (cacheStore *NodeStore) UpdateSnapshot(store commonstores.CommonStore) error {
+func (cacheStore *NodeStore) UpdateSnapshot(store commonstore.Store) error {
 	snapshotStore := store.(*NodeStore)
 	cache, snapshot := framework.TransferGenerationStore(cacheStore.Store, snapshotStore.Store)
 

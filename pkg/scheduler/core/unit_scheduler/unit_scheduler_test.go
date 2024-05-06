@@ -40,12 +40,12 @@ import (
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	schedulingconfig "github.com/kubewharf/godel-scheduler/pkg/framework/api/config"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/core"
 	podscheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler/core/pod_scheduler"
 	schedulerframework "github.com/kubewharf/godel-scheduler/pkg/scheduler/framework"
@@ -242,12 +242,12 @@ func TestSchedulerPreemptionWithErrors(t *testing.T) {
 	// errChan := make(chan error, 1)
 	// chanTimeout := 5 * time.Second
 
-	sCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	sCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		EnableStore("PreemptionStore").
 		Obj())
-	snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+	snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 		SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 		EnableStore("PreemptionStore").
 		Obj())
@@ -403,12 +403,12 @@ func TestSchedulerPreemptionWithReserveError(t *testing.T) {
 	crdClient := godelclientfake.NewSimpleClientset()
 	// crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, 0)
 
-	sCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	sCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		EnableStore("PreemptionStore").
 		Obj())
-	snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+	snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 		SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 		EnableStore("PreemptionStore").
 		Obj())
@@ -514,13 +514,13 @@ func TestSchedulerPreemption(t *testing.T) {
 	crdClient := godelclientfake.NewSimpleClientset()
 	// crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, 0)
 
-	sCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	sCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		PodLister(informerFactory.Core().V1().Pods().Lister()).
 		EnableStore("PreemptionStore").
 		Obj())
-	snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+	snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 		SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 		PodLister(informerFactory.Core().V1().Pods().Lister()).
 		EnableStore("PreemptionStore").
@@ -649,12 +649,12 @@ func TestScheduleUnit(t *testing.T) {
 	crdInformerFactory.Start(stop)
 	crdInformerFactory.WaitForCacheSync(stop)
 
-	sCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	sCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		EnableStore("PreemptionStore").
 		Obj())
-	snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+	snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 		SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 		EnableStore("PreemptionStore").
 		Obj())
@@ -783,12 +783,12 @@ func TestScheduleUnit_PlacementFailure(t *testing.T) {
 	crdInformerFactory.WaitForCacheSync(stop)
 	crdInformerFactory.Scheduling().V1alpha1().PodGroups().Informer().GetIndexer().Add(testPodGroup)
 
-	sCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	sCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		EnableStore("PreemptionStore").
 		Obj())
-	snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+	snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 		SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 		EnableStore("PreemptionStore").
 		Obj())
@@ -1010,12 +1010,12 @@ func TestScheduleUnitInNodeGroup_SinglePod(t *testing.T) {
 			pc := testing_helper.MakePriorityClass().Name("pc").Obj()
 			pcInformer.GetIndexer().Add(pc)
 
-			sCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("scheduler").SchedulerType(schedulerName).SubCluster(framework.DefaultSubCluster).
-				TTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			sCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("scheduler").SchedulerType(schedulerName).SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj())
-			snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				PodLister(informerFactory.Core().V1().Pods().Lister()).
 				EnableStore("PreemptionStore").
@@ -2077,12 +2077,12 @@ func TestScheduleUnitInNodeGroup_PodGroup(t *testing.T) {
 			pc := testing_helper.MakePriorityClass().Name("pc").Obj()
 			pcInformer.GetIndexer().Add(pc)
 
-			sCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("scheduler").SchedulerType(schedulerName).SubCluster(framework.DefaultSubCluster).
-				TTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			sCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("scheduler").SchedulerType(schedulerName).SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj())
-			snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				PodLister(informerFactory.Core().V1().Pods().Lister()).
 				EnableStore("PreemptionStore").

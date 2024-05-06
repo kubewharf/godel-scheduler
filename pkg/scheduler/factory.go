@@ -155,7 +155,7 @@ func MakeDefaultErrorFunc(client clientset.Interface, schedulerCache godelcache.
 				_, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 				if err != nil && apierrors.IsNotFound(err) {
 					node := v1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
-					if err := schedulerCache.RemoveNode(&node); err != nil {
+					if err := schedulerCache.DeleteNode(&node); err != nil {
 						klog.InfoS("Failed to remove node from the case as it was not found", "node", klog.KObj(&node))
 					}
 				}

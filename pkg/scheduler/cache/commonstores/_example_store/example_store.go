@@ -21,9 +21,9 @@ import (
 	"k8s.io/apiserver/pkg/features"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 
+	commonstore "code.byted.org/godel/godel/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
@@ -33,23 +33,23 @@ import (
 // ================================================ ATTENTION ================================================
 
 // Define the index names of the stores, each of which should be different from the other.
-const Name commonstores.StoreName = "ExampleStore"
+const Name commonstore.StoreName = "ExampleStore"
 
-func (c *ExampleStore) Name() commonstores.StoreName {
+func (c *ExampleStore) Name() commonstore.StoreName {
 	return Name
 }
 
 // Implement the `init` function and register the storage to the registry when the program starts.
 func init() {
-	commonstores.GlobalRegistry.Register(
+	commonstores.GlobalRegistries.Register(
 		// Args0: Name of the store.
 		Name,
 		// Args1: Whether the store should be built. Returning true means the store should be built.
 		//	Specifically: you can use featuregate or use the handler's method to determine if you
 		//	need to build the storage.
-		func(h handler.CacheHandler) bool {
+		func(h commoncache.CacheHandler) bool {
 			// For example:
-			if h.MayHasPreemption() && utilfeature.DefaultFeatureGate.Enabled(features.DryRun) {
+			if h.IsStoreEnabled("PreemptionStore") && utilfeature.DefaultFeatureGate.Enabled(features.DryRun) {
 				return true
 			}
 			return false
@@ -62,14 +62,14 @@ func init() {
 
 // ---------------------------------------------------------------------------------------
 
-// ExampleStore implementing the CommonStore interface.
+// ExampleStore implementing the Store interface.
 type ExampleStore struct {
-	// BaseStore is the `anonymous field` that implements all the ClusterCache interface as a base class.
-	commonstores.BaseStore
+	// BaseStore is the `anonymous field` that implements all the ClusterEventsHandler interface as a base class.
+	commonstore.BaseStore
 	// storeType specifies whether the current store belong to Cache / Snapshot.
-	storeType commonstores.StoreType
+	storeType commonstore.StoreType
 	// handler provides access to public data or some advanced operations.
-	handler handler.CacheHandler
+	handler commoncache.CacheHandler
 
 	// Storage field support customization.
 	// In general, we use generationstore.ListStore in Cache and generationstore.RawStore in snapshot,
@@ -77,29 +77,29 @@ type ExampleStore struct {
 	Store generationstore.Store
 }
 
-func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
+func NewCache(handler commoncache.CacheHandler) commonstore.Store {
 	return &ExampleStore{
 		// NewBaseStore returns a basic implementation of BaseStore, which does not do any operations.
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Cache,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Cache,
 		handler:   handler,
 
 		Store: generationstore.NewListStore(),
 	}
 }
 
-func NewSnapshot(handler handler.CacheHandler) commonstores.CommonStore {
+func NewSnapshot(handler commoncache.CacheHandler) commonstore.Store {
 	return &ExampleStore{
 		// NewBaseStore returns a basic implementation of BaseStore, which does not do any operations.
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Snapshot,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Snapshot,
 		handler:   handler,
 
 		Store: generationstore.NewRawStore(),
 	}
 }
 
-// -------------------------------------- ClusterCache --------------------------------------
+// -------------------------------------- ClusterEventsHandler --------------------------------------
 
 // For a specific store, it needs to explicitly know which events it needs to care about, and manually
 // implement specific function methods to override BaseStore's function methods.
@@ -124,13 +124,13 @@ func (s *ExampleStore) AddPod(pod *v1.Pod) error {
 func (s *ExampleStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 	// Remove the oldPod if existed.
 	{
-		key, err := framework.GetPodKey(oldPod)
+		key, err := podutil.GetPodUID(oldPod)
 		if err != nil {
 			return err
 		}
 		if ps, _ := s.handler.GetPodState(key); ps != nil {
 			// Use the pod stored in Cache instead of oldPod.
-			if err := s.RemovePod(ps.Pod); err != nil {
+			if err := s.DeletePod(ps.Pod); err != nil {
 				return err
 			}
 		}
@@ -144,7 +144,7 @@ func (s *ExampleStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 	return nil
 }
 
-func (s *ExampleStore) RemovePod(pod *v1.Pod) error {
+func (s *ExampleStore) DeletePod(pod *v1.Pod) error {
 	// For a specific store, it may only care about pods that meet specific conditions, so it is able
 	// to do filtering here based on specific objects.
 	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType()) {
@@ -160,7 +160,7 @@ func (s *ExampleStore) UpdateNode(oldNode, newNode *v1.Node) error {
 // AssumePod/ForgetPod will be called by Cache/Snapshot at the same time. If there is different logic
 // it can be distinguished by storeType.
 func (s *ExampleStore) AssumePod(podInfo *framework.CachePodInfo) error {
-	if s.storeType == commonstores.Snapshot {
+	if s.storeType == commonstore.Snapshot {
 		return nil
 	}
 	// Do something and return.
@@ -171,7 +171,7 @@ func (s *ExampleStore) AssumePod(podInfo *framework.CachePodInfo) error {
 // AssumePod/ForgetPod will be called by Cache/Snapshot at the same time. If there is different logic
 // it can be distinguished by storeType.
 func (s *ExampleStore) ForgetPod(podInfo *framework.CachePodInfo) error {
-	if s.storeType == commonstores.Snapshot {
+	if s.storeType == commonstore.Snapshot {
 		return nil
 	}
 	// Do something and return.
@@ -181,12 +181,12 @@ func (s *ExampleStore) ForgetPod(podInfo *framework.CachePodInfo) error {
 
 // UpdateSnapshot synchronize the data in the Cache to Snapshot, generally using generationstore for
 // incremental updates.
-func (s *ExampleStore) UpdateSnapshot(store commonstores.CommonStore) error {
+func (s *ExampleStore) UpdateSnapshot(store commonstore.Store) error {
 	cache, snapshot := framework.TransferGenerationStore(s.Store, store.(*ExampleStore).Store)
 	cache.UpdateRawStore(
 		snapshot,
 		func(s string, so generationstore.StoredObj) {
-			// Clone...
+			// Clone..
 		},
 		generationstore.DefaultCleanFunc(cache, snapshot),
 	)

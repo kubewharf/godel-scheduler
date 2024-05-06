@@ -94,7 +94,7 @@ func (binder *Binder) deleteNodeFromCache(obj interface{}) {
 	// invalidation and then snapshot the cache itself. If the cache is
 	// snapshotted before updates are written, we would update equivalence
 	// cache with stale information which is based on snapshot of old cache.
-	if err := binder.BinderCache.RemoveNode(node); err != nil {
+	if err := binder.BinderCache.DeleteNode(node); err != nil {
 		klog.InfoS("Failed to execute binder cache RemoveNode", "err", err)
 	}
 }
@@ -151,7 +151,7 @@ func (binder *Binder) deleteNMNodeFromCache(obj interface{}) {
 	// invalidation and then snapshot the cache itself. If the cache is
 	// snapshotted before updates are written, we would update equivalence
 	// cache with stale information which is based on snapshot of old cache.
-	if err := binder.BinderCache.RemoveNMNode(nmNode); err != nil {
+	if err := binder.BinderCache.DeleteNMNode(nmNode); err != nil {
 		klog.InfoS("Failed to execute binder cache RemoveNMNode", "err", err)
 	}
 }
@@ -208,7 +208,7 @@ func (binder *Binder) deleteCNRFromCache(obj interface{}) {
 	// invalidation and then snapshot the cache itself. If the cache is
 	// snapshotted before updates are written, we would update equivalence
 	// cache with stale information which is based on snapshot of old cache.
-	if err := binder.BinderCache.RemoveCNR(cnr); err != nil {
+	if err := binder.BinderCache.DeleteCNR(cnr); err != nil {
 		klog.InfoS("Failed to execute binder cache RemoveCNR", "err", err)
 	}
 }
@@ -267,7 +267,7 @@ func (binder *Binder) deletePodFromCache(obj interface{}) {
 	// snapshotted before updates are written, we would update equivalence
 	// cache with stale information which is based on snapshot of old cache.
 	if needAddToCache(pod) {
-		if err := binder.BinderCache.RemovePod(pod); err != nil {
+		if err := binder.BinderCache.DeletePod(pod); err != nil {
 			klog.InfoS("Failed to execute binder cache RemovePod", "err", err)
 		}
 	}
@@ -489,7 +489,7 @@ func (binder *Binder) deletePodGroup(obj interface{}) {
 
 	klog.InfoS("Found a delete event for pod group", "podGroup", klog.KObj(podGroup))
 
-	if err := binder.BinderCache.RemovePodGroup(podGroup); err != nil {
+	if err := binder.BinderCache.DeletePodGroup(podGroup); err != nil {
 		klog.InfoS("Failed to execute binder cache RemovePodGroup", "err", err)
 		return
 	}

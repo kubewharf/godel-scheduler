@@ -14,9 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package handler
+package cache
 
 import (
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -31,11 +32,11 @@ type (
 	NodeHandler func(string) framework.NodeInfo
 	PodHandler  func(string) (*framework.CachePodState, bool)
 
-	PodOpFunc func(pod *v1.Pod, isAdd bool, skippStores sets.String) error
+	PodOpFunc func(pod *v1.Pod, isAdd bool, skippedStores sets.String) error
 )
 
 type CacheHandler interface {
-	SchedulerName() string
+	ComponentName() string
 	SchedulerType() string
 	SubCluster() string
 	SwitchType() framework.SwitchType
@@ -43,9 +44,10 @@ type CacheHandler interface {
 	// TODO: Revisit this and split the judgment section on whether storage needs to be enabled.
 	IsStoreEnabled(string) bool
 
-	TTL() time.Duration
+	PodAssumedTTL() time.Duration
 	Period() time.Duration
 	StopCh() <-chan struct{}
+	Mutex() *sync.RWMutex
 
 	PodLister() corelister.PodLister
 	PodInformer() coreinformers.PodInformer
@@ -58,21 +60,22 @@ type CacheHandler interface {
 	SetNodeHandler(NodeHandler)
 	SetPodHandler(PodHandler)
 
-	PodOp(pod *v1.Pod, isAdd bool, skippStores sets.String) error
+	PodOp(pod *v1.Pod, isAdd bool, skippedStores sets.String) error
 	SetPodOpFunc(PodOpFunc)
 }
 
 type handler struct {
-	schedulerName string
+	componentName string
 	schedulerType string
 	subCluster    string
 	switchType    framework.SwitchType // Only be used in Snapshot.
 
 	enabledStores sets.String
 
-	ttl    time.Duration
-	period time.Duration
-	stop   <-chan struct{}
+	podAssumedTTL time.Duration
+	period        time.Duration
+	stop          <-chan struct{}
+	mu            *sync.RWMutex
 
 	podLister   corelister.PodLister
 	podInformer coreinformers.PodInformer
@@ -86,14 +89,15 @@ type handler struct {
 
 var _ CacheHandler = &handler{}
 
-func (h *handler) SchedulerName() string                  { return h.schedulerName }
+func (h *handler) ComponentName() string                  { return h.componentName }
 func (h *handler) SchedulerType() string                  { return h.schedulerType }
 func (h *handler) SubCluster() string                     { return h.subCluster }
 func (h *handler) SwitchType() framework.SwitchType       { return h.switchType }
 func (h *handler) IsStoreEnabled(storeName string) bool   { return h.enabledStores.Has(storeName) }
-func (h *handler) TTL() time.Duration                     { return h.ttl }
+func (h *handler) PodAssumedTTL() time.Duration           { return h.podAssumedTTL }
 func (h *handler) Period() time.Duration                  { return h.period }
 func (h *handler) StopCh() <-chan struct{}                { return h.stop }
+func (h *handler) Mutex() *sync.RWMutex                   { return h.mu }
 func (h *handler) PodLister() corelister.PodLister        { return h.podLister }
 func (h *handler) PodInformer() coreinformers.PodInformer { return h.podInformer }
 
@@ -102,8 +106,8 @@ func (h *handler) GetPodState(key string) (*framework.CachePodState, bool) { ret
 func (h *handler) SetNodeHandler(f NodeHandler)                            { h.nodeHandler = f }
 func (h *handler) SetPodHandler(f PodHandler)                              { h.podHandler = f }
 
-func (h *handler) PodOp(pod *v1.Pod, isAdd bool, skippStores sets.String) error {
-	return h.podOpFunc(pod, isAdd, skippStores)
+func (h *handler) PodOp(pod *v1.Pod, isAdd bool, skippedStores sets.String) error {
+	return h.podOpFunc(pod, isAdd, skippedStores)
 }
 func (h *handler) SetPodOpFunc(f PodOpFunc) { h.podOpFunc = f }
 
@@ -112,15 +116,15 @@ func (h *handler) SetPodOpFunc(f PodOpFunc) { h.podOpFunc = f }
 type handlerWrapper struct{ obj *handler }
 
 func MakeCacheHandlerWrapper() *handlerWrapper {
-	return &handlerWrapper{&handler{enabledStores: sets.NewString()}}
+	return &handlerWrapper{&handler{enabledStores: sets.NewString(), mu: &sync.RWMutex{}}}
 }
 
 func (w *handlerWrapper) Obj() CacheHandler {
 	return w.obj
 }
 
-func (w *handlerWrapper) SchedulerName(schedulerName string) *handlerWrapper {
-	w.obj.schedulerName = schedulerName
+func (w *handlerWrapper) ComponentName(componentName string) *handlerWrapper {
+	w.obj.componentName = componentName
 	return w
 }
 
@@ -144,8 +148,8 @@ func (w *handlerWrapper) EnableStore(storeNames ...string) *handlerWrapper {
 	return w
 }
 
-func (w *handlerWrapper) TTL(ttl time.Duration) *handlerWrapper {
-	w.obj.ttl = ttl
+func (w *handlerWrapper) PodAssumedTTL(podAssumedTTL time.Duration) *handlerWrapper {
+	w.obj.podAssumedTTL = podAssumedTTL
 	return w
 }
 
@@ -156,6 +160,11 @@ func (w *handlerWrapper) Period(period time.Duration) *handlerWrapper {
 
 func (w *handlerWrapper) StopCh(stop <-chan struct{}) *handlerWrapper {
 	w.obj.stop = stop
+	return w
+}
+
+func (w *handlerWrapper) Mutex(mu *sync.RWMutex) *handlerWrapper {
+	w.obj.mu = mu
 	return w
 }
 

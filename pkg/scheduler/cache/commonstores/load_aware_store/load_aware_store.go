@@ -20,24 +20,25 @@ import (
 	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
-const Name commonstores.StoreName = "LoadAwareStore"
+const Name commonstore.StoreName = "LoadAwareStore"
 
-func (c *LoadAwareStore) Name() commonstores.StoreName {
+func (c *LoadAwareStore) Name() commonstore.StoreName {
 	return Name
 }
 
 func init() {
-	commonstores.GlobalRegistry.Register(
+	commonstores.GlobalRegistries.Register(
 		Name,
-		func(h handler.CacheHandler) bool { return true },
+		func(h commoncache.CacheHandler) bool { return true },
 		NewCache,
 		NewSnapshot)
 }
@@ -46,28 +47,28 @@ func init() {
 
 // LoadAwareStore implementing the CommonStore interface.
 type LoadAwareStore struct {
-	commonstores.BaseStore
-	storeType commonstores.StoreType
-	handler   handler.CacheHandler
+	commonstore.BaseStore
+	storeType commonstore.StoreType
+	handler   commoncache.CacheHandler
 
 	// NodeMetricInfo
 	Store generationstore.Store
 }
 
-func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
+func NewCache(handler commoncache.CacheHandler) commonstore.Store {
 	return &LoadAwareStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Cache,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Cache,
 		handler:   handler,
 
 		Store: generationstore.NewListStore(),
 	}
 }
 
-func NewSnapshot(handler handler.CacheHandler) commonstores.CommonStore {
+func NewSnapshot(handler commoncache.CacheHandler) commonstore.Store {
 	return &LoadAwareStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Snapshot,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Snapshot,
 		handler:   handler,
 
 		Store: generationstore.NewRawStore(),
@@ -87,7 +88,7 @@ func (s *LoadAwareStore) UpdateCNR(oldCNR, newCNR *katalystv1alpha1.CustomNodeRe
 	return s.nodeMetricOp(newCNR, true)
 }
 
-func (s *LoadAwareStore) RemoveCNR(cnr *katalystv1alpha1.CustomNodeResource) error {
+func (s *LoadAwareStore) DeleteCNR(cnr *katalystv1alpha1.CustomNodeResource) error {
 	return s.nodeMetricOp(cnr, true)
 }
 
@@ -107,7 +108,7 @@ func (s *LoadAwareStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 		}
 		if ps, _ := s.handler.GetPodState(key); ps != nil {
 			// Use the pod stored in Cache instead of oldPod.
-			if err := s.RemovePod(ps.Pod); err != nil {
+			if err := s.DeletePod(ps.Pod); err != nil {
 				return err
 			}
 		}
@@ -121,7 +122,7 @@ func (s *LoadAwareStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 	return nil
 }
 
-func (s *LoadAwareStore) RemovePod(pod *v1.Pod) error {
+func (s *LoadAwareStore) DeletePod(pod *v1.Pod) error {
 	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType()) {
 		return nil
 	}
@@ -138,7 +139,7 @@ func (s *LoadAwareStore) ForgetPod(podInfo *framework.CachePodInfo) error {
 
 // UpdateSnapshot synchronize the data in the Cache to Snapshot, generally using generationstore for
 // incremental updates.
-func (s *LoadAwareStore) UpdateSnapshot(store commonstores.CommonStore) error {
+func (s *LoadAwareStore) UpdateSnapshot(store commonstore.Store) error {
 	cache, snapshot := framework.TransferGenerationStore(s.Store, store.(*LoadAwareStore).Store)
 	cache.UpdateRawStore(
 		snapshot,
@@ -169,7 +170,7 @@ func (s *LoadAwareStore) podOp(pod *v1.Pod, isAdd bool) error {
 		} else {
 			nodeMetricInfo = NewNodeMetricInfo(nodeName, nil)
 		}
-		nodeMetricInfo.PodOp(pInfo, s.storeType == commonstores.Cache, true)
+		nodeMetricInfo.PodOp(pInfo, s.storeType == commonstore.Cache, true)
 		s.Store.Set(nodeName, nodeMetricInfo)
 	} else {
 		if nodeMetricInfoObj := s.Store.Get(nodeName); nodeMetricInfoObj != nil {
@@ -177,7 +178,7 @@ func (s *LoadAwareStore) podOp(pod *v1.Pod, isAdd bool) error {
 		} else {
 			return nil
 		}
-		nodeMetricInfo.PodOp(pInfo, s.storeType == commonstores.Cache, false)
+		nodeMetricInfo.PodOp(pInfo, s.storeType == commonstore.Cache, false)
 		if nodeMetricInfo.CanBeRecycle() {
 			s.Store.Delete(nodeName)
 		} else {

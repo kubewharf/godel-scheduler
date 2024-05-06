@@ -58,8 +58,8 @@ func (c *Cache) AddPod(pod *v1.Pod) error { return nil }
 // UpdatePod is a fake method for testing.
 func (c *Cache) UpdatePod(oldPod, newPod *v1.Pod) error { return nil }
 
-// RemovePod is a fake method for testing.
-func (c *Cache) RemovePod(pod *v1.Pod) error { return nil }
+// DeletePod is a fake method for testing.
+func (c *Cache) DeletePod(pod *v1.Pod) error { return nil }
 
 // IsAssumedPod is a fake method for testing.
 func (c *Cache) IsAssumedPod(pod *v1.Pod) (bool, error) {
@@ -99,11 +99,11 @@ func (c *Cache) UpdateNode(oldNode, newNode *v1.Node) error { return nil }
 // UpdateNMNode is a fake method for testing.
 func (c *Cache) UpdateNMNode(oldNMNode, newNMNode *nodev1alpha1.NMNode) error { return nil }
 
-// RemoveNode is a fake method for testing.
-func (c *Cache) RemoveNode(node *v1.Node) error { return nil }
+// DeleteNode is a fake method for testing.
+func (c *Cache) DeleteNode(node *v1.Node) error { return nil }
 
-// RemoveNMNode is a fake method for testing.
-func (c *Cache) RemoveNMNode(nmNode *nodev1alpha1.NMNode) error { return nil }
+// DeleteNMNode is a fake method for testing.
+func (c *Cache) DeleteNMNode(nmNode *nodev1alpha1.NMNode) error { return nil }
 
 // PodCount is a fake method for testing.
 func (c *Cache) PodCount() (int, error) { return 0, nil }
@@ -123,8 +123,8 @@ func (c *Cache) UpdateCNR(oldCNR, newCNR *katalystv1alpha1.CustomNodeResource) e
 	return nil
 }
 
-// RemoveCNR removes custom resource information about node.
-func (c *Cache) RemoveCNR(cnr *katalystv1alpha1.CustomNodeResource) error {
+// DeleteCNR removes custom resource information about node.
+func (c *Cache) DeleteCNR(cnr *katalystv1alpha1.CustomNodeResource) error {
 	return nil
 }
 
@@ -144,7 +144,7 @@ func (c *Cache) UpdatePodGroup(oldPodGroup, newPodGroup *schedulingv1a1.PodGroup
 	return nil
 }
 
-func (c *Cache) RemovePodGroup(podGroup *schedulingv1a1.PodGroup) error {
+func (c *Cache) DeletePodGroup(podGroup *schedulingv1a1.PodGroup) error {
 	return nil
 }
 
