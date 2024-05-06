@@ -46,12 +46,12 @@ import (
 )
 
 func TestSelectHost(t *testing.T) {
-	scheduler := podScheduler{}
 	tests := []struct {
 		name          string
 		list          framework.NodeScoreList
 		possibleHosts sets.String
 		expectsErr    bool
+		pod           *v1.Pod
 	}{
 		{
 			name: "unique properly ordered scores",
@@ -61,6 +61,8 @@ func TestSelectHost(t *testing.T) {
 			},
 			possibleHosts: sets.NewString("machine2.1"),
 			expectsErr:    false,
+			pod: testinghelper.MakePod().Namespace("default").Name("pod1").UID("pod1").
+				ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs1", UID: "rs1"}).Obj(),
 		},
 		{
 			name: "equal scores",
@@ -72,6 +74,8 @@ func TestSelectHost(t *testing.T) {
 			},
 			possibleHosts: sets.NewString("machine1.2", "machine1.3", "machine2.1"),
 			expectsErr:    false,
+			pod: testinghelper.MakePod().Namespace("default").Name("pod2").UID("pod2").
+				ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs2", UID: "rs2"}).Obj(),
 		},
 		{
 			name: "out of order scores",
@@ -84,21 +88,49 @@ func TestSelectHost(t *testing.T) {
 			},
 			possibleHosts: sets.NewString("machine1.1", "machine1.2", "machine1.3"),
 			expectsErr:    false,
+			pod: testinghelper.MakePod().Namespace("default").Name("pod3").UID("pod3").
+				ControllerRef(metav1.OwnerReference{Kind: "StatefulSet", Name: "sts3", UID: "sts3"}).Obj(),
 		},
 		{
 			name:          "empty priority list",
 			list:          []framework.NodeScore{},
 			possibleHosts: sets.NewString(),
 			expectsErr:    true,
+			pod: testinghelper.MakePod().Namespace("default").Name("pod4").UID("pod4").
+				ControllerRef(metav1.OwnerReference{Kind: "StatefulSet", Name: "sts4", UID: "sts4"}).Obj(),
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// get mock pod owner
+			podOwner := podutil.GetPodOwner(test.pod)
 			// increase the randomness
 			for i := 0; i < 10; i++ {
 				// TODO: add unit test cases for caching node logic
-				got, err := scheduler.selectHostAndCacheResults(test.list, &v1.Pod{}, "", "", &framework.UnitSchedulingRequest{})
+				scheduler := podScheduler{
+					isolatedCache: isolatedcache.NewIsolatedCache(),
+				}
+
+				selectedNode, err := scheduler.selectHostAndCacheResults(test.list, &v1.Pod{}, podOwner, "", &framework.UnitSchedulingRequest{})
+				nodes := scheduler.isolatedCache.GetOrderedNodesForPodOwner(podOwner)
+
+				// exclude the selected node
+				nonSelectedNodes := sets.NewString()
+				for _, nodeScore := range test.list {
+					if nodeScore.Name != selectedNode {
+						nonSelectedNodes.Insert(nodeScore.Name)
+					}
+				}
+
+				for _, node := range nodes {
+					if selectedNode == node {
+						t.Errorf("Unexpected cached node %s, selected node should not be cached", selectedNode)
+					} else if !nonSelectedNodes.Has(node) {
+						t.Errorf("Non-selected nodes should be cached")
+					}
+				}
+
 				if test.expectsErr {
 					if err == nil {
 						t.Error("Unexpected non-error")
@@ -107,8 +139,8 @@ func TestSelectHost(t *testing.T) {
 					if err != nil {
 						t.Errorf("Unexpected error: %v", err)
 					}
-					if !test.possibleHosts.Has(got) {
-						t.Errorf("got %s is not in the possible map %v", got, test.possibleHosts)
+					if !test.possibleHosts.Has(selectedNode) {
+						t.Errorf("got %s is not in the possible map %v", selectedNode, test.possibleHosts)
 					}
 				}
 			}
