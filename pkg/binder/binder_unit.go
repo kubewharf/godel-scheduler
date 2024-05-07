@@ -267,79 +267,43 @@ func (unitInfo *bindingUnitInfo) GetNewTasksOnNode(nodeName string) []*runningUn
 	return result
 }
 
-func (unitInfo *bindingUnitInfo) GetReadyAndWaitingTasks() []*checkResult {
-	unitInfo.mu.Lock()
-	defer unitInfo.mu.Unlock()
-
-	len := len(unitInfo.readyTasks) + len(unitInfo.waitingTasks)
-	if len == 0 {
+func (unitInfo *bindingUnitInfo) getTasks(tasks map[types.UID]*checkResult) []*checkResult {
+	length := len(tasks)
+	if length == 0 {
 		return nil
 	}
 
-	result := make([]*checkResult, len)
+	result := make([]*checkResult, length)
 	i := 0
-	for _, cr := range unitInfo.readyTasks {
-		result[i] = cr
-		i++
-	}
-	for _, cr := range unitInfo.waitingTasks {
+	for _, cr := range tasks {
 		result[i] = cr
 		i++
 	}
 	return result
+}
+
+func (unitInfo *bindingUnitInfo) GetReadyAndWaitingTasks() []*checkResult {
+	unitInfo.mu.Lock()
+	defer unitInfo.mu.Unlock()
+	return append(unitInfo.getTasks(unitInfo.readyTasks), unitInfo.getTasks(unitInfo.waitingTasks)...)
 }
 
 func (unitInfo *bindingUnitInfo) GetReadyTasks() []*checkResult {
 	unitInfo.mu.Lock()
 	defer unitInfo.mu.Unlock()
-
-	len := len(unitInfo.readyTasks)
-	if len == 0 {
-		return nil
-	}
-
-	result := make([]*checkResult, len)
-	i := 0
-	for _, cr := range unitInfo.readyTasks {
-		result[i] = cr
-		i++
-	}
-	return result
+	return unitInfo.getTasks(unitInfo.readyTasks)
 }
 
 func (unitInfo *bindingUnitInfo) GetWaitingTasks() []*checkResult {
 	unitInfo.mu.Lock()
 	defer unitInfo.mu.Unlock()
-
-	len := len(unitInfo.waitingTasks)
-	if len == 0 {
-		return nil
-	}
-
-	result := make([]*checkResult, len)
-	i := 0
-	for _, cr := range unitInfo.waitingTasks {
-		result[i] = cr
-		i++
-	}
-	return result
+	return unitInfo.getTasks(unitInfo.waitingTasks)
 }
 
 func (unitInfo *bindingUnitInfo) GetFailedTasks() []*checkResult {
 	unitInfo.mu.Lock()
 	defer unitInfo.mu.Unlock()
-
-	len := len(unitInfo.failedTasks)
-	if len == 0 {
-		return nil
-	}
-	result := make([]*checkResult, len)
-	i := 0
-	for _, cr := range unitInfo.failedTasks {
-		result[i] = cr
-		i++
-	}
-	return result
+	return unitInfo.getTasks(unitInfo.failedTasks)
 }
 
 // check if there is at lease one preemptor in new tasks

@@ -649,7 +649,7 @@ func ConvertToPod(obj interface{}) (*v1.Pod, error) {
 	var pod *v1.Pod
 	switch t := obj.(type) {
 	case *v1.Pod:
-		pod = obj.(*v1.Pod)
+		pod = t
 	case cache.DeletedFinalStateUnknown:
 		var ok bool
 		pod, ok = t.Obj.(*v1.Pod)
