@@ -686,6 +686,9 @@ func (gs *podScheduler) GetLoadAwareNodeUsage(nodeName string, resourceType podu
 
 func needCacheNodesForPod(pod *v1.Pod, podOwner string) bool {
 	// TODO: figure out whether pod group affinity && bin-packing-first will affect the checking logic
+	if len(podOwner) == 0 {
+		return false
+	}
 	var cacheNodes bool // default value: false
 	if pod.Spec.Affinity != nil && pod.Spec.Affinity.PodAffinity != nil {
 		// TODO: maybe there are more cases that we don't want to cache nodes
@@ -693,7 +696,7 @@ func needCacheNodesForPod(pod *v1.Pod, podOwner string) bool {
 	} else {
 		cacheNodes = true
 	}
-	return cacheNodes && len(podOwner) > 0
+	return cacheNodes
 }
 
 func (gs *podScheduler) CacheNodesForPodOwner(
