@@ -18,6 +18,7 @@ package podscheduler
 
 import (
 	"context"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -105,6 +106,11 @@ func TestSelectHost(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// get mock pod owner
 			podOwner := podutil.GetPodOwner(test.pod)
+			// prepare for the score map(mapping from node to its score), so that we can get score from node name
+			scoreMap := map[string]int64{}
+			for _, nodeScore := range test.list {
+				scoreMap[nodeScore.Name] = nodeScore.Score
+			}
 			// increase the randomness
 			for i := 0; i < 10; i++ {
 				// TODO: add unit test cases for caching node logic
@@ -123,12 +129,22 @@ func TestSelectHost(t *testing.T) {
 					}
 				}
 
+				var lastScore int64 = math.MaxInt64
 				for _, node := range nodes {
 					if selectedNode == node {
 						t.Errorf("Unexpected cached node %s, selected node should not be cached", selectedNode)
 					} else if !nonSelectedNodes.Has(node) {
 						t.Errorf("Non-selected nodes should be cached")
 					}
+					// the order of nodes returned by GetOrderedNodesForPodOwner should follow the descending order of node score
+					score, ok := scoreMap[node]
+					if !ok {
+						t.Errorf("Unexpected cached node: %s", node)
+					} else if score > lastScore {
+						// in descending order, current score should be less than or equal to lastScore
+						t.Errorf("Unexpected cached node order(it should follow the descending order of node score)")
+					}
+					lastScore = score
 				}
 
 				if test.expectsErr {
