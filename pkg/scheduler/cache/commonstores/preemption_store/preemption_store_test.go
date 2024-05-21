@@ -24,8 +24,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -86,7 +86,7 @@ func TestAddPreemptItems(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cache := NewCache(handler.MakeCacheHandlerWrapper().EnableStore(string(Name)).Obj())
+			cache := NewCache(commoncache.MakeCacheHandlerWrapper().EnableStore(string(Name)).Obj())
 			cache.AssumePod(framework.MakeCachePodInfoWrapper().Pod(tt.pod).Obj())
 			if !EqualPreemptionDetails(tt.expectedPreemptionDetails, cache.(*PreemptionStore).store) {
 				t.Errorf("The nodeInfoList is incorrect. Expected %v , got %v", tt.expectedPreemptionDetails, cache.(*PreemptionStore).store)
@@ -142,9 +142,9 @@ func TestRemovePreemptItems(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cache := NewCache(handler.MakeCacheHandlerWrapper().EnableStore(string(Name)).Obj())
+			cache := NewCache(commoncache.MakeCacheHandlerWrapper().EnableStore(string(Name)).Obj())
 			cache.(*PreemptionStore).store = tt.originPreemptDetails
-			cache.RemovePod(tt.pod)
+			cache.DeletePod(tt.pod)
 			if !EqualPreemptionDetails(tt.expectedPreemptDetails, cache.(*PreemptionStore).store) {
 				t.Errorf("The nodeInfoList is incorrect. Expected %v , got %v", tt.expectedPreemptDetails, cache.(*PreemptionStore).store)
 			}
@@ -225,7 +225,7 @@ func TestUpdatePreemptInfoSnapshot(t *testing.T) {
 		Annotation(podutil.NominatedNodeAnnotationKey, "{\"node\":\"n2\",\"victims\":[{\"name\":\"p3\",\"namespace\":\"p3\",\"uid\":\"p3\"}]}").Obj()
 
 	podLister := testing_helper.NewFakePodLister(nil)
-	handler := handler.MakeCacheHandlerWrapper().PodLister(podLister).EnableStore(string(Name)).Obj()
+	handler := commoncache.MakeCacheHandlerWrapper().PodLister(podLister).EnableStore(string(Name)).Obj()
 
 	cache := NewCache(handler)
 	snapshot := NewSnapshot(handler)
@@ -286,7 +286,7 @@ func TestUpdatePreemptInfoSnapshot(t *testing.T) {
 	}
 
 	// snapshot remove foo2
-	snapshot.RemovePod(foo2)
+	snapshot.DeletePod(foo2)
 	cache.UpdateSnapshot(snapshot)
 	expected = makeGenerationPreemptionDetails(
 		map[string]map[string]sets.String{
@@ -304,7 +304,7 @@ func TestUpdatePreemptInfoSnapshot(t *testing.T) {
 	}
 
 	// cache remove foo1
-	cache.RemovePod(foo1)
+	cache.DeletePod(foo1)
 	cache.UpdateSnapshot(snapshot)
 	expected = makeGenerationPreemptionDetails(
 		map[string]map[string]sets.String{
@@ -321,7 +321,7 @@ func TestUpdatePreemptInfoSnapshot(t *testing.T) {
 	}
 
 	// snapshot remove foo1
-	snapshot.RemovePod(foo1)
+	snapshot.DeletePod(foo1)
 	cache.UpdateSnapshot(snapshot)
 	expected = makeGenerationPreemptionDetails(
 		map[string]map[string]sets.String{
@@ -338,7 +338,7 @@ func TestUpdatePreemptInfoSnapshot(t *testing.T) {
 	}
 
 	// cache remove foo2
-	cache.RemovePod(foo2)
+	cache.DeletePod(foo2)
 	cache.UpdateSnapshot(snapshot)
 	expected = makeGenerationPreemptionDetails(
 		map[string]map[string]sets.String{
@@ -352,7 +352,7 @@ func TestUpdatePreemptInfoSnapshot(t *testing.T) {
 	}
 
 	// cache remove foo3
-	cache.RemovePod(foo3)
+	cache.DeletePod(foo3)
 	cache.UpdateSnapshot(snapshot)
 	expected = makeGenerationPreemptionDetails(
 		map[string]map[string]sets.String{},
@@ -364,7 +364,7 @@ func TestUpdatePreemptInfoSnapshot(t *testing.T) {
 
 func BenchmarkUpdatePreemptInfoSnapshot(b *testing.B) {
 	podLister := testing_helper.NewFakePodLister(nil)
-	handler := handler.MakeCacheHandlerWrapper().PodLister(podLister).EnableStore(string(Name)).Obj()
+	handler := commoncache.MakeCacheHandlerWrapper().PodLister(podLister).EnableStore(string(Name)).Obj()
 
 	cache := NewCache(handler)
 	nodeCount := 20000
@@ -403,7 +403,7 @@ func BenchmarkUpdatePreemptInfoSnapshot(b *testing.B) {
 
 			for i := 0; i < tc.node; i++ {
 				for j := 0; j < podCountInEachNode; j++ {
-					cache.RemovePod(podsInNodes[i][j])
+					cache.DeletePod(podsInNodes[i][j])
 				}
 			}
 
@@ -433,7 +433,7 @@ func TestCleanUpResidualPreemptionItems(t *testing.T) {
 			Annotation(podutil.NominatedNodeAnnotationKey, "{\"node\":\"n3\",\"victims\":[{\"name\":\"p4\",\"namespace\":\"p4\",\"uid\":\"p4\"},{\"name\":\"p5\",\"namespace\":\"p5\",\"uid\":\"p5\"}]}").Obj(),
 	}
 	podLister := testing_helper.NewFakePodLister(existingPods)
-	cache := NewCache(handler.MakeCacheHandlerWrapper().PodLister(podLister).EnableStore(string(Name)).Obj())
+	cache := NewCache(commoncache.MakeCacheHandlerWrapper().PodLister(podLister).EnableStore(string(Name)).Obj())
 	for _, pod := range append(existingPods, deletedPods...) {
 		cache.AddPod(pod)
 	}

@@ -260,7 +260,7 @@ func (sched *Scheduler) deleteNodeFromCache(obj interface{}) {
 	}
 	klog.V(3).InfoS("Detected a Delete event for node", "node", node.Name)
 
-	if err := sched.commonCache.RemoveNode(node); err != nil {
+	if err := sched.commonCache.DeleteNode(node); err != nil {
 		klog.InfoS("Failed to remove node from Scheduler cache", "err", err)
 	}
 }
@@ -351,7 +351,7 @@ func (sched *Scheduler) deleteNMNodeFromCache(obj interface{}) {
 	}
 	klog.V(3).InfoS("Detected a Delete event for nmNode", "nmNode", nmNode.Name)
 
-	if err := sched.commonCache.RemoveNMNode(nmNode); err != nil {
+	if err := sched.commonCache.DeleteNMNode(nmNode); err != nil {
 		klog.InfoS("Failed to remove NMNode from Scheduler cache", "err", err)
 	}
 }
@@ -442,7 +442,7 @@ func (sched *Scheduler) deleteCNRFromCache(obj interface{}) {
 	}
 	klog.V(3).InfoS("Detected a Delete event for cnr", "cnr", cnr.Name)
 
-	if err := sched.commonCache.RemoveCNR(cnr); err != nil {
+	if err := sched.commonCache.DeleteCNR(cnr); err != nil {
 		klog.InfoS("Failed to remove CNR from scheduler cache", "err", err)
 	}
 }
@@ -532,7 +532,7 @@ func (sched *Scheduler) deletePodGroupFromCache(obj interface{}) {
 
 	klog.V(3).InfoS("Detected a Delete event for pod group", "podGroup", klog.KObj(podGroup))
 
-	if err := sched.commonCache.RemovePodGroup(podGroup); err != nil {
+	if err := sched.commonCache.DeletePodGroup(podGroup); err != nil {
 		klog.InfoS("Failed to remove pod group from scheduler cache", "err", err)
 	}
 }

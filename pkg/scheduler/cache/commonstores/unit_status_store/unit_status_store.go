@@ -20,25 +20,26 @@ import (
 	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	unitutil "github.com/kubewharf/godel-scheduler/pkg/util/unit"
 	unitstatus "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
 )
 
-const Name commonstores.StoreName = "UnitStatusStore"
+const Name commonstore.StoreName = "UnitStatusStore"
 
-func (c *UnitStatusStore) Name() commonstores.StoreName {
+func (c *UnitStatusStore) Name() commonstore.StoreName {
 	return Name
 }
 
 func init() {
-	commonstores.GlobalRegistry.Register(
+	commonstores.GlobalRegistries.Register(
 		Name,
-		func(h handler.CacheHandler) bool { return true },
+		func(h commoncache.CacheHandler) bool { return true },
 		NewCache,
 		NewSnapshot)
 }
@@ -46,29 +47,29 @@ func init() {
 // ---------------------------------------------------------------------------------------
 
 type UnitStatusStore struct {
-	commonstores.BaseStore
-	storeType commonstores.StoreType
-	handler   handler.CacheHandler
+	commonstore.BaseStore
+	storeType commonstore.StoreType
+	handler   commoncache.CacheHandler
 
 	Store *unitstatus.UnitStatusMap // Only be used in Cache.
 }
 
-var _ commonstores.CommonStore = &UnitStatusStore{}
+var _ commonstore.Store = &UnitStatusStore{}
 
-func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
+func NewCache(handler commoncache.CacheHandler) commonstore.Store {
 	return &UnitStatusStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Cache,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Cache,
 		handler:   handler,
 
 		Store: unitstatus.NewUnitStatusMap(),
 	}
 }
 
-func NewSnapshot(handler handler.CacheHandler) commonstores.CommonStore {
+func NewSnapshot(handler commoncache.CacheHandler) commonstore.Store {
 	return &UnitStatusStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Snapshot,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Snapshot,
 		handler:   handler,
 
 		Store: unitstatus.NewUnitStatusMap(),
@@ -91,7 +92,7 @@ func (s *UnitStatusStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 		}
 		if ps, _ := s.handler.GetPodState(key); ps != nil {
 			// Use the pod stored in Cache instead of oldPod.
-			if err := s.RemovePod(ps.Pod); err != nil {
+			if err := s.DeletePod(ps.Pod); err != nil {
 				return err
 			}
 		}
@@ -105,7 +106,7 @@ func (s *UnitStatusStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 	return nil
 }
 
-func (s *UnitStatusStore) RemovePod(pod *v1.Pod) error {
+func (s *UnitStatusStore) DeletePod(pod *v1.Pod) error {
 	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType()) {
 		return nil
 	}
@@ -123,26 +124,26 @@ func (s *UnitStatusStore) UpdatePodGroup(oldPodGroup, newPodGroup *schedulingv1a
 	return nil
 }
 
-func (s *UnitStatusStore) RemovePodGroup(podGroup *schedulingv1a1.PodGroup) error {
+func (s *UnitStatusStore) DeletePodGroup(podGroup *schedulingv1a1.PodGroup) error {
 	s.Store.DeleteUnitSchedulingStatus(unitutil.GetUnitKeyFromPodGroup(unitutil.GetPodGroupKey(podGroup)))
 	return nil
 }
 
 func (s *UnitStatusStore) AssumePod(podInfo *framework.CachePodInfo) error {
-	if s.storeType == commonstores.Snapshot {
+	if s.storeType == commonstore.Snapshot {
 		return nil
 	}
 	return s.podOp(podInfo.Pod, true)
 }
 
 func (s *UnitStatusStore) ForgetPod(podInfo *framework.CachePodInfo) error {
-	if s.storeType == commonstores.Snapshot {
+	if s.storeType == commonstore.Snapshot {
 		return nil
 	}
 	return s.podOp(podInfo.Pod, false)
 }
 
-func (s *UnitStatusStore) UpdateSnapshot(_ commonstores.CommonStore) error {
+func (s *UnitStatusStore) UpdateSnapshot(_ commonstore.Store) error {
 	return nil
 }
 

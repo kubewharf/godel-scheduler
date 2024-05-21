@@ -26,12 +26,12 @@ import (
 	"k8s.io/klog/v2"
 
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
 	podstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pod_store"
 	unitstatusstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/unit_status_store"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/metrics"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
 	"github.com/kubewharf/godel-scheduler/pkg/util/helper"
@@ -46,43 +46,42 @@ var cleanAssumedPeriod = 10 * time.Second
 // "ttl" is how long the assumed pod will get expired.
 // "stop" is the channel that would close the background goroutine.
 // "schedulerName" identifies the scheduler
-func New(handler handler.CacheHandler) SchedulerCache {
+func New(handler commoncache.CacheHandler) SchedulerCache {
 	cache := newSchedulerCache(handler)
 	cache.run()
 	return cache
 }
 
 type schedulerCache struct {
-	handler handler.CacheHandler
+	commonstore.CommonStoresSwitch
+
+	handler commoncache.CacheHandler
+	mu      *sync.RWMutex
 
 	cacheMetrics *cacheMetrics
-
-	// This mutex guards all fields within this cache struct.
-	mu sync.RWMutex
-
-	storeSwitch *CommonStoresSwitch
 }
 
-func newSchedulerCache(handler handler.CacheHandler) *schedulerCache {
+func newSchedulerCache(handler commoncache.CacheHandler) *schedulerCache {
 	cacheMetrics := newCacheMetrics()
 
 	sc := &schedulerCache{
+		CommonStoresSwitch: commonstore.MakeStoreSwitch(handler, commonstore.Cache, commonstores.GlobalRegistries, orderedStoreNames),
+
 		handler: handler,
+		mu:      handler.Mutex(),
 
 		cacheMetrics: cacheMetrics,
-
-		storeSwitch: makeStoreSwitch(handler, commonstores.Cache),
 	}
 
 	// NodeStore and PodStore are mandatory, so we don't care if they are nil.
-	nodeStore, podStore := sc.storeSwitch.Find(nodestore.Name), sc.storeSwitch.Find(podstore.Name)
+	nodeStore, podStore := sc.CommonStoresSwitch.Find(nodestore.Name), sc.CommonStoresSwitch.Find(podstore.Name)
 	nodeStore.(*nodestore.NodeStore).AfterAdd = func(n framework.NodeInfo) { cacheMetrics.update(n, 1) }
 	nodeStore.(*nodestore.NodeStore).AfterDelete = func(n framework.NodeInfo) { cacheMetrics.update(n, -1) }
 
 	handler.SetNodeHandler(nodeStore.(*nodestore.NodeStore).GetNodeInfo)
 	handler.SetPodHandler(podStore.(*podstore.PodStore).GetPodState)
 
-	handler.SetPodOpFunc(sc.podOp)
+	handler.SetPodOpFunc(podOpFunc(sc.CommonStoresSwitch))
 
 	return sc
 }
@@ -101,34 +100,36 @@ func (cache *schedulerCache) UpdateSnapshot(snapshot *Snapshot) error {
 	defer func() {
 		cost := helper.SinceInSeconds(start)
 		qos := metricsutil.SwitchTypeToQos(snapshot.handler.SwitchType())
-		metrics.ObserveUpdateSnapshotAttemptAndLatency(snapshot.handler.SubCluster(), qos, cache.handler.SchedulerName(), cost)
+		metrics.ObserveUpdateSnapshotAttemptAndLatency(snapshot.handler.SubCluster(), qos, cache.handler.ComponentName(), cost)
 		klog.V(4).InfoS("Completed UpdateSnapshot", "subCluster", snapshot.handler.SubCluster(), "cost", cost)
 	}()
 
-	return cache.storeSwitch.Range(
-		func(cs commonstores.CommonStore) error {
-			if s := snapshot.storeSwitch.Find(cs.Name()); s != nil {
+	return cache.CommonStoresSwitch.Range(
+		func(cs commonstore.Store) error {
+			if s := snapshot.CommonStoresSwitch.Find(cs.Name()); s != nil {
 				return cs.UpdateSnapshot(s)
 			}
 			return nil
 		})
 }
 
-// podOp provides a callback function that triggers AddPod/RemovePod in some store.
-// Specifically: when AssumedPods expire, these pods in other stores
+// podOpFunc provides a callback function that triggers AddPod/RemovePod in some store.
+// Specifically: when AssumedPods expire, or when ReservationFakePods expires, these pods in other stores
 // should be deleted via this callback.
 // ATTENTION: this is lock free.
-func (cache *schedulerCache) podOp(pod *v1.Pod, isAdd bool, skippStores sets.String) error {
-	return cache.storeSwitch.Range(
-		func(cs commonstores.CommonStore) error {
-			if skippStores.Len() > 0 && skippStores.Has(string(cs.Name())) {
-				return nil
-			}
-			if isAdd {
-				return cs.AddPod(pod)
-			}
-			return cs.RemovePod(pod)
-		})
+func podOpFunc(commonStoresSwitch commonstore.CommonStoresSwitch) commoncache.PodOpFunc {
+	return func(pod *v1.Pod, isAdd bool, skippedStores sets.String) error {
+		return commonStoresSwitch.Range(
+			func(cs commonstore.Store) error {
+				if skippedStores.Len() > 0 && skippedStores.Has(string(cs.Name())) {
+					return nil
+				}
+				if isAdd {
+					return cs.AddPod(pod)
+				}
+				return cs.DeletePod(pod)
+			})
+	}
 }
 
 func (cache *schedulerCache) run() {
@@ -137,8 +138,8 @@ func (cache *schedulerCache) run() {
 		cache.updateMetrics()
 	}, cache.handler.Period(), cache.handler.StopCh())
 
-	cache.storeSwitch.Range(func(cs commonstores.CommonStore) error {
-		cs.PeriodWorker(&cache.mu)
+	cache.CommonStoresSwitch.Range(func(cs commonstore.Store) error {
+		cs.PeriodWorker(cache.handler.Mutex())
 		return nil
 	})
 }
@@ -149,10 +150,10 @@ func (cache *schedulerCache) updateMetrics() {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	podStore := cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore)
-	nodeStore := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore)
+	podStore := cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore)
+	nodeStore := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore)
 
-	schedulerName := cache.handler.SchedulerName()
+	schedulerName := cache.handler.ComponentName()
 	metrics.CacheSize.WithLabelValues("pods", schedulerName).Set(float64(len(podStore.PodStates)))
 	metrics.CacheSize.WithLabelValues("assumed_pods", schedulerName).Set(float64(len(podStore.AssumedPods)))
 	cacheMetrics := cache.cacheMetrics
@@ -168,19 +169,19 @@ func (cache *schedulerCache) updateMetrics() {
 func (cache *schedulerCache) GetUnitStatus(unitKey string) unitstatus.UnitStatus {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
-	return cache.storeSwitch.Find(unitstatusstore.Name).(*unitstatusstore.UnitStatusStore).GetUnitStatus(unitKey)
+	return cache.CommonStoresSwitch.Find(unitstatusstore.Name).(*unitstatusstore.UnitStatusStore).GetUnitStatus(unitKey)
 }
 
 func (cache *schedulerCache) SetUnitSchedulingStatus(unitKey string, status unitstatus.SchedulingStatus) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	cache.storeSwitch.Find(unitstatusstore.Name).(*unitstatusstore.UnitStatusStore).SetUnitSchedulingStatus(unitKey, status)
+	cache.CommonStoresSwitch.Find(unitstatusstore.Name).(*unitstatusstore.UnitStatusStore).SetUnitSchedulingStatus(unitKey, status)
 }
 
 func (cache *schedulerCache) GetUnitSchedulingStatus(unitKey string) unitstatus.SchedulingStatus {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
-	return cache.storeSwitch.Find(unitstatusstore.Name).(*unitstatusstore.UnitStatusStore).GetUnitSchedulingStatus(unitKey)
+	return cache.CommonStoresSwitch.Find(unitstatusstore.Name).(*unitstatusstore.UnitStatusStore).GetUnitSchedulingStatus(unitKey)
 }
 
 func (cache *schedulerCache) FinishReserving(pod *v1.Pod) error {
@@ -191,7 +192,7 @@ func (cache *schedulerCache) FinishReserving(pod *v1.Pod) error {
 func (cache *schedulerCache) finishReserving(pod *v1.Pod, now time.Time) error {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
-	return cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).FinishReserving(pod, now)
+	return cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).FinishReserving(pod, now)
 }
 
 // Snapshot takes a snapshot of the current scheduler cache. This is used for
@@ -203,7 +204,7 @@ func (cache *schedulerCache) Dump() *commoncache.Dump {
 	defer cache.mu.RUnlock()
 
 	// TODO: Cleanup and extend the Dump.
-	nodeStore, podStore := cache.storeSwitch.Find(nodestore.Name), cache.storeSwitch.Find(podstore.Name)
+	nodeStore, podStore := cache.CommonStoresSwitch.Find(nodestore.Name), cache.CommonStoresSwitch.Find(podstore.Name)
 
 	nodes := nodeStore.(*nodestore.NodeStore).AllNodesClone()
 	assumedPods := make(map[string]bool, len(podStore.(*podstore.PodStore).AssumedPods))
@@ -220,13 +221,13 @@ func (cache *schedulerCache) Dump() *commoncache.Dump {
 func (cache *schedulerCache) IsAssumedPod(pod *v1.Pod) (bool, error) {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
-	return cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).IsAssumedPod(pod)
+	return cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).IsAssumedPod(pod)
 }
 
 func (cache *schedulerCache) IsCachedPod(pod *v1.Pod) (bool, error) {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
-	return cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).IsCachedPod(pod)
+	return cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).IsCachedPod(pod)
 }
 
 // GetPod might return a pod for which its node has already been deleted from
@@ -235,28 +236,28 @@ func (cache *schedulerCache) GetPod(pod *v1.Pod) (*v1.Pod, error) {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
-	return cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).GetPod(pod)
+	return cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).GetPod(pod)
 }
 
 func (cache *schedulerCache) SetNodeInPartition(nodeName string) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	// Only call nodestore
-	return cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).SetNodeInPartition(nodeName)
+	return cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).SetNodeInPartition(nodeName)
 }
 
 func (cache *schedulerCache) SetNodeOutOfPartition(nodeName string) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	// Only call nodestore
-	return cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).SetNodeOutOfPartition(nodeName)
+	return cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).SetNodeOutOfPartition(nodeName)
 }
 
 func (cache *schedulerCache) NodeInThisPartition(nodeName string) bool {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	// Only call nodestore
-	return cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).NodeInThisPartition(nodeName)
+	return cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).NodeInThisPartition(nodeName)
 }
 
 // PodCount returns the number of pods in the cache (including those from deleted nodes).
@@ -265,7 +266,7 @@ func (cache *schedulerCache) PodCount() (int, error) {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 	count := 0
-	for _, nodeInfo := range cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).AllNodesClone() {
+	for _, nodeInfo := range cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).AllNodesClone() {
 		count += nodeInfo.NumPods()
 	}
 	return count, nil
@@ -276,7 +277,7 @@ func (cache *schedulerCache) ScrapeCollectable(store generationstore.RawStore) {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
-	cacheNodeStore := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.(generationstore.ListStore)
+	cacheNodeStore := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.(generationstore.ListStore)
 	cacheNodeStore.UpdateRawStore(
 		store,
 		func(s string, obj generationstore.StoredObj) {

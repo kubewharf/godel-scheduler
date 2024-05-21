@@ -32,7 +32,7 @@ type Dump struct {
 	Nodes       map[string]framework.NodeInfo
 }
 
-// ClusterCache collects pods' information and provides node-level aggregated information.
+// ClusterEventsHandler collects pods' information and provides node-level aggregated information.
 // It's intended for generic scheduler to do efficient lookup.
 // Cache's operations are pod centric. It does incremental updates based on pod events.
 // Pod events are sent via network. We don't have guaranteed delivery of all events:
@@ -66,42 +66,42 @@ type Dump struct {
 //   - If a pod wasn't added, it wouldn't be removed or updated.
 //   - Both "Expired" and "Deleted" are valid end states. In case of some problems, e.g. network issue,
 //     a pod might have changed its state (e.g. added and deleted) without delivering notification to the cache.
-type ClusterCache interface {
+type ClusterEventsHandler interface {
 	// AddPod either confirms a pod if it's assumed, or adds it back if it's expired.
 	// If added back, the pod's information would be added again.
 	AddPod(pod *v1.Pod) error
 	// UpdatePod removes oldPod's information and adds newPod's information.
 	UpdatePod(oldPod, newPod *v1.Pod) error
-	// RemovePod removes a pod. The pod's information would be subtracted from assigned node.
-	RemovePod(pod *v1.Pod) error
+	// DeletePod removes a pod. The pod's information would be subtracted from assigned node.
+	DeletePod(pod *v1.Pod) error
 
 	// AddNode adds overall information about node.
 	AddNode(node *v1.Node) error
 	// UpdateNode updates overall information about node.
 	UpdateNode(oldNode, newNode *v1.Node) error
-	// RemoveNode removes overall information about node.
-	RemoveNode(node *v1.Node) error
+	// DeleteNode removes overall information about node.
+	DeleteNode(node *v1.Node) error
 
 	// AddNMNode adds overall information about nmnode.
 	AddNMNode(nmNode *nodev1alpha1.NMNode) error
 	// UpdateNMNode updates overall information about nmnode.
 	UpdateNMNode(oldNMNode, newNMNode *nodev1alpha1.NMNode) error
-	// RemoveNMNode removes overall information about nmnode.
-	RemoveNMNode(nmNode *nodev1alpha1.NMNode) error
+	// DeleteNMNode removes overall information about nmnode.
+	DeleteNMNode(nmNode *nodev1alpha1.NMNode) error
 
 	// AddCNR adds custom resource information about node
 	AddCNR(cnr *katalystv1alpha1.CustomNodeResource) error
 	// UpdateCNR updates custom resource information about node.
 	UpdateCNR(oldCNR, newCNR *katalystv1alpha1.CustomNodeResource) error
 	// RemoveCNR removes custom resource information about node.
-	RemoveCNR(cnr *katalystv1alpha1.CustomNodeResource) error
+	DeleteCNR(cnr *katalystv1alpha1.CustomNodeResource) error
 
 	// AddPodGroup adds overall information about pod group.
 	AddPodGroup(podGroup *schedulingv1a1.PodGroup) error
 	// UpdatePodGroup update information about pod group.
 	UpdatePodGroup(oldPodGroup, newPodGroup *schedulingv1a1.PodGroup) error
-	// RemovePodGroup DeletePodGroup remove overall information about pod group.
-	RemovePodGroup(podGroup *schedulingv1a1.PodGroup) error
+	// DeletePodGroup remove overall information about pod group.
+	DeletePodGroup(podGroup *schedulingv1a1.PodGroup) error
 
 	AddPDB(pdb *policy.PodDisruptionBudget) error
 	UpdatePDB(oldPdb, newPdb *policy.PodDisruptionBudget) error

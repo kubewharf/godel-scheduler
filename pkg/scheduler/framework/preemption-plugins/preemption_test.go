@@ -35,9 +35,9 @@ import (
 	appv1listers "k8s.io/client-go/listers/apps/v1"
 	schedulingv1beta1listers "k8s.io/client-go/listers/scheduling/v1beta1"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	st "github.com/kubewharf/godel-scheduler/pkg/scheduler/testing"
 	testinghelper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
@@ -156,9 +156,9 @@ func TestFilterVictimsPods(t *testing.T) {
 			nodeInfo := framework.NewNodeInfo(pods...)
 			nodeInfo.SetNode(node)
 
-			cache := godelcache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				PodLister(podLister).
 				Obj())
@@ -215,7 +215,7 @@ func TestFilterVictimsPods(t *testing.T) {
 				}
 			}
 
-			snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				EnableStore("PreemptionStore").
 				Obj())

@@ -28,12 +28,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/clock"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/unitqueuesort"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -236,9 +236,9 @@ func TestBlockQueue_Update(t *testing.T) {
 func TestBlockQueue_Delete(t *testing.T) {
 	stop := make(chan struct{})
 	defer close(stop)
-	sCache := cache.New(handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	sCache := cache.New(commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		EnableStore("PreemptionStore").
 		Obj())
 	q := NewBlockQueue(sCache, nil, nil, newFCFSUnitQueueSort())

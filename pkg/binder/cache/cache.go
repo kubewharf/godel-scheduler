@@ -399,7 +399,7 @@ func (cache *binderCache) updatePodInCache(oldPod, newPod *v1.Pod) error {
 	return nil
 }
 
-func (cache *binderCache) RemovePod(pod *v1.Pod) error {
+func (cache *binderCache) DeletePod(pod *v1.Pod) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -675,13 +675,13 @@ func (cache *binderCache) UpdateCNR(oldCNR, newCNR *katalystv1alpha1.CustomNodeR
 	return n.SetCNR(newCNR)
 }
 
-// RemoveNode removes a node from the cache's tree.
+// DeleteNode removes a node from the cache's tree.
 // The node might still have pods because their deletion events didn't arrive
 // yet. Those pods are considered removed from the cache, being the node tree
 // the source of truth.
 // However, we keep a ghost node with the list of pods until all pod deletion
 // events have arrived. A ghost node is skipped from snapshots.
-func (cache *binderCache) RemoveNode(node *v1.Node) error {
+func (cache *binderCache) DeleteNode(node *v1.Node) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -704,7 +704,7 @@ func (cache *binderCache) RemoveNode(node *v1.Node) error {
 	return nil
 }
 
-func (cache *binderCache) RemoveNMNode(nmNode *nodev1alpha1.NMNode) error {
+func (cache *binderCache) DeleteNMNode(nmNode *nodev1alpha1.NMNode) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -725,9 +725,9 @@ func (cache *binderCache) RemoveNMNode(nmNode *nodev1alpha1.NMNode) error {
 	return nil
 }
 
-// RemoveCNR removes custom node resource.
+// DeleteCNR removes custom node resource.
 // The node might be still in the node tree because their deletion events didn't arrive yet.
-func (cache *binderCache) RemoveCNR(cnr *katalystv1alpha1.CustomNodeResource) error {
+func (cache *binderCache) DeleteCNR(cnr *katalystv1alpha1.CustomNodeResource) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -799,8 +799,8 @@ func (cache *binderCache) UpdatePodGroup(oldPodGroup, newPodGroup *schedulingv1a
 	return nil
 }
 
-// RemovePodGroup remove pod group in binder cache
-func (cache *binderCache) RemovePodGroup(podGroup *schedulingv1a1.PodGroup) error {
+// DeletePodGroup remove pod group in binder cache
+func (cache *binderCache) DeletePodGroup(podGroup *schedulingv1a1.PodGroup) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	return cache.removePodGroup(podGroup)

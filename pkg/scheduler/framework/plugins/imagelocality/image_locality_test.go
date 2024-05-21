@@ -27,9 +27,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	st "github.com/kubewharf/godel-scheduler/pkg/scheduler/testing"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
@@ -189,12 +189,12 @@ func TestImageLocalityPriority(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cache := godelcache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj())
-			snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				EnableStore("PreemptionStore").
 				Obj())

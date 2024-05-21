@@ -20,6 +20,8 @@ import (
 	"reflect"
 	"testing"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
 	loadawarestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/load_aware_store"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
@@ -28,13 +30,12 @@ import (
 	podgroupstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/podgroup_store"
 	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
 	unitstatusstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/unit_status_store"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 )
 
 func Test_makeStoreSwitch(t *testing.T) {
 	type args struct {
-		handler   handler.CacheHandler
-		storeType commonstores.StoreType
+		handler   commoncache.CacheHandler
+		storeType commonstore.StoreType
 	}
 
 	tests := []struct {
@@ -42,14 +43,14 @@ func Test_makeStoreSwitch(t *testing.T) {
 		prepare func()
 		cleanup func()
 		args    args
-		want    []commonstores.StoreName
+		want    []commonstore.StoreName
 	}{
 		{
 			name: "normal: no preemption, no queuechecker",
 			args: args{
-				handler: handler.MakeCacheHandlerWrapper().Obj(),
+				handler: commoncache.MakeCacheHandlerWrapper().Obj(),
 			},
-			want: []commonstores.StoreName{
+			want: []commonstore.StoreName{
 				podgroupstore.Name,
 				unitstatusstore.Name,
 				loadawarestore.Name,
@@ -60,11 +61,11 @@ func Test_makeStoreSwitch(t *testing.T) {
 		{
 			name: "normal: has preemption, no queuechecker",
 			args: args{
-				handler: handler.MakeCacheHandlerWrapper().
+				handler: commoncache.MakeCacheHandlerWrapper().
 					EnableStore(string(preemptionstore.Name)).
 					Obj(),
 			},
-			want: []commonstores.StoreName{
+			want: []commonstore.StoreName{
 				pdbstore.Name,
 				podgroupstore.Name,
 				preemptionstore.Name,
@@ -87,10 +88,10 @@ func Test_makeStoreSwitch(t *testing.T) {
 				}
 			}
 
-			store := makeStoreSwitch(tt.args.handler, tt.args.storeType)
+			store := commonstore.MakeStoreSwitch(tt.args.handler, tt.args.storeType, commonstores.GlobalRegistries, orderedStoreNames)
 
-			gotStoreNames := []commonstores.StoreName{}
-			store.Range(func(cs commonstores.CommonStore) error {
+			gotStoreNames := []commonstore.StoreName{}
+			store.Range(func(cs commonstore.Store) error {
 				gotStoreNames = append(gotStoreNames, cs.Name())
 				return nil
 			})

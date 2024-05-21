@@ -26,10 +26,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	st "github.com/kubewharf/godel-scheduler/pkg/scheduler/testing"
 	testinghelper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
@@ -172,11 +172,11 @@ func TestNodeMetricEstimatorValidateNode(t *testing.T) {
 				EstimatedScalingFactors:     defaultEstimatedScalingFactors,
 			}
 
-			schedulerCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			schedulerCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				Obj())
-			snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				Obj())
 			{
@@ -421,11 +421,11 @@ func TestNodeMetricEstimatorEstimateNode(t *testing.T) {
 				EstimatedScalingFactors:     defaultEstimatedScalingFactors,
 			}
 
-			schedulerCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			schedulerCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				Obj())
-			snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				Obj())
 			{

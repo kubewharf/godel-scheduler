@@ -29,13 +29,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/loadaware/estimator"
 	st "github.com/kubewharf/godel-scheduler/pkg/scheduler/testing"
 	testinghelper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
+	frameworkhelper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
@@ -76,10 +77,10 @@ func TestLoadAware(t *testing.T) {
 
 	nodeCapacity := map[v1.ResourceName]string{v1.ResourceCPU: "4", v1.ResourceMemory: "16Gi"}
 
-	nodeInfo1 := testinghelper.MakeNodeInfo().Name("machine1").Capacity(nodeCapacity).CNRCapacity(nodeCapacity)
-	nodeInfo2 := testinghelper.MakeNodeInfo().Name("machine2").Capacity(nodeCapacity).CNRCapacity(nodeCapacity)
+	nodeInfo1 := frameworkhelper.MakeNodeInfo().Name("machine1").Capacity(nodeCapacity).CNRCapacity(nodeCapacity)
+	nodeInfo2 := frameworkhelper.MakeNodeInfo().Name("machine2").Capacity(nodeCapacity).CNRCapacity(nodeCapacity)
 
-	testinghelper.MakeNodeInfo()
+	frameworkhelper.MakeNodeInfo()
 
 	tests := []struct {
 		pod          *v1.Pod
@@ -141,11 +142,11 @@ func TestLoadAware(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			schedulerCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			schedulerCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				Obj())
-			snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				Obj())
 			{
@@ -254,8 +255,6 @@ func TestLoadAwareNodeMetricEstimator(t *testing.T) {
 		return ret
 	}
 
-	testinghelper.MakeNodeInfo()
-
 	tests := []struct {
 		name         string
 		pod          *v1.Pod
@@ -298,11 +297,11 @@ func TestLoadAwareNodeMetricEstimator(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			schedulerCache := godelcache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			schedulerCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				Obj())
-			snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				Obj())
 			{

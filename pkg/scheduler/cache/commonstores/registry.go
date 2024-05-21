@@ -16,31 +16,6 @@ limitations under the License.
 
 package commonstores
 
-import "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
+import commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 
-type (
-	StoreName string
-
-	Registry map[StoreName]New
-
-	New                func(handler.CacheHandler) CommonStore
-	FeatureGateChecker func(handler.CacheHandler) bool
-)
-
-type registrys struct {
-	CacheRegistry       map[StoreName]New
-	SnapshotRegistry    map[StoreName]New
-	FeatureGateCheckers map[StoreName]FeatureGateChecker
-}
-
-func (r *registrys) Register(name StoreName, checker FeatureGateChecker, newCache, newSnapshot New) {
-	r.CacheRegistry[name] = newCache
-	r.SnapshotRegistry[name] = newSnapshot
-	r.FeatureGateCheckers[name] = checker
-}
-
-var GlobalRegistry = &registrys{
-	CacheRegistry:       make(map[StoreName]New),
-	SnapshotRegistry:    make(map[StoreName]New),
-	FeatureGateCheckers: make(map[StoreName]FeatureGateChecker),
-}
+var GlobalRegistries = commonstore.NewRegistries()

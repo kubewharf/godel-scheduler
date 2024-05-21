@@ -25,8 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	testinghelper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -216,7 +216,7 @@ func TestLoadAwareStore_UpdateSnapshot(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			nodeInfo := framework.NewNodeInfo()
-			handler := handler.MakeCacheHandlerWrapper().
+			handler := commoncache.MakeCacheHandlerWrapper().
 				NodeHandler(func(s string) framework.NodeInfo { return nodeInfo }).Obj()
 			cache := NewCache(handler)
 
@@ -233,13 +233,13 @@ func TestLoadAwareStore_UpdateSnapshot(t *testing.T) {
 					// Considering that nodestore is not used, it is necessary to manually update nodeinfo here.
 					nodeInfo.AddPod(operation.args.pod)
 				case SubPodOp:
-					err = cache.RemovePod(operation.args.pod)
+					err = cache.DeletePod(operation.args.pod)
 					// Considering that nodestore is not used, it is necessary to manually update nodeinfo here.
 					nodeInfo.RemovePod(operation.args.pod, false)
 				case AddNodeMetricOp:
 					err = cache.AddCNR(operation.args.cnr)
 				case SubNodeMetricOp:
-					err = cache.RemoveCNR(operation.args.cnr)
+					err = cache.DeleteCNR(operation.args.cnr)
 				default:
 					t.Errorf("invalid operation: %v", operation.op)
 				}

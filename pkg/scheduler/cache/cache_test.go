@@ -34,11 +34,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	godelfeatures "github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
 	podstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pod_store"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
@@ -243,9 +243,9 @@ func TestAssumePodScheduled(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
 			cache := newSchedulerCache(cacheHandler)
@@ -254,7 +254,7 @@ func TestAssumePodScheduled(t *testing.T) {
 					t.Fatalf("AssumePod failed: %v", err)
 				}
 			}
-			n := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).GetNodeInfo(nodeName)
+			n := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).GetNodeInfo(nodeName)
 			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
 				t.Error(diff)
 			}
@@ -333,9 +333,9 @@ func TestExpirePod(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(ttl).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(ttl).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
 			cache := newSchedulerCache(cacheHandler)
@@ -352,8 +352,8 @@ func TestExpirePod(t *testing.T) {
 			}
 			// pods that got bound and have assumedTime + ttl < cleanupTime will get
 			// expired and removed
-			cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(&cache.mu, tt.cleanupTime)
-			obj := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+			cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(cache.mu, tt.cleanupTime)
+			obj := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
 			if obj != nil {
 				n := obj.(framework.NodeInfo)
 				if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
@@ -415,9 +415,9 @@ func TestAddPodWillConfirm(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
 			cache := newSchedulerCache(cacheHandler)
@@ -444,9 +444,9 @@ func TestAddPodWillConfirm(t *testing.T) {
 					t.Fatalf("AddPod failed: %v", err)
 				}
 			}
-			cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(&cache.mu, now.Add(2*ttl))
+			cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(cache.mu, now.Add(2*ttl))
 			// check after expiration. confirmed pods shouldn't be expired.
-			n := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+			n := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
 			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
 				t.Error(diff)
 			}
@@ -471,9 +471,9 @@ func TestSnapshot(t *testing.T) {
 	}}
 
 	for _, tt := range tests {
-		cacheHandler := handler.MakeCacheHandlerWrapper().
-			SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-			TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+		cacheHandler := commoncache.MakeCacheHandlerWrapper().
+			ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+			PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 			EnableStore("PreemptionStore").
 			Obj()
 		cache := newSchedulerCache(cacheHandler)
@@ -489,19 +489,19 @@ func TestSnapshot(t *testing.T) {
 		}
 
 		snapshot := cache.Dump()
-		if len(snapshot.Nodes) != cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
-			t.Errorf("Unequal number of nodes in the cache and its snapshot. expected: %v, got: %v", cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), len(snapshot.Nodes))
+		if len(snapshot.Nodes) != cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
+			t.Errorf("Unequal number of nodes in the cache and its snapshot. expected: %v, got: %v", cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), len(snapshot.Nodes))
 		}
 		for name, ni := range snapshot.Nodes {
-			obj := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(name)
+			obj := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(name)
 			nItem := obj.(framework.NodeInfo)
 			// if !reflect.DeepEqual(ni, nItem) {
 			if !cmp.Equal(ni, nItem, cmpopts.IgnoreUnexported(framework.NodeInfoImpl{})) {
 				t.Errorf("expect \n%+v; got \n%+v", nItem, ni)
 			}
 		}
-		if !reflect.DeepEqual(snapshot.AssumedPods, cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).AssumedPods) {
-			t.Errorf("expect \n%+v; got \n%+v", cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).AssumedPods, snapshot.AssumedPods)
+		if !reflect.DeepEqual(snapshot.AssumedPods, cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).AssumedPods) {
+			t.Errorf("expect \n%+v; got \n%+v", cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).AssumedPods, snapshot.AssumedPods)
 		}
 	}
 }
@@ -546,9 +546,9 @@ func TestAddPodWillReplaceAssumed(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
 			cache := newSchedulerCache(cacheHandler)
@@ -569,7 +569,7 @@ func TestAddPodWillReplaceAssumed(t *testing.T) {
 				}
 			}
 			for nodeName, expected := range tt.wNodeInfo {
-				n := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+				n := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
 				if n != nil {
 					if diff := deepEqualWithoutGeneration(n, expected); len(diff) > 0 {
 						t.Error(diff)
@@ -615,16 +615,16 @@ func TestAddPodAfterExpiration(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			now := time.Now()
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
 			cache := newSchedulerCache(cacheHandler)
 			if err := assumeAndFinishReserving(cache, tt.pod, now); err != nil {
 				t.Fatalf("assumePod failed: %v", err)
 			}
-			cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(&cache.mu, now.Add(2*ttl))
+			cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(cache.mu, now.Add(2*ttl))
 			// It should be expired and removed.
 			if err := isForgottenFromCache(tt.pod, cache); err != nil {
 				t.Error(err)
@@ -633,7 +633,7 @@ func TestAddPodAfterExpiration(t *testing.T) {
 				t.Fatalf("AddPod failed: %v", err)
 			}
 			// check after expiration. confirmed pods shouldn't be expired.
-			n := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+			n := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
 			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
 				t.Error(diff)
 			}
@@ -692,9 +692,9 @@ func TestUpdatePod(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
 			cache := newSchedulerCache(cacheHandler)
@@ -712,7 +712,7 @@ func TestUpdatePod(t *testing.T) {
 					t.Fatalf("UpdatePod failed: %v", err)
 				}
 				// check after expiration. confirmed pods shouldn't be expired.
-				n := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+				n := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
 				if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo[j-1]); len(diff) > 0 {
 					t.Errorf("update %d: %v", j, diff)
 				}
@@ -757,9 +757,9 @@ func TestUpdatePodAndGet(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		cacheHandler := handler.MakeCacheHandlerWrapper().
-			SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-			TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+		cacheHandler := commoncache.MakeCacheHandlerWrapper().
+			ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+			PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 			EnableStore("PreemptionStore").
 			Obj()
 		cache := newSchedulerCache(cacheHandler)
@@ -835,9 +835,9 @@ func TestExpireAddUpdatePod(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			now := time.Now()
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
 			cache := newSchedulerCache(cacheHandler)
@@ -846,7 +846,7 @@ func TestExpireAddUpdatePod(t *testing.T) {
 					t.Fatalf("assumePod failed: %v", err)
 				}
 			}
-			cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(&cache.mu, now.Add(2*ttl))
+			cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(cache.mu, now.Add(2*ttl))
 
 			for _, podToAdd := range tt.podsToAdd {
 				if err := cache.AddPod(podToAdd); err != nil {
@@ -862,7 +862,7 @@ func TestExpireAddUpdatePod(t *testing.T) {
 					t.Fatalf("UpdatePod failed: %v", err)
 				}
 				// check after expiration. confirmed pods shouldn't be expired.
-				obj := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+				obj := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
 				n := obj.(framework.NodeInfo)
 				if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo[j-1]); len(diff) > 0 {
 					t.Errorf("update %d: %v", j, diff)
@@ -923,22 +923,22 @@ func TestEphemeralStorageResource(t *testing.T) {
 	}
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
 			cache := newSchedulerCache(cacheHandler)
 			if err := cache.AddPod(tt.pod); err != nil {
 				t.Fatalf("AddPod failed: %v", err)
 			}
-			obj := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+			obj := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
 			n := obj.(framework.NodeInfo)
 			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
 				t.Error(diff)
 			}
 
-			if err := cache.RemovePod(tt.pod); err != nil {
+			if err := cache.DeletePod(tt.pod); err != nil {
 				t.Fatalf("RemovePod failed: %v", err)
 			}
 			if _, err := cache.GetPod(tt.pod); err == nil {
@@ -985,9 +985,9 @@ func TestRemovePod(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			nodeName := tt.pod.Spec.NodeName
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
 			cache := newSchedulerCache(cacheHandler)
@@ -995,7 +995,7 @@ func TestRemovePod(t *testing.T) {
 			if err := cache.AddPod(tt.pod); err != nil {
 				t.Fatalf("AddPod failed: %v", err)
 			}
-			n := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+			n := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
 			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
 				t.Error(diff)
 			}
@@ -1005,7 +1005,7 @@ func TestRemovePod(t *testing.T) {
 				}
 			}
 
-			if err := cache.RemovePod(tt.pod); err != nil {
+			if err := cache.DeletePod(tt.pod); err != nil {
 				t.Fatalf("RemovePod failed: %v", err)
 			}
 
@@ -1014,7 +1014,7 @@ func TestRemovePod(t *testing.T) {
 			}
 
 			// Node that owned the Pod should be at the head of the list.
-			obj := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.(generationstore.ListStore).Front().StoredObj
+			obj := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.(generationstore.ListStore).Front().StoredObj
 			if obj.(framework.NodeInfo).GetNode().Name != nodeName {
 				t.Errorf("node %q is not at the head of the list", nodeName)
 			}
@@ -1027,9 +1027,9 @@ func TestForgetPod(t *testing.T) {
 	basePod := makeBasePod(t, nodeName, "test", "100m", "500", "", []v1.ContainerPort{{HostIP: "127.0.0.1", HostPort: 80, Protocol: "TCP"}}, podutil.GuaranteedPod)
 	pods := []*v1.Pod{basePod}
 	now := time.Now()
-	cacheHandler := handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		EnableStore("PreemptionStore").
 		Obj()
 	cache := newSchedulerCache(cacheHandler)
@@ -1118,9 +1118,9 @@ func TestNodeOps(t *testing.T) {
 		},
 	}
 
-	cacheHandler := handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		EnableStore("PreemptionStore").
 		Obj()
 	cache := newSchedulerCache(cacheHandler)
@@ -1138,13 +1138,13 @@ func TestNodeOps(t *testing.T) {
 	}
 
 	// Step 1: the node was added into cache successfully. the node was set out of partition of the scheduler by default.
-	obj := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(node.Name)
+	obj := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(node.Name)
 	if obj == nil {
 		t.Errorf("Failed to find node %v in internalcache.", node.Name)
 	}
 
 	// Step 2: dump cached nodes successfully.
-	snapshotHandler := handler.MakeCacheHandlerWrapper().
+	snapshotHandler := commoncache.MakeCacheHandlerWrapper().
 		SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 		EnableStore("PreemptionStore").
 		Obj()
@@ -1154,7 +1154,7 @@ func TestNodeOps(t *testing.T) {
 	}
 
 	// Step 3: remove node.
-	cache.RemoveNMNode(nmNode)
+	cache.DeleteNMNode(nmNode)
 
 	if err := cache.UpdateSnapshot(cachedNodes); err != nil {
 		t.Error(err)
@@ -1162,7 +1162,7 @@ func TestNodeOps(t *testing.T) {
 
 	count := cachedNodes.NumNodes()
 	if count != 2 {
-		t.Errorf("failed to dump cached nodes:\n got: %v \nexpected: %v", count, cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
+		t.Errorf("failed to dump cached nodes:\n got: %v \nexpected: %v", count, cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
 	}
 	// Step 4: add node.
 	cache.AddNode(node3)
@@ -1171,18 +1171,18 @@ func TestNodeOps(t *testing.T) {
 	}
 	count = cachedNodes.NumNodes()
 	if count != 3 {
-		t.Errorf("failed to dump cached nodes:\n got: %v \nexpected: %v", count, cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
+		t.Errorf("failed to dump cached nodes:\n got: %v \nexpected: %v", count, cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
 	}
 
 	// Step 5: remove node.
-	cache.RemoveNode(node)
+	cache.DeleteNode(node)
 	if err := cache.UpdateSnapshot(cachedNodes); err != nil {
 		t.Error(err)
 	}
 
 	count = cachedNodes.NumNodes()
 	if count != 2 {
-		t.Errorf("failed to dump cached nodes:\n got: %v \nexpected: %v", count, cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
+		t.Errorf("failed to dump cached nodes:\n got: %v \nexpected: %v", count, cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
 	}
 }
 
@@ -1206,7 +1206,7 @@ func TestSchedulerCache_UpdateSubClusterSnapshot(t *testing.T) {
 	}
 	removeNode := func(node *v1.Node) operation {
 		return func() {
-			if err := cache.RemoveNode(node); err != nil {
+			if err := cache.DeleteNode(node); err != nil {
 				t.Error(err)
 			}
 		}
@@ -1397,19 +1397,19 @@ func TestSchedulerCache_UpdateSubClusterSnapshot(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				Obj()
 			cache = newSchedulerCache(cacheHandler)
 			snapshots = []*Snapshot{
-				NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+				NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 					SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 					Obj()),
-				NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+				NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 					SubCluster(alphaSubClusterName).SwitchType(framework.DefaultSubClusterSwitchType).
 					Obj()),
-				NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+				NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 					SubCluster(sigmaSubClusterName).SwitchType(framework.DefaultSubClusterSwitchType).
 					Obj()),
 			}
@@ -1418,12 +1418,12 @@ func TestSchedulerCache_UpdateSubClusterSnapshot(t *testing.T) {
 				op()
 			}
 
-			if len(test.expected) != cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
-				t.Errorf("unexpected number of nodes. Expected: %v, got: %v", len(test.expected), cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
+			if len(test.expected) != cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
+				t.Errorf("unexpected number of nodes. Expected: %v, got: %v", len(test.expected), cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
 			}
 			var i int
 			// Check that cache is in the expected state.
-			for e := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.(generationstore.ListStore).Front(); e != nil; e = e.Next() {
+			for e := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.(generationstore.ListStore).Front(); e != nil; e = e.Next() {
 				nodeInfo := e.StoredObj.(framework.NodeInfo)
 				if nodeInfo.GetNode() != nil && nodeInfo.GetNode().Name != test.expected[i].Name {
 					t.Errorf("unexpected node. Expected: %v, got: %v, index: %v", test.expected[i].Name, nodeInfo.GetNode().Name, i)
@@ -1431,8 +1431,8 @@ func TestSchedulerCache_UpdateSubClusterSnapshot(t *testing.T) {
 				i++
 			}
 			// Make sure we visited all the cached nodes in the above for loop.
-			if i != cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
-				t.Errorf("Not all the nodes were visited by following the NodeInfo linked list. Expected to see %v nodes, saw %v.", cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), i)
+			if i != cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
+				t.Errorf("Not all the nodes were visited by following the NodeInfo linked list. Expected to see %v nodes, saw %v.", cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), i)
 			}
 
 			// Update snapshot and check nodes.
@@ -1446,12 +1446,12 @@ func TestSchedulerCache_UpdateSubClusterSnapshot(t *testing.T) {
 				}
 				for j := 0; j < len(test.subCluster[i]); j++ {
 					expect := test.subCluster[i][j]
-					got := snapshot.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(expect.Name).GetNode()
+					got := snapshot.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(expect.Name).GetNode()
 					if diff := cmp.Diff(expect, got); len(diff) > 0 {
 						t.Errorf("unexpected node. diff: %v index: %v/%v", diff, i, j)
 					}
 				}
-				snapshot.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.Range(func(s string, so generationstore.StoredObj) {
+				snapshot.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.Range(func(s string, so generationstore.StoredObj) {
 					got := so.(framework.NodeInfo)
 					shouldBePlaceHolder := true
 					for j := 0; j < len(test.subCluster[i]); j++ {
@@ -1582,7 +1582,7 @@ func TestSchedulerCache_UpdateSnapshot(t *testing.T) {
 	}
 	removeNode := func(i int) operation {
 		return func() {
-			if err := cache.RemoveNode(nodes[i]); err != nil {
+			if err := cache.DeleteNode(nodes[i]); err != nil {
 				t.Error(err)
 			}
 		}
@@ -1610,14 +1610,14 @@ func TestSchedulerCache_UpdateSnapshot(t *testing.T) {
 	}
 	removePod := func(i int) operation {
 		return func() {
-			if err := cache.RemovePod(pods[i]); err != nil {
+			if err := cache.DeletePod(pods[i]); err != nil {
 				t.Error(err)
 			}
 		}
 	}
 	removePodWithAffinity := func(i int) operation {
 		return func() {
-			if err := cache.RemovePod(podsWithAffinity[i]); err != nil {
+			if err := cache.DeletePod(podsWithAffinity[i]); err != nil {
 				t.Error(err)
 			}
 		}
@@ -1794,12 +1794,12 @@ func TestSchedulerCache_UpdateSnapshot(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
-			snapshotHandler := handler.MakeCacheHandlerWrapper().
+			snapshotHandler := commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				EnableStore("PreemptionStore").
 				Obj()
@@ -1810,12 +1810,12 @@ func TestSchedulerCache_UpdateSnapshot(t *testing.T) {
 				op()
 			}
 
-			if len(test.expected) != cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
-				t.Errorf("unexpected number of nodes. Expected: %v, got: %v", len(test.expected), cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
+			if len(test.expected) != cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
+				t.Errorf("unexpected number of nodes. Expected: %v, got: %v", len(test.expected), cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
 			}
 			var i int
 			// Check that cache is in the expected state.
-			for e := cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.(generationstore.ListStore).Front(); e != nil; e = e.Next() {
+			for e := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.(generationstore.ListStore).Front(); e != nil; e = e.Next() {
 				nodeInfo := e.StoredObj.(framework.NodeInfo)
 				if nodeInfo.GetNode() != nil && nodeInfo.GetNode().Name != test.expected[i].Name {
 					t.Errorf("unexpected node. Expected: %v, got: %v, index: %v", test.expected[i].Name, nodeInfo.GetNode().Name, i)
@@ -1823,8 +1823,8 @@ func TestSchedulerCache_UpdateSnapshot(t *testing.T) {
 				i++
 			}
 			// Make sure we visited all the cached nodes in the above for loop.
-			if i != cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
-				t.Errorf("Not all the nodes were visited by following the NodeInfo linked list. Expected to see %v nodes, saw %v.", cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), i)
+			if i != cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
+				t.Errorf("Not all the nodes were visited by following the NodeInfo linked list. Expected to see %v nodes, saw %v.", cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), i)
 			}
 
 			// Check number of nodes with pods with affinity
@@ -1845,25 +1845,25 @@ func TestSchedulerCache_UpdateSnapshot(t *testing.T) {
 
 func compareCacheWithNodeInfoSnapshot(cache *schedulerCache, snapshot *Snapshot) error {
 	// Compare the map.
-	if snapshot.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() != cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
-		return fmt.Errorf("unexpected number of nodes in the snapshot. Expected: %v, got: %v", cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), snapshot.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
+	if snapshot.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() != cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
+		return fmt.Errorf("unexpected number of nodes in the snapshot. Expected: %v, got: %v", cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), snapshot.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
 	}
-	for key, nodeInfo := range cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).AllNodesClone() {
+	for key, nodeInfo := range cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).AllNodesClone() {
 		// if !reflect.DeepEqual(snapshot.nodeStore.Get(key), nodeInfo) {
-		if !cmp.Equal(snapshot.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(key), nodeInfo, cmpopts.IgnoreUnexported(framework.NodeInfoImpl{})) {
-			return fmt.Errorf("unexpected node info for node %q. Expected: %+v, got: %+v", key, nodeInfo, snapshot.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(key))
+		if !cmp.Equal(snapshot.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(key), nodeInfo, cmpopts.IgnoreUnexported(framework.NodeInfoImpl{})) {
+			return fmt.Errorf("unexpected node info for node %q. Expected: %+v, got: %+v", key, nodeInfo, snapshot.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(key))
 		}
 	}
 
 	// Compare the lists.
-	if snapshot.nodeSlices.outOfPartitionNodeSlice.Len() != cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
-		return fmt.Errorf("unexpected number of nodes in NodeInfoList. Expected: %v, got: %v", cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), snapshot.nodeSlices.outOfPartitionNodeSlice.Len())
+	if snapshot.nodeSlices.outOfPartitionNodeSlice.Len() != cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
+		return fmt.Errorf("unexpected number of nodes in NodeInfoList. Expected: %v, got: %v", cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), snapshot.nodeSlices.outOfPartitionNodeSlice.Len())
 	}
 
-	expectedNodeInfoList := make([]framework.NodeInfo, 0, cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
-	expectedHavePodsWithAffinityNodeInfoList := make([]framework.NodeInfo, 0, cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
-	if cache.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.ConditionRange(func(nodeName string, _ generationstore.StoredObj) bool {
-		if obj := snapshot.storeSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName); obj != nil {
+	expectedNodeInfoList := make([]framework.NodeInfo, 0, cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
+	expectedHavePodsWithAffinityNodeInfoList := make([]framework.NodeInfo, 0, cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
+	if cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.ConditionRange(func(nodeName string, _ generationstore.StoredObj) bool {
+		if obj := snapshot.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName); obj != nil {
 			n := obj
 			expectedNodeInfoList = append(expectedNodeInfoList, n)
 			if len(n.GetPodsWithAffinity()) > 0 {
@@ -1936,7 +1936,7 @@ func TestSchedulerCache_updateNodeInfoSnapshotList(t *testing.T) {
 		// }
 	}
 	updateSnapshot := func(t *testing.T) {
-		cache.storeSwitch.Find(nodestore.Name).UpdateSnapshot(snapshot.storeSwitch.Find(nodestore.Name))
+		cache.CommonStoresSwitch.Find(nodestore.Name).UpdateSnapshot(snapshot.CommonStoresSwitch.Find(nodestore.Name))
 		if err := compareCacheWithNodeInfoSnapshot(cache, snapshot); err != nil {
 			t.Error(err)
 		}
@@ -2011,12 +2011,12 @@ func TestSchedulerCache_updateNodeInfoSnapshotList(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cacheHandler := handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj()
-			snapshotHandler := handler.MakeCacheHandlerWrapper().
+			snapshotHandler := commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				EnableStore("PreemptionStore").
 				Obj()
@@ -2026,7 +2026,7 @@ func TestSchedulerCache_updateNodeInfoSnapshotList(t *testing.T) {
 			test.operations(t)
 
 			// Always update the snapshot at the end of operations and compare it.
-			cache.storeSwitch.Find(nodestore.Name).UpdateSnapshot(snapshot.storeSwitch.Find(nodestore.Name))
+			cache.CommonStoresSwitch.Find(nodestore.Name).UpdateSnapshot(snapshot.CommonStoresSwitch.Find(nodestore.Name))
 			if err := compareCacheWithNodeInfoSnapshot(cache, snapshot); err != nil {
 				t.Error(err)
 			}
@@ -2045,7 +2045,7 @@ func BenchmarkUpdate1kNodes30kPods(b *testing.B) {
 	cache := setupCacheOf1kNodes30kPods(b)
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		cachedNodes := NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+		cachedNodes := NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 			SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 			EnableStore("PreemptionStore").
 			Obj())
@@ -2073,7 +2073,7 @@ func benchmarkExpire(b *testing.B, podNum int) {
 		b.StopTimer()
 		cache := setupCacheWithAssumedPods(b, podNum, now)
 		b.StartTimer()
-		cache.storeSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(&cache.mu, now.Add(2*time.Second))
+		cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(cache.mu, now.Add(2*time.Second))
 	}
 }
 
@@ -2118,9 +2118,9 @@ func makeBasePod(t testingMode, nodeName, objName, cpu, mem, extended string, po
 }
 
 func setupCacheOf1kNodes30kPods(b *testing.B) SchedulerCache {
-	cacheHandler := handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		EnableStore("PreemptionStore").
 		Obj()
 	cache := newSchedulerCache(cacheHandler)
@@ -2139,9 +2139,9 @@ func setupCacheOf1kNodes30kPods(b *testing.B) SchedulerCache {
 }
 
 func setupCacheWithAssumedPods(b *testing.B, podNum int, assumedTime time.Time) *schedulerCache {
-	cacheHandler := handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		EnableStore("PreemptionStore").
 		Obj()
 	cache := newSchedulerCache(cacheHandler)

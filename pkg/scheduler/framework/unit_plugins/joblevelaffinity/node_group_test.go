@@ -29,10 +29,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/api/fake"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/testing/fakehandle"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -721,9 +721,9 @@ func TestLocating(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		cache := godelcache.New(handler.MakeCacheHandlerWrapper().
-			SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-			TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+		cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+			ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+			PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 			EnableStore("PreemptionStore").
 			Obj())
 
@@ -1010,9 +1010,9 @@ func TestGetNodeGroupsFromTree(t *testing.T) {
 func TestGrouping(t *testing.T) {
 	stop := make(chan struct{})
 	defer close(stop)
-	cache := godelcache.New(handler.MakeCacheHandlerWrapper().
-		SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+	cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 		EnableStore("PreemptionStore").
 		Obj())
 

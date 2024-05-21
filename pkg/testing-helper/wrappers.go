@@ -30,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -481,69 +480,6 @@ func (p *PodWrapper) PreemptionPolicy(policy v1.PreemptionPolicy) *PodWrapper {
 func (p *PodWrapper) PriorityClassName(n string) *PodWrapper {
 	p.Spec.PriorityClassName = n
 	return p
-}
-
-type NodeInfoWrapper struct {
-	framework.NodeInfo
-}
-
-func MakeNodeInfo() *NodeInfoWrapper {
-	nodeInfo := framework.NewNodeInfo()
-	node := v1.Node{}
-	nodeInfo.SetNode(&node)
-	cnr := katalystv1alpha1.CustomNodeResource{}
-	nodeInfo.SetCNR(&cnr)
-	return &NodeInfoWrapper{nodeInfo}
-}
-
-func (n *NodeInfoWrapper) Obj() framework.NodeInfo {
-	return n.NodeInfo
-}
-
-func (n *NodeInfoWrapper) Name(s string) *NodeInfoWrapper {
-	n.NodeInfo.GetNode().SetName(s)
-	n.NodeInfo.GetCNR().SetName(s)
-	return n
-}
-
-// Label applies a {k,v} label pair to the inner node.
-func (n *NodeInfoWrapper) Label(k, v string) *NodeInfoWrapper {
-	node := n.GetNode()
-	if node.Labels == nil {
-		node.Labels = make(map[string]string)
-	}
-	node.Labels[k] = v
-	return n
-}
-
-// Capacity sets the capacity and the allocatable resources of the inner node.
-// Each entry in `resources` corresponds to a resource name and its quantity.
-// By default, the capacity and allocatable number of pods are set to 32.
-func (n *NodeInfoWrapper) Capacity(resources map[v1.ResourceName]string) *NodeInfoWrapper {
-	res := v1.ResourceList{
-		v1.ResourcePods: resource.MustParse("32"),
-	}
-	for name, value := range resources {
-		res[name] = resource.MustParse(value)
-	}
-
-	node := n.GetNode()
-	node.Status.Capacity, node.Status.Allocatable = res, res
-	n.SetNode(node)
-	return n
-}
-
-func (n *NodeInfoWrapper) CNRCapacity(resources map[v1.ResourceName]string) *NodeInfoWrapper {
-	res := v1.ResourceList{
-		v1.ResourcePods: resource.MustParse("32"),
-	}
-	for name, value := range resources {
-		res[name] = resource.MustParse(value)
-	}
-	cnr := n.GetCNR()
-	cnr.Status.Resources.Capacity, cnr.Status.Resources.Allocatable = &res, &res
-	n.SetCNR(cnr)
-	return n
 }
 
 // NodeWrapper wraps a Node inside.

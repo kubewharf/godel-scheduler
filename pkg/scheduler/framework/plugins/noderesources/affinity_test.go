@@ -25,10 +25,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	testutil "github.com/kubewharf/godel-scheduler/pkg/scheduler/testing"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -134,12 +134,12 @@ func TestNodeResourcesAffinity_Score(t *testing.T) {
 			for i := 0; i < len(test.nodes); i++ {
 				nodes[i] = test.nodes[i].GetNode()
 			}
-			cache := godelcache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj())
-			snapshot := godelcache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				EnableStore("PreemptionStore").
 				Obj())

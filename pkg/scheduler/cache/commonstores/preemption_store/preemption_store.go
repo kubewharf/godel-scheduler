@@ -23,24 +23,25 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
-const Name commonstores.StoreName = "PreemptionStore"
+const Name commonstore.StoreName = "PreemptionStore"
 
-func (c *PreemptionStore) Name() commonstores.StoreName {
+func (c *PreemptionStore) Name() commonstore.StoreName {
 	return Name
 }
 
 func init() {
-	commonstores.GlobalRegistry.Register(
+	commonstores.GlobalRegistries.Register(
 		Name,
-		func(h handler.CacheHandler) bool { return h.IsStoreEnabled(string(Name)) },
+		func(h commoncache.CacheHandler) bool { return h.IsStoreEnabled(string(Name)) },
 		NewCache,
 		NewSnapshot)
 }
@@ -49,29 +50,29 @@ func init() {
 
 // -------------------------------------- PreemptionStore --------------------------------------
 type PreemptionStore struct {
-	commonstores.BaseStore
-	storeType commonstores.StoreType
-	handler   handler.CacheHandler
+	commonstore.BaseStore
+	storeType commonstore.StoreType
+	handler   commoncache.CacheHandler
 
 	store *PreemptionDetails
 }
 
-var _ commonstores.CommonStore = &PreemptionStore{}
+var _ commonstore.Store = &PreemptionStore{}
 
-func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
+func NewCache(handler commoncache.CacheHandler) commonstore.Store {
 	return &PreemptionStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Cache,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Cache,
 		handler:   handler,
 
 		store: NewCachePreemptionDetails(),
 	}
 }
 
-func NewSnapshot(handler handler.CacheHandler) commonstores.CommonStore {
+func NewSnapshot(handler commoncache.CacheHandler) commonstore.Store {
 	return &PreemptionStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Snapshot,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Snapshot,
 		handler:   handler,
 
 		store: NewSnapshotPreemptionDetails(),
@@ -94,7 +95,7 @@ func (s *PreemptionStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 		}
 		if ps, _ := s.handler.GetPodState(key); ps != nil {
 			// Use the pod stored in Cache instead of oldPod.
-			if err := s.RemovePod(ps.Pod); err != nil {
+			if err := s.DeletePod(ps.Pod); err != nil {
 				return err
 			}
 		}
@@ -108,7 +109,7 @@ func (s *PreemptionStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 	return nil
 }
 
-func (s *PreemptionStore) RemovePod(pod *v1.Pod) error {
+func (s *PreemptionStore) DeletePod(pod *v1.Pod) error {
 	if !podutil.BoundPod(pod) && !podutil.AssumedPodOfGodel(pod, s.handler.SchedulerType()) {
 		return nil
 	}
@@ -123,7 +124,7 @@ func (s *PreemptionStore) ForgetPod(podInfo *framework.CachePodInfo) error {
 	return s.podOp(podInfo.Pod, false)
 }
 
-func (s *PreemptionStore) UpdateSnapshot(store commonstores.CommonStore) error {
+func (s *PreemptionStore) UpdateSnapshot(store commonstore.Store) error {
 	updatePreemptionDetailForNodeItems := func(cacheStore, snapshotStore generationstore.Store) {
 		cache, snapshot := framework.TransferGenerationStore(cacheStore, snapshotStore)
 		cache.UpdateRawStore(

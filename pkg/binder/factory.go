@@ -104,7 +104,7 @@ func MakeDefaultErrorFunc(client clientset.Interface, podLister corelisters.PodL
 				_, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 				if err != nil && apierrors.IsNotFound(err) {
 					node := v1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
-					if err := binderCache.RemoveNode(&node); err != nil {
+					if err := binderCache.DeleteNode(&node); err != nil {
 						klog.V(4).InfoS("Failed to remove node from cache as it is not found", "node", klog.KObj(&node), "err", err)
 					}
 				}

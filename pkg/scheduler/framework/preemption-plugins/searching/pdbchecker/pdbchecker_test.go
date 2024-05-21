@@ -31,9 +31,9 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	schedulertesting "github.com/kubewharf/godel-scheduler/pkg/scheduler/testing"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
@@ -162,12 +162,12 @@ func TestPDBChecker(t *testing.T) {
 			informerFactory := informers.NewSharedInformerFactory(client, 0)
 			crdClient := godelclientfake.NewSimpleClientset()
 			crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, 0)
-			schedulerCache := cache.New(handler.MakeCacheHandlerWrapper().
-				SchedulerName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-				TTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+			schedulerCache := cache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
 				EnableStore("PreemptionStore").
 				Obj())
-			snapshot := cache.NewEmptySnapshot(handler.MakeCacheHandlerWrapper().
+			snapshot := cache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
 				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
 				EnableStore("PreemptionStore").
 				Obj())

@@ -23,24 +23,25 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
 	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/handler"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
 )
 
-const Name commonstores.StoreName = "PdbStore"
+const Name commonstore.StoreName = "PdbStore"
 
-func (c *PdbStore) Name() commonstores.StoreName {
+func (c *PdbStore) Name() commonstore.StoreName {
 	return Name
 }
 
 func init() {
-	commonstores.GlobalRegistry.Register(
+	commonstores.GlobalRegistries.Register(
 		Name,
-		func(h handler.CacheHandler) bool { return h.IsStoreEnabled(string(preemptionstore.Name)) },
+		func(h commoncache.CacheHandler) bool { return h.IsStoreEnabled(string(preemptionstore.Name)) },
 		NewCache,
 		NewSnapshot)
 }
@@ -52,9 +53,9 @@ func init() {
 // PdbStore is used to cache pdb and pdb selectors
 // Operation of this struct is not thread-safe, should ensure thread-safe by callers.
 type PdbStore struct {
-	commonstores.BaseStore
-	storeType commonstores.StoreType
-	handler   handler.CacheHandler
+	commonstore.BaseStore
+	storeType commonstore.StoreType
+	handler   commoncache.CacheHandler
 
 	// key is replicaset namespace/name
 	ReplicaSets generationstore.Store
@@ -64,12 +65,12 @@ type PdbStore struct {
 	Pdbs generationstore.Store
 }
 
-var _ commonstores.CommonStore = &PdbStore{}
+var _ commonstore.Store = &PdbStore{}
 
-func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
+func NewCache(handler commoncache.CacheHandler) commonstore.Store {
 	return &PdbStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Cache,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Cache,
 		handler:   handler,
 
 		ReplicaSets: generationstore.NewListStore(),
@@ -78,10 +79,10 @@ func NewCache(handler handler.CacheHandler) commonstores.CommonStore {
 	}
 }
 
-func NewSnapshot(handler handler.CacheHandler) commonstores.CommonStore {
+func NewSnapshot(handler commoncache.CacheHandler) commonstore.Store {
 	return &PdbStore{
-		BaseStore: commonstores.NewBaseStore(),
-		storeType: commonstores.Snapshot,
+		BaseStore: commonstore.NewBaseStore(),
+		storeType: commonstore.Snapshot,
 		handler:   handler,
 
 		ReplicaSets: generationstore.NewRawStore(),
@@ -238,7 +239,7 @@ func updatePDBs(cacheStore, snapshotStore generationstore.Store) {
 	)
 }
 
-func (s *PdbStore) UpdateSnapshot(store commonstores.CommonStore) error {
+func (s *PdbStore) UpdateSnapshot(store commonstore.Store) error {
 	updateOwners(s.ReplicaSets, store.(*PdbStore).ReplicaSets)
 	updateOwners(s.DaemonSets, store.(*PdbStore).DaemonSets)
 	updatePDBs(s.Pdbs, store.(*PdbStore).Pdbs)
