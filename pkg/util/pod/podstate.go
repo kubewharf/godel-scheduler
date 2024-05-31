@@ -91,6 +91,11 @@ const (
 	IncreasePercentageOfNodesToScoreAnnotationKey = "godel.bytedance.com/increase-percentage-of-nodes-to-score"
 
 	IncreasePercentageOfNodesToScore = "true"
+
+	MovementNameKey = "godel.bytedance.com/movement-name"
+
+	// Pods with same request template share the same requirements.
+	PodRequestTemplateAnnotationKey = "godel.bytedance.com/request-template"
 )
 
 type PodState string
