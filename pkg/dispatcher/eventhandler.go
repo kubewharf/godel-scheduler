@@ -206,6 +206,25 @@ func (d *Dispatcher) deletePodFromDispatchedInfo(obj interface{}) {
 	}
 }
 
+func (d *Dispatcher) addPodToOwnerInfo(obj interface{}) {
+	pod, err := podutil.ConvertToPod(obj)
+	if err != nil {
+		klog.InfoS("Failed to add pod to owner info", "err", err)
+		return
+	}
+	schedulerName := podutil.GetSchedulerNameForPod(pod)
+	d.OwnerInfos.AddDispatchedUnboundPod(pod, schedulerName)
+}
+
+func (d *Dispatcher) deletePodFromOwnerInfo(obj interface{}) {
+	pod, err := podutil.ConvertToPod(obj)
+	if err != nil {
+		klog.InfoS("Failed to delete pod from owner info", "err", err)
+		return
+	}
+	d.OwnerInfos.DeleteDispatchedUnboundPod(pod)
+}
+
 func AddAllEventHandlers(
 	dispatcher *Dispatcher,
 	podInformer coreinformers.PodInformer,
@@ -264,6 +283,32 @@ func AddAllEventHandlers(
 			},
 		},
 	)
+
+	if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
+		podInformer.Informer().AddEventHandler(
+			cache.FilteringResourceEventHandler{
+				FilterFunc: func(obj interface{}) bool {
+					switch t := obj.(type) {
+					case *v1.Pod:
+						return podutil.DispatchedPodOfGodel(t, dispatcher.SchedulerName) || podutil.AssumedPodOfGodel(t, dispatcher.SchedulerName)
+					case cache.DeletedFinalStateUnknown:
+						if pod, ok := t.Obj.(*v1.Pod); ok {
+							return podutil.DispatchedPodOfGodel(pod, dispatcher.SchedulerName) || podutil.AssumedPodOfGodel(pod, dispatcher.SchedulerName)
+						}
+						klog.InfoS("Failed to convert object to *v1.Pod", "object", obj, "component", dispatcher)
+						return false
+					default:
+						klog.InfoS("Failed to handle object", "component", dispatcher, "object", obj)
+						return false
+					}
+				},
+				Handler: cache.ResourceEventHandlerFuncs{
+					AddFunc:    dispatcher.addPodToOwnerInfo,
+					DeleteFunc: dispatcher.deletePodFromOwnerInfo,
+				},
+			},
+		)
+	}
 
 	// abnormal state pod queue
 	podInformer.Informer().AddEventHandler(

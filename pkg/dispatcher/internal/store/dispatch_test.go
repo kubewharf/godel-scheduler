@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
@@ -220,5 +221,144 @@ func Test_dispatchInfo_GetMostIdleSchedulerAndAddPodInAdvance(t *testing.T) {
 				t.Errorf("GetMostIdleSchedulerAndAddPodInAdvance() = %v, expected %v", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestOperateOwnerInfo(t *testing.T) {
+	p1 := testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").
+		ControllerRef(v1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs1", UID: "rs1"}).Obj()
+	p2 := testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").
+		ControllerRef(v1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs1", UID: "rs1"}).Obj()
+	p3 := testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").
+		ControllerRef(v1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs2", UID: "rs2"}).Obj()
+	originOwnerInfo := NewOwnerInfo()
+	originOwnerInfo.AddDispatchedUnboundPod(p1, "godel-scheduler-0")
+	originOwnerInfo.AddDispatchedUnboundPod(p2, "godel-scheduler-0")
+	originOwnerInfo.AddDispatchedUnboundPod(p3, "godel-scheduler-1")
+	expectedOwnerInfo := &ownerInfo{
+		ownerToUnboundPods: map[string]*ownerPodsInfo{
+			"ReplicaSet/default/rs1/rs1": {
+				schedulerName: "godel-scheduler-0",
+				unBoundPods:   sets.NewString("default/p1/p1", "default/p2/p2"),
+			},
+			"ReplicaSet/default/rs2/rs2": {
+				schedulerName: "godel-scheduler-1",
+				unBoundPods:   sets.NewString("default/p3/p3"),
+			},
+		},
+		podToOwner: map[string]string{
+			"default/p1/p1": "ReplicaSet/default/rs1/rs1",
+			"default/p2/p2": "ReplicaSet/default/rs1/rs1",
+			"default/p3/p3": "ReplicaSet/default/rs2/rs2",
+		},
+	}
+	if !reflect.DeepEqual(expectedOwnerInfo, originOwnerInfo) {
+		t.Errorf("expect to get owner info: %v, but got: %v", expectedOwnerInfo, originOwnerInfo)
+	}
+	originOwnerInfo.DeleteDispatchedUnboundPod(p1)
+	expectedOwnerInfo = &ownerInfo{
+		ownerToUnboundPods: map[string]*ownerPodsInfo{
+			"ReplicaSet/default/rs1/rs1": {
+				schedulerName: "godel-scheduler-0",
+				unBoundPods:   sets.NewString("default/p2/p2"),
+			},
+			"ReplicaSet/default/rs2/rs2": {
+				schedulerName: "godel-scheduler-1",
+				unBoundPods:   sets.NewString("default/p3/p3"),
+			},
+		},
+		podToOwner: map[string]string{
+			"default/p2/p2": "ReplicaSet/default/rs1/rs1",
+			"default/p3/p3": "ReplicaSet/default/rs2/rs2",
+		},
+	}
+	if !reflect.DeepEqual(expectedOwnerInfo, originOwnerInfo) {
+		t.Errorf("expect to get owner info: %v, but got: %v", expectedOwnerInfo, originOwnerInfo)
+	}
+	originOwnerInfo.DeleteDispatchedUnboundPod(p2)
+	expectedOwnerInfo = &ownerInfo{
+		ownerToUnboundPods: map[string]*ownerPodsInfo{
+			"ReplicaSet/default/rs2/rs2": {
+				schedulerName: "godel-scheduler-1",
+				unBoundPods:   sets.NewString("default/p3/p3"),
+			},
+		},
+		podToOwner: map[string]string{
+			"default/p3/p3": "ReplicaSet/default/rs2/rs2",
+		},
+	}
+	if !reflect.DeepEqual(expectedOwnerInfo, originOwnerInfo) {
+		t.Errorf("expect to get owner info: %v, but got: %v", expectedOwnerInfo, originOwnerInfo)
+	}
+	gotScheduler := originOwnerInfo.SelectSchedulerAndSetDispatchedUnboundPod(p3)
+	if gotScheduler != "godel-scheduler-1" {
+		t.Errorf("expect to get scheduler: godel-scheduler-1, but got: %s", gotScheduler)
+	}
+	gotScheduler = originOwnerInfo.SelectSchedulerAndSetDispatchedUnboundPod(p1)
+	if gotScheduler != "" {
+		t.Errorf("expect to get scheduler: nil, but got: %s", gotScheduler)
+	}
+}
+
+func TestSetDispatchedUnboundPod(t *testing.T) {
+	p1 := testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").
+		ControllerRef(v1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs1", UID: "rs1"}).Obj()
+	p2 := testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").
+		ControllerRef(v1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs1", UID: "rs1"}).Obj()
+	originOwnerInfo := NewOwnerInfo()
+	originOwnerInfo.AddDispatchedUnboundPod(p1, "godel-scheduler-0")
+	expectedOwnerInfo := &ownerInfo{
+		ownerToUnboundPods: map[string]*ownerPodsInfo{
+			"ReplicaSet/default/rs1/rs1": {
+				schedulerName: "godel-scheduler-0",
+				unBoundPods:   sets.NewString("default/p1/p1"),
+			},
+		},
+		podToOwner: map[string]string{
+			"default/p1/p1": "ReplicaSet/default/rs1/rs1",
+		},
+	}
+	if !reflect.DeepEqual(expectedOwnerInfo, originOwnerInfo) {
+		t.Errorf("expect to get owner info: %v, but got: %v", expectedOwnerInfo, originOwnerInfo)
+	}
+
+	gotScheduler := originOwnerInfo.SetDispatchedUnboundPod(p2, "godel-scheduler-1")
+	if gotScheduler != "godel-scheduler-0" {
+		t.Errorf("unexpected scheduler: %s", gotScheduler)
+	}
+	expectedOwnerInfo = &ownerInfo{
+		ownerToUnboundPods: map[string]*ownerPodsInfo{
+			"ReplicaSet/default/rs1/rs1": {
+				schedulerName: "godel-scheduler-0",
+				unBoundPods:   sets.NewString("default/p1/p1", "default/p2/p2"),
+			},
+		},
+		podToOwner: map[string]string{
+			"default/p1/p1": "ReplicaSet/default/rs1/rs1",
+			"default/p2/p2": "ReplicaSet/default/rs1/rs1",
+		},
+	}
+	if !reflect.DeepEqual(expectedOwnerInfo, originOwnerInfo) {
+		t.Errorf("expect to get owner info: %v, but got: %v", expectedOwnerInfo, originOwnerInfo)
+	}
+
+	gotScheduler = originOwnerInfo.SetDispatchedUnboundPod(p2, "godel-scheduler-0")
+	if gotScheduler != "godel-scheduler-0" {
+		t.Errorf("unexpected scheduler: %s", gotScheduler)
+	}
+	expectedOwnerInfo = &ownerInfo{
+		ownerToUnboundPods: map[string]*ownerPodsInfo{
+			"ReplicaSet/default/rs1/rs1": {
+				schedulerName: "godel-scheduler-0",
+				unBoundPods:   sets.NewString("default/p1/p1", "default/p2/p2"),
+			},
+		},
+		podToOwner: map[string]string{
+			"default/p1/p1": "ReplicaSet/default/rs1/rs1",
+			"default/p2/p2": "ReplicaSet/default/rs1/rs1",
+		},
+	}
+	if !reflect.DeepEqual(expectedOwnerInfo, originOwnerInfo) {
+		t.Errorf("expect to get owner info: %v, but got: %v", expectedOwnerInfo, originOwnerInfo)
 	}
 }
