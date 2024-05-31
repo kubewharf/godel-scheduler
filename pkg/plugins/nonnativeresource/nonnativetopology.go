@@ -21,12 +21,12 @@ import (
 	"math"
 	"sort"
 
-	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	listerv1 "k8s.io/client-go/listers/core/v1"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
@@ -34,6 +34,7 @@ import (
 	godelfeatures "github.com/kubewharf/godel-scheduler/pkg/util/features"
 	"github.com/kubewharf/godel-scheduler/pkg/util/helper"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
+	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 )
 
 const (
@@ -538,4 +539,85 @@ func comb(totalCount, selectCount int, items []int) [][]int {
 		}
 	}
 	return selectedItemsLists
+}
+
+func AssignMicroTopology(node framework.NodeInfo, pod *v1.Pod, state *framework.CycleState) string {
+	podAllocation := allocate(node, pod, state)
+	if len(podAllocation) == 0 {
+		return ""
+	}
+	microTopologyStr := util.MarshalMicroTopology(podAllocation)
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string)
+	}
+	return microTopologyStr
+}
+
+func allocate(node framework.NodeInfo, pod *v1.Pod, state *framework.CycleState) map[int]*v1.ResourceList {
+	numaBinding, isExcusive := util.NeedNumaBinding(pod)
+	qosLevel := podutil.GetQoSLevelForPod(pod)
+	if !numaBinding && qosLevel != util.DedicatedCores {
+		return nil
+	}
+
+	numas, err := framework.GetAssignedNumas(state)
+	if err != nil {
+		klog.ErrorS(err, "Get assumed numas failed", "podKey", podutil.GetPodKey(pod), "nodeName", node.GetNodeName())
+		return nil
+	} else if len(numas) == 0 {
+		klog.InfoS("Get nil assigned numas", "podKey", podutil.GetPodKey(pod), "nodeName", node.GetNodeName())
+		return nil
+	}
+
+	resourcesRequests := podutil.GetPodRequests(pod)
+	numaReq := resourcesRequests[string(util.ResourceNuma)]
+	if numaReq != nil && !numaReq.IsZero() {
+		numaBinding = true
+		isExcusive = true
+	}
+
+	switch qosLevel {
+	case util.DedicatedCores:
+		if isExcusive {
+			return getExclusiveAllocation(node, numas)
+		} else {
+			return getNonExclusiveAllocation(resourcesRequests, numas)
+		}
+	case util.SharedCores:
+		return getNonExclusiveAllocation(resourcesRequests, numas)
+	}
+	return nil
+}
+
+func getExclusiveAllocation(nodeInfo framework.NodeInfo, numas []int) map[int]*v1.ResourceList {
+	allocation := map[int]*v1.ResourceList{}
+	numaTopo := nodeInfo.GetNumaTopologyStatus().GetNumaTopology()
+	for _, numa := range numas {
+		numaStatus := numaTopo[numa]
+		if numaStatus == nil {
+			continue
+		}
+		rList := numaStatus.GetNumaResourcesAllocatable()
+		allocation[numa] = &v1.ResourceList{
+			v1.ResourceCPU:    (*rList)[v1.ResourceCPU],
+			v1.ResourceMemory: (*rList)[v1.ResourceMemory],
+		}
+	}
+	return allocation
+}
+
+func getNonExclusiveAllocation(resourcesRequests map[string]*resource.Quantity, numas []int) map[int]*v1.ResourceList {
+	allocation := map[int]*v1.ResourceList{}
+	if len(numas) != 1 {
+		return nil
+	}
+	numa := numas[0]
+	allocation[numa] = &v1.ResourceList{}
+	if cpuReq := resourcesRequests[v1.ResourceCPU.String()]; cpuReq != nil && !cpuReq.IsZero() {
+		(*allocation[numa])[v1.ResourceCPU] = *cpuReq
+	}
+	if memReq := resourcesRequests[v1.ResourceMemory.String()]; memReq != nil && !memReq.IsZero() {
+		(*allocation[numa])[v1.ResourceMemory] = *memReq
+	}
+	return allocation
 }

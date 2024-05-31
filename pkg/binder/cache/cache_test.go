@@ -26,23 +26,22 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 
+	nodestore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/node_store"
+	podstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/pod_store"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	godelfeatures "github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
-func deepEqualWithoutGeneration(actual framework.NodeInfo, expected framework.NodeInfo) error {
-	if (actual == nil) != (expected == nil) {
-		return errors.New("one of the actual or expected is nil and the other is not")
-	}
+func deepEqualWithoutGeneration(actual framework.NodeInfo, expected framework.NodeInfo) string {
 	// Ignore generation field.
 	if actual != nil {
 		actual.SetGeneration(0)
@@ -50,13 +49,7 @@ func deepEqualWithoutGeneration(actual framework.NodeInfo, expected framework.No
 	if expected != nil {
 		expected.SetGeneration(0)
 	}
-
-	// if actual != nil && !reflect.DeepEqual(actual, expected) {
-	if actual != nil && !cmp.Equal(expected, actual, cmpopts.IgnoreUnexported(framework.NodeInfoImpl{})) {
-		return fmt.Errorf("got node info %s, want %s", actual, expected)
-	}
-
-	return nil
+	return cmp.Diff(expected, actual, cmpopts.IgnoreUnexported(framework.NodeInfoImpl{}))
 }
 
 type hostPortInfoParam struct {
@@ -246,19 +239,24 @@ func TestAssumePodScheduled(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cache := newBinderCache(time.Second, time.Second, nil, "")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(time.Second).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
 			for _, pod := range tt.pods {
-				if err := cache.AssumePod(pod); err != nil {
+				podInfo := framework.MakeCachePodInfoWrapper().Pod(pod).Obj()
+				if err := cache.AssumePod(podInfo); err != nil {
 					t.Fatalf("AssumePod failed: %v", err)
 				}
 			}
-			n := cache.nodeInfoMap[nodeName]
-			if err := deepEqualWithoutGeneration(n, tt.wNodeInfo); err != nil {
-				t.Error(err)
+			n := cache.GetNodeInfo(nodeName)
+			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
+				t.Error(diff)
 			}
 
 			for _, pod := range tt.pods {
-				if err := cache.ForgetPod(pod); err != nil {
+				podInfo := framework.MakeCachePodInfoWrapper().Pod(pod).Obj()
+				if err := cache.ForgetPod(podInfo); err != nil {
 					t.Fatalf("ForgetPod failed: %v", err)
 				}
 				if err := isForgottenFromCache(pod, cache); err != nil {
@@ -276,7 +274,8 @@ type testExpirePodStruct struct {
 }
 
 func assumeAndFinishBinding(cache *binderCache, pod *v1.Pod, assumedTime time.Time) error {
-	if err := cache.AssumePod(pod); err != nil {
+	podInfo := framework.MakeCachePodInfoWrapper().Pod(pod).Obj()
+	if err := cache.AssumePod(podInfo); err != nil {
 		return err
 	}
 	return cache.finishBinding(pod, assumedTime)
@@ -298,43 +297,49 @@ func TestExpirePod(t *testing.T) {
 		cleanupTime time.Time
 
 		wNodeInfo framework.NodeInfo
-	}{{ // assumed pod would expires
+	}{{
+		// assumed pod would expires
 		pods: []*testExpirePodStruct{
 			{pod: testPods[0], finishBind: true, assumedTime: now},
 		},
 		cleanupTime: now.Add(2 * ttl),
 		wNodeInfo:   nil,
-	}, { // first one would expire, second and third would not.
-		pods: []*testExpirePodStruct{
-			{pod: testPods[0], finishBind: true, assumedTime: now},
-			{pod: testPods[1], finishBind: true, assumedTime: now.Add(3 * ttl / 2)},
-			{pod: testPods[2]},
+	},
+		{
+			// first one would expire, second and third would not.
+			pods: []*testExpirePodStruct{
+				{pod: testPods[0], finishBind: true, assumedTime: now},
+				{pod: testPods[1], finishBind: true, assumedTime: now.Add(3 * ttl / 2)},
+				{pod: testPods[2]},
+			},
+			cleanupTime: now.Add(2 * ttl),
+			wNodeInfo: newNodeInfo(
+				&framework.Resource{
+					MilliCPU: 400,
+					Memory:   2048,
+				},
+				&framework.Resource{
+					MilliCPU: 400,
+					Memory:   2048,
+				},
+				&framework.Resource{},
+				&framework.Resource{},
+				// Order gets altered when removing pods.
+				[]*v1.Pod{testPods[2], testPods[1]},
+				newHostPortInfoBuilder().add("TCP", "127.0.0.1", 8080).build(),
+				make(map[string]*framework.ImageStateSummary),
+			),
 		},
-		cleanupTime: now.Add(2 * ttl),
-		wNodeInfo: newNodeInfo(
-			&framework.Resource{
-				MilliCPU: 400,
-				Memory:   2048,
-			},
-			&framework.Resource{
-				MilliCPU: 400,
-				Memory:   2048,
-			},
-			&framework.Resource{},
-			&framework.Resource{},
-			// Order gets altered when removing pods.
-			[]*v1.Pod{testPods[2], testPods[1]},
-			newHostPortInfoBuilder().add("TCP", "127.0.0.1", 8080).build(),
-			make(map[string]*framework.ImageStateSummary),
-		),
-	}}
+	}
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cache := newBinderCache(ttl, time.Second, nil, "")
-
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(ttl).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
 			for _, pod := range tt.pods {
-				if err := cache.AssumePod(pod.pod); err != nil {
+				if err := cache.AssumePod(framework.MakeCachePodInfoWrapper().Pod(pod.pod).Obj()); err != nil {
 					t.Fatal(err)
 				}
 				if !pod.finishBind {
@@ -346,50 +351,28 @@ func TestExpirePod(t *testing.T) {
 			}
 			// pods that got bound and have assumedTime + ttl < cleanupTime will get
 			// expired and removed
-			cache.cleanupAssumedPods(tt.cleanupTime)
-			n := cache.nodeInfoMap[nodeName]
-			if err := deepEqualWithoutGeneration(n, tt.wNodeInfo); err != nil {
-				t.Error(err)
+			cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(cache.mu, tt.cleanupTime)
+			obj := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+			if obj != nil {
+				n := obj.(framework.NodeInfo)
+				if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
+					t.Error(diff)
+				}
+			} else {
+				if tt.wNodeInfo != nil {
+					t.Errorf("node: %v expected to be %v but nil", nodeName, tt.wNodeInfo)
+				}
 			}
 		})
 	}
 }
-
-func TestCleanupPodDeletionMarker(t *testing.T) {
-	ttl := 10 * time.Second
-	cleanupTime := time.Now().Add(700 * time.Second)
-	pod := &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            "testPod",
-			Namespace:       "testNS",
-			UID:             "testUID",
-			ResourceVersion: "1",
-		},
-		Spec: v1.PodSpec{
-			NodeName: "node-1",
-		},
+func findPodByUID(pods []*v1.Pod, pod *v1.Pod) *v1.Pod {
+	for _, p := range pods {
+		if p.UID == pod.UID {
+			return p
+		}
 	}
-
-	preemptor := &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            "testPreemptor",
-			Namespace:       "testNS",
-			UID:             "testUID2",
-			ResourceVersion: "1",
-		},
-	}
-
-	cache := newBinderCache(ttl, time.Second, nil, "")
-
-	cache.AddPod(pod)
-	p, _ := cache.GetPod(pod)
-	assert.NotEqual(t, nil, p)
-	cache.MarkPodToDelete(pod, preemptor)
-	markedToBeDeleted, _ := cache.IsPodMarkedToDelete(pod)
-	assert.Equal(t, true, markedToBeDeleted)
-	cache.cleanupPodDeletionMarker(cleanupTime)
-	markedToBeDeleted, _ = cache.IsPodMarkedToDelete(pod)
-	assert.Equal(t, false, markedToBeDeleted)
+	return nil
 }
 
 // TestAddPodWillConfirm tests that a pod being Add()ed will be confirmed if assumed.
@@ -408,44 +391,61 @@ func TestAddPodWillConfirm(t *testing.T) {
 		podsToAdd    []*v1.Pod
 
 		wNodeInfo framework.NodeInfo
-	}{{ // two pod were assumed at same time. But first one is called Add() and gets confirmed.
-		podsToAssume: []*v1.Pod{testPods[0], testPods[1]},
-		podsToAdd:    []*v1.Pod{testPods[0]},
-		wNodeInfo: newNodeInfo(
-			&framework.Resource{
-				MilliCPU: 100,
-				Memory:   500,
-			},
-			&framework.Resource{
-				MilliCPU: 100,
-				Memory:   500,
-			},
-			&framework.Resource{},
-			&framework.Resource{},
-			[]*v1.Pod{testPods[0]},
-			newHostPortInfoBuilder().add("TCP", "127.0.0.1", 80).build(),
-			make(map[string]*framework.ImageStateSummary),
-		),
-	}}
+	}{
+		{ // two pod were assumed at same time. But first one is called Add() and gets confirmed.
+			podsToAssume: []*v1.Pod{testPods[0], testPods[1]},
+			podsToAdd:    []*v1.Pod{testPods[0]},
+			wNodeInfo: newNodeInfo(
+				&framework.Resource{
+					MilliCPU: 100,
+					Memory:   500,
+				},
+				&framework.Resource{
+					MilliCPU: 100,
+					Memory:   500,
+				},
+				&framework.Resource{},
+				&framework.Resource{},
+				[]*v1.Pod{testPods[0]},
+				newHostPortInfoBuilder().add("TCP", "127.0.0.1", 80).build(),
+				make(map[string]*framework.ImageStateSummary),
+			),
+		}}
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cache := newBinderCache(ttl, time.Second, nil, "")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(ttl).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
 			for _, podToAssume := range tt.podsToAssume {
 				if err := assumeAndFinishBinding(cache, podToAssume, now); err != nil {
 					t.Fatalf("assumePod failed: %v", err)
 				}
 			}
+			cache.handler.SetPodHandler(func(s string) (*framework.CachePodState, bool) {
+				for _, p := range tt.podsToAssume {
+					if string(p.UID) == s {
+						return &framework.CachePodState{Pod: p}, false
+					}
+				}
+				for _, p := range tt.podsToAdd {
+					if string(p.UID) == s {
+						return &framework.CachePodState{Pod: p}, false
+					}
+				}
+				return nil, false
+			})
 			for _, podToAdd := range tt.podsToAdd {
-				if err := cache.AddPod(podToAdd); err != nil {
+				if err := cache.UpdatePod(findPodByUID(tt.podsToAssume, podToAdd), podToAdd); err != nil {
 					t.Fatalf("AddPod failed: %v", err)
 				}
 			}
-			cache.cleanupAssumedPods(now.Add(2 * ttl))
+			cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(cache.mu, now.Add(2*ttl))
 			// check after expiration. confirmed pods shouldn't be expired.
-			n := cache.nodeInfoMap[nodeName]
-			if err := deepEqualWithoutGeneration(n, tt.wNodeInfo); err != nil {
-				t.Error(err)
+			n := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
+				t.Error(diff)
 			}
 		})
 	}
@@ -466,40 +466,44 @@ func TestAddPodWillReplaceAssumed(t *testing.T) {
 		podsToUpdate [][]*v1.Pod
 
 		wNodeInfo map[string]framework.NodeInfo
-	}{{
-		podsToAssume: []*v1.Pod{assumedPod.DeepCopy()},
-		podsToAdd:    []*v1.Pod{addedPod.DeepCopy()},
-		podsToUpdate: [][]*v1.Pod{{addedPod.DeepCopy(), updatedPod.DeepCopy()}},
-		wNodeInfo: map[string]framework.NodeInfo{
-			"assumed-node": nil,
-			"actual-node": newNodeInfo(
-				&framework.Resource{
-					MilliCPU: 200,
-					Memory:   500,
-				},
-				&framework.Resource{
-					MilliCPU: 200,
-					Memory:   500,
-				},
-				&framework.Resource{},
-				&framework.Resource{},
-				[]*v1.Pod{updatedPod.DeepCopy()},
-				newHostPortInfoBuilder().add("TCP", "0.0.0.0", 90).build(),
-				make(map[string]*framework.ImageStateSummary),
-			),
-		},
-	}}
+	}{
+		{
+			podsToAssume: []*v1.Pod{assumedPod.DeepCopy()},
+			podsToAdd:    []*v1.Pod{addedPod.DeepCopy()},
+			podsToUpdate: [][]*v1.Pod{{addedPod.DeepCopy(), updatedPod.DeepCopy()}},
+			wNodeInfo: map[string]framework.NodeInfo{
+				"assumed-node": nil,
+				"actual-node": newNodeInfo(
+					&framework.Resource{
+						MilliCPU: 200,
+						Memory:   500,
+					},
+					&framework.Resource{
+						MilliCPU: 200,
+						Memory:   500,
+					},
+					&framework.Resource{},
+					&framework.Resource{},
+					[]*v1.Pod{updatedPod.DeepCopy()},
+					newHostPortInfoBuilder().add("TCP", "0.0.0.0", 90).build(),
+					make(map[string]*framework.ImageStateSummary),
+				),
+			},
+		}}
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cache := newBinderCache(ttl, time.Second, nil, "")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(ttl).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
 			for _, podToAssume := range tt.podsToAssume {
 				if err := assumeAndFinishBinding(cache, podToAssume, now); err != nil {
 					t.Fatalf("assumePod failed: %v", err)
 				}
 			}
-			for _, podToAdd := range tt.podsToAdd {
-				if err := cache.AddPod(podToAdd); err != nil {
+			for i, podToAdd := range tt.podsToAdd {
+				if err := cache.UpdatePod(tt.podsToAssume[i], podToAdd); err != nil {
 					t.Fatalf("AddPod failed: %v", err)
 				}
 			}
@@ -509,9 +513,9 @@ func TestAddPodWillReplaceAssumed(t *testing.T) {
 				}
 			}
 			for nodeName, expected := range tt.wNodeInfo {
-				n := cache.nodeInfoMap[nodeName]
-				if err := deepEqualWithoutGeneration(n, expected); err != nil {
-					t.Errorf("node %q: %v", nodeName, err)
+				n := cache.GetNodeInfo(nodeName)
+				if diff := deepEqualWithoutGeneration(n, expected); len(diff) > 0 {
+					t.Error(diff)
 				}
 			}
 		})
@@ -527,44 +531,48 @@ func TestAddPodAfterExpiration(t *testing.T) {
 		pod *v1.Pod
 
 		wNodeInfo framework.NodeInfo
-	}{{
-		pod: basePod,
-		wNodeInfo: newNodeInfo(
-			&framework.Resource{
-				MilliCPU: 100,
-				Memory:   500,
-			},
-			&framework.Resource{
-				MilliCPU: 100,
-				Memory:   500,
-			},
-			&framework.Resource{},
-			&framework.Resource{},
-			[]*v1.Pod{basePod},
-			newHostPortInfoBuilder().add("TCP", "127.0.0.1", 80).build(),
-			make(map[string]*framework.ImageStateSummary),
-		),
-	}}
+	}{
+		{
+			pod: basePod,
+			wNodeInfo: newNodeInfo(
+				&framework.Resource{
+					MilliCPU: 100,
+					Memory:   500,
+				},
+				&framework.Resource{
+					MilliCPU: 100,
+					Memory:   500,
+				},
+				&framework.Resource{},
+				&framework.Resource{},
+				[]*v1.Pod{basePod},
+				newHostPortInfoBuilder().add("TCP", "127.0.0.1", 80).build(),
+				make(map[string]*framework.ImageStateSummary),
+			),
+		}}
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			now := time.Now()
-			cache := newBinderCache(ttl, time.Second, nil, "")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(ttl).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
 			if err := assumeAndFinishBinding(cache, tt.pod, now); err != nil {
 				t.Fatalf("assumePod failed: %v", err)
 			}
-			cache.cleanupAssumedPods(now.Add(2 * ttl))
+			cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(cache.mu, now.Add(2*ttl))
 			// It should be expired and removed.
 			if err := isForgottenFromCache(tt.pod, cache); err != nil {
 				t.Error(err)
 			}
-			if err := cache.AddPod(tt.pod); err != nil {
+			if err := cache.UpdatePod(tt.pod, tt.pod); err != nil {
 				t.Fatalf("AddPod failed: %v", err)
 			}
 			// check after expiration. confirmed pods shouldn't be expired.
-			n := cache.nodeInfoMap[nodeName]
-			if err := deepEqualWithoutGeneration(n, tt.wNodeInfo); err != nil {
-				t.Error(err)
+			n := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
+				t.Error(diff)
 			}
 		})
 	}
@@ -621,7 +629,10 @@ func TestUpdatePod(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cache := newBinderCache(ttl, time.Second, nil, "")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(ttl).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
 			for _, podToAdd := range tt.podsToAdd {
 				if err := cache.AddPod(podToAdd); err != nil {
 					t.Fatalf("AddPod failed: %v", err)
@@ -636,9 +647,9 @@ func TestUpdatePod(t *testing.T) {
 					t.Fatalf("UpdatePod failed: %v", err)
 				}
 				// check after expiration. confirmed pods shouldn't be expired.
-				n := cache.nodeInfoMap[nodeName]
-				if err := deepEqualWithoutGeneration(n, tt.wNodeInfo[j-1]); err != nil {
-					t.Errorf("update %d: %v", j, err)
+				n := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+				if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo[j-1]); len(diff) > 0 {
+					t.Errorf("update %d: %v", j, diff)
 				}
 			}
 		})
@@ -683,7 +694,10 @@ func TestUpdateAssumedPod(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cache := newBinderCache(ttl, time.Second, nil, "")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(ttl).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
 			if err := cache.AddPod(tt.podToAdd); err != nil {
 				t.Fatalf("AddPod failed: %v", err)
 			}
@@ -692,9 +706,9 @@ func TestUpdateAssumedPod(t *testing.T) {
 				t.Fatalf("UpdatePod failed: %v", err)
 			}
 			// check after expiration. confirmed pods shouldn't be expired.
-			n := cache.nodeInfoMap[nodeName]
-			if err := deepEqualWithoutGeneration(n, tt.wNodeInfo); err != nil {
-				t.Errorf("update: %v", err)
+			n := cache.GetNodeInfo(nodeName)
+			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
+				t.Error(diff)
 			}
 		})
 	}
@@ -721,7 +735,8 @@ func TestUpdatePodAndGet(t *testing.T) {
 
 			podToUpdate: testPods[0],
 			handler: func(cache BinderCache, pod *v1.Pod) error {
-				return cache.AssumePod(pod)
+				podInfo := framework.MakeCachePodInfoWrapper().Pod(pod).Obj()
+				return cache.AssumePod(podInfo)
 			},
 			assumePod: true,
 		},
@@ -737,7 +752,10 @@ func TestUpdatePodAndGet(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		cache := newBinderCache(ttl, time.Second, nil, "")
+		cacheHandler := commoncache.MakeCacheHandlerWrapper().
+			Period(time.Second).PodAssumedTTL(ttl).StopCh(nil).
+			ComponentName("godel-binder").Obj()
+		cache := newBinderCache(cacheHandler)
 
 		if err := tt.handler(cache, tt.pod); err != nil {
 			t.Fatalf("unexpected err: %v", err)
@@ -773,51 +791,55 @@ func TestExpireAddUpdatePod(t *testing.T) {
 		podsToUpdate []*v1.Pod
 
 		wNodeInfo []framework.NodeInfo
-	}{{ // Pod is assumed, expired, and added. Then it would be updated twice.
-		podsToAssume: []*v1.Pod{testPods[0]},
-		podsToAdd:    []*v1.Pod{testPods[0]},
-		podsToUpdate: []*v1.Pod{testPods[0], testPods[1], testPods[0]},
-		wNodeInfo: []framework.NodeInfo{newNodeInfo(
-			&framework.Resource{},
-			&framework.Resource{},
-			&framework.Resource{
-				MilliCPU: 200,
-				Memory:   1024,
-			},
-			&framework.Resource{
-				MilliCPU: 200,
-				Memory:   1024,
-			},
-			[]*v1.Pod{testPods[1]},
-			newHostPortInfoBuilder().add("TCP", "127.0.0.1", 8080).build(),
-			make(map[string]*framework.ImageStateSummary),
-		), newNodeInfo(
-			&framework.Resource{
-				MilliCPU: 100,
-				Memory:   500,
-			},
-			&framework.Resource{
-				MilliCPU: 100,
-				Memory:   500,
-			},
-			&framework.Resource{},
-			&framework.Resource{},
-			[]*v1.Pod{testPods[0]},
-			newHostPortInfoBuilder().add("TCP", "127.0.0.1", 80).build(),
-			make(map[string]*framework.ImageStateSummary),
-		)},
-	}}
+	}{
+		{ // Pod is assumed, expired, and added. Then it would be updated twice.
+			podsToAssume: []*v1.Pod{testPods[0]},
+			podsToAdd:    []*v1.Pod{testPods[0]},
+			podsToUpdate: []*v1.Pod{testPods[0], testPods[1], testPods[0]},
+			wNodeInfo: []framework.NodeInfo{newNodeInfo(
+				&framework.Resource{},
+				&framework.Resource{},
+				&framework.Resource{
+					MilliCPU: 200,
+					Memory:   1024,
+				},
+				&framework.Resource{
+					MilliCPU: 200,
+					Memory:   1024,
+				},
+				[]*v1.Pod{testPods[1]},
+				newHostPortInfoBuilder().add("TCP", "127.0.0.1", 8080).build(),
+				make(map[string]*framework.ImageStateSummary),
+			), newNodeInfo(
+				&framework.Resource{
+					MilliCPU: 100,
+					Memory:   500,
+				},
+				&framework.Resource{
+					MilliCPU: 100,
+					Memory:   500,
+				},
+				&framework.Resource{},
+				&framework.Resource{},
+				[]*v1.Pod{testPods[0]},
+				newHostPortInfoBuilder().add("TCP", "127.0.0.1", 80).build(),
+				make(map[string]*framework.ImageStateSummary),
+			)},
+		}}
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			now := time.Now()
-			cache := newBinderCache(ttl, time.Second, nil, "")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(ttl).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
 			for _, podToAssume := range tt.podsToAssume {
 				if err := assumeAndFinishBinding(cache, podToAssume, now); err != nil {
 					t.Fatalf("assumePod failed: %v", err)
 				}
 			}
-			cache.cleanupAssumedPods(now.Add(2 * ttl))
+			cache.CommonStoresSwitch.Find(podstore.Name).(*podstore.PodStore).CleanupExpiredAssumedPods(cache.mu, now.Add(2*ttl))
 
 			for _, podToAdd := range tt.podsToAdd {
 				if err := cache.AddPod(podToAdd); err != nil {
@@ -833,9 +855,10 @@ func TestExpireAddUpdatePod(t *testing.T) {
 					t.Fatalf("UpdatePod failed: %v", err)
 				}
 				// check after expiration. confirmed pods shouldn't be expired.
-				n := cache.nodeInfoMap[nodeName]
-				if err := deepEqualWithoutGeneration(n, tt.wNodeInfo[j-1]); err != nil {
-					t.Errorf("update %d: %v", j, err)
+				obj := cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName)
+				n := obj.(framework.NodeInfo)
+				if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo[j-1]); len(diff) > 0 {
+					t.Errorf("update %d: %v", j, diff)
 				}
 			}
 		})
@@ -893,13 +916,16 @@ func TestEphemeralStorageResource(t *testing.T) {
 	}
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			cache := newBinderCache(time.Second, time.Second, nil, "")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(time.Second).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
 			if err := cache.AddPod(tt.pod); err != nil {
 				t.Fatalf("AddPod failed: %v", err)
 			}
-			n := cache.nodeInfoMap[nodeName]
-			if err := deepEqualWithoutGeneration(n, tt.wNodeInfo); err != nil {
-				t.Error(err)
+			n := cache.GetNodeInfo(nodeName)
+			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
+				t.Error(diff)
 			}
 
 			if err := cache.DeletePod(tt.pod); err != nil {
@@ -919,45 +945,50 @@ func TestRemovePod(t *testing.T) {
 		nodes     []*v1.Node
 		pod       *v1.Pod
 		wNodeInfo framework.NodeInfo
-	}{{
-		nodes: []*v1.Node{
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "node-1"},
+	}{
+		{
+			nodes: []*v1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "node-1"},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "node-2"},
+				},
 			},
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "node-2"},
-			},
-		},
-		pod: basePod,
-		wNodeInfo: newNodeInfo(
-			&framework.Resource{
-				MilliCPU: 100,
-				Memory:   500,
-			},
-			&framework.Resource{
-				MilliCPU: 100,
-				Memory:   500,
-			},
-			&framework.Resource{},
-			&framework.Resource{},
-			[]*v1.Pod{basePod},
-			newHostPortInfoBuilder().add("TCP", "127.0.0.1", 80).build(),
-			make(map[string]*framework.ImageStateSummary),
-		),
-	}}
+			pod: basePod,
+			wNodeInfo: newNodeInfo(
+				&framework.Resource{
+					MilliCPU: 100,
+					Memory:   500,
+				},
+				&framework.Resource{
+					MilliCPU: 100,
+					Memory:   500,
+				},
+				&framework.Resource{},
+				&framework.Resource{},
+				[]*v1.Pod{basePod},
+				newHostPortInfoBuilder().add("TCP", "127.0.0.1", 80).build(),
+				make(map[string]*framework.ImageStateSummary),
+			),
+		}}
 
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			nodeName := tt.pod.Spec.NodeName
-			cache := newBinderCache(time.Second, time.Second, nil, "")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(time.Second).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
 			// Add pod succeeds even before adding the nodes.
 			if err := cache.AddPod(tt.pod); err != nil {
 				t.Fatalf("AddPod failed: %v", err)
 			}
-			n := cache.nodeInfoMap[nodeName]
-			if err := deepEqualWithoutGeneration(n, tt.wNodeInfo); err != nil {
-				t.Error(err)
+			n := cache.GetNodeInfo(nodeName)
+			if diff := deepEqualWithoutGeneration(n, tt.wNodeInfo); len(diff) > 0 {
+				t.Error(diff)
 			}
+
 			for _, n := range tt.nodes {
 				if err := cache.AddNode(n); err != nil {
 					t.Error(err)
@@ -982,7 +1013,11 @@ func TestForgetPod(t *testing.T) {
 	now := time.Now()
 	ttl := 10 * time.Second
 
-	cache := newBinderCache(ttl, time.Second, nil, "")
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(time.Second).PodAssumedTTL(ttl).StopCh(nil).
+		ComponentName("godel-binder").Obj()
+	cache := newBinderCache(cacheHandler)
+
 	for _, pod := range pods {
 		if err := assumeAndFinishBinding(cache, pod, now); err != nil {
 			t.Fatalf("assumePod failed: %v", err)
@@ -1006,7 +1041,8 @@ func TestForgetPod(t *testing.T) {
 		}
 	}
 	for _, pod := range pods {
-		if err := cache.ForgetPod(pod); err != nil {
+		podInfo := framework.MakeCachePodInfoWrapper().Pod(pod).Obj()
+		if err := cache.ForgetPod(podInfo); err != nil {
 			t.Fatalf("ForgetPod failed: %v", err)
 		}
 		if err := isForgottenFromCache(pod, cache); err != nil {
@@ -1164,7 +1200,11 @@ func TestNodeOperators(t *testing.T) {
 			expected := buildNodeInfo(test.node, test.pods)
 			node := test.node
 
-			cache := newBinderCache(time.Second, time.Second, nil, "")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(time.Second).PodAssumedTTL(time.Second).StopCh(nil).
+				ComponentName("godel-binder").Obj()
+			cache := newBinderCache(cacheHandler)
+
 			if err := cache.AddNode(node); err != nil {
 				t.Fatal(err)
 			}
@@ -1175,8 +1215,8 @@ func TestNodeOperators(t *testing.T) {
 			}
 
 			// the node was added into cache successfully.
-			_, found := cache.nodeInfoMap[node.Name]
-			if !found {
+			n := cache.GetNodeInfo(node.Name)
+			if n == nil {
 				t.Errorf("Failed to find node %v in internalcache.", node.Name)
 			}
 
@@ -1187,8 +1227,9 @@ func TestNodeOperators(t *testing.T) {
 			if err := cache.UpdateNode(nil, node); err != nil {
 				t.Error(err)
 			}
-			_, found = cache.nodeInfoMap[node.Name]
-			if !found {
+
+			n = cache.GetNodeInfo(node.Name)
+			if n == nil {
 				t.Errorf("Failed to find node %v in schedulertypes after UpdateNode.", node.Name)
 			}
 
@@ -1196,9 +1237,7 @@ func TestNodeOperators(t *testing.T) {
 			if err := cache.DeleteNode(node); err != nil {
 				t.Error(err)
 			}
-			if n, err := cache.GetNode(node.Name); err != nil {
-				t.Errorf("The node %v should still have a ghost entry: %v", node.Name, err)
-			} else if n == nil {
+			if n = cache.GetNodeInfo(node.Name); n == nil {
 				t.Errorf("The node object for %v should not be nil", node.Name)
 			}
 
@@ -1219,30 +1258,6 @@ func TestNodeOperators(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func BenchmarkExpirePods(b *testing.B) {
-	podNums := []int{
-		100,
-		1000,
-		10000,
-	}
-	for _, podNum := range podNums {
-		name := fmt.Sprintf("%dPods", podNum)
-		b.Run(name, func(b *testing.B) {
-			benchmarkExpire(b, podNum)
-		})
-	}
-}
-
-func benchmarkExpire(b *testing.B, podNum int) {
-	now := time.Now()
-	for n := 0; n < b.N; n++ {
-		b.StopTimer()
-		cache := setupCacheWithAssumedPods(b, podNum, now)
-		b.StartTimer()
-		cache.cleanupAssumedPods(now.Add(2 * time.Second))
 	}
 }
 
@@ -1286,37 +1301,6 @@ func makeBasePod(t testingMode, nodeName, objName, cpu, mem, extended string, po
 	}
 }
 
-func setupCacheOf1kNodes30kPods(b *testing.B) BinderCache {
-	cache := newBinderCache(time.Second, time.Second, nil, "")
-	for i := 0; i < 1000; i++ {
-		nodeName := fmt.Sprintf("node-%d", i)
-		for j := 0; j < 30; j++ {
-			objName := fmt.Sprintf("%s-pod-%d", nodeName, j)
-			pod := makeBasePod(b, nodeName, objName, "0", "0", "", nil, podutil.GuaranteedPod)
-
-			if err := cache.AddPod(pod); err != nil {
-				b.Fatalf("AddPod failed: %v", err)
-			}
-		}
-	}
-	return cache
-}
-
-func setupCacheWithAssumedPods(b *testing.B, podNum int, assumedTime time.Time) *binderCache {
-	cache := newBinderCache(time.Second, time.Second, nil, "")
-	for i := 0; i < podNum; i++ {
-		nodeName := fmt.Sprintf("node-%d", i/10)
-		objName := fmt.Sprintf("%s-pod-%d", nodeName, i%10)
-		pod := makeBasePod(b, nodeName, objName, "0", "0", "", nil, podutil.GuaranteedPod)
-
-		err := assumeAndFinishBinding(cache, pod, assumedTime)
-		if err != nil {
-			b.Fatalf("assumePod failed: %v", err)
-		}
-	}
-	return cache
-}
-
 func isForgottenFromCache(p *v1.Pod, c *binderCache) error {
 	if assumed, err := c.IsAssumedPod(p); err != nil {
 		return err
@@ -1327,17 +1311,4 @@ func isForgottenFromCache(p *v1.Pod, c *binderCache) error {
 		return errors.New("still in cache")
 	}
 	return nil
-}
-
-// getNodeInfo returns cached data for the node name.
-func (cache *binderCache) getNodeInfo(nodeName string) (*v1.Node, error) {
-	cache.mu.RLock()
-	defer cache.mu.RUnlock()
-
-	n, ok := cache.nodeInfoMap[nodeName]
-	if !ok {
-		return nil, fmt.Errorf("node %q not found in cache", nodeName)
-	}
-
-	return n.GetNode(), nil
 }

@@ -19,7 +19,6 @@ package binder
 import (
 	"time"
 
-	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
 	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	v1 "k8s.io/api/core/v1"
@@ -127,18 +126,10 @@ func (h *frameworkHandleImpl) VolumeBinder() scheduling.GodelVolumeBinder {
 	return h.volumeBinder
 }
 
-func (h *frameworkHandleImpl) GetPodGroupPods(podGroupName string) []*v1.Pod {
-	return h.binderCache.GetPodGroupPods(podGroupName)
-}
-
-func (h *frameworkHandleImpl) GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGroup, error) {
-	return h.binderCache.GetPodGroupInfo(podGroupName)
-}
-
 func (h *frameworkHandleImpl) GetPDBItemList() []framework.PDBItem {
-	return h.binderCache.GetPDBItems()
+	return h.binderCache.GetPDBItemList()
 }
 
-func (h *frameworkHandleImpl) GetNode(nodename string) (framework.NodeInfo, error) {
-	return h.binderCache.GetNode(nodename)
+func (h *frameworkHandleImpl) GetNodeInfo(nodename string) framework.NodeInfo {
+	return h.binderCache.GetNodeInfo(nodename)
 }

@@ -25,8 +25,6 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
-	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	policy "k8s.io/api/policy/v1"
@@ -41,12 +39,15 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/events"
 
+	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
+	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/apis/config"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	fakecache "github.com/kubewharf/godel-scheduler/pkg/binder/cache/fake"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/defaultpreemption"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/queue"
 	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
@@ -64,21 +65,6 @@ const (
 
 var defaultAssumedPodAnno map[string]string = map[string]string{
 	podutil.AssumedNodeAnnotationKey: "1",
-}
-
-func podWithAnnotationsAndLabels(id string, annotations, labels map[string]string) *v1.Pod {
-	return &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        id,
-			Namespace:   id,
-			UID:         types.UID(id),
-			Annotations: annotations,
-			Labels:      labels,
-		},
-		Spec: v1.PodSpec{
-			SchedulerName: testSchedulerName,
-		},
-	}
 }
 
 func podWithAnnotations(id string, annotations map[string]string) *v1.Pod {
@@ -236,10 +222,10 @@ func TestBinderResolveSameNodeConflict(t *testing.T) {
 					}
 					return pod.UID == gotAssumedPod.UID
 				},
-				GetNodeFunc: func(s string) (framework.NodeInfo, error) {
+				GetNodeInfoFunc: func(s string) framework.NodeInfo {
 					nInfo := framework.NewNodeInfo()
 					nInfo.SetNode(&testNode)
-					return nInfo, nil
+					return nInfo
 				},
 			}
 
@@ -334,10 +320,10 @@ func TestAssumePodError(t *testing.T) {
 			}
 			return false
 		},
-		GetNodeFunc: func(s string) (framework.NodeInfo, error) {
+		GetNodeInfoFunc: func(s string) framework.NodeInfo {
 			nInfo := framework.NewNodeInfo()
 			nInfo.SetNode(&testNode)
-			return nInfo, nil
+			return nInfo
 		},
 	}
 
@@ -378,10 +364,10 @@ func TestAssumePodError(t *testing.T) {
 		actualPatchData)
 
 	// Check error for node
-	pCache.GetNodeFunc = func(s string) (framework.NodeInfo, error) {
+	pCache.GetNodeInfoFunc = func(s string) framework.NodeInfo {
 		nInfo := framework.NewNodeInfo()
 		nInfo.SetNode(&testNode)
-		return nil, errors.New("node not found")
+		return nil
 	}
 	binder.CheckAndBindUnit(context.Background())
 	if e, a := pod, gotPod; !reflect.DeepEqual(e, a) {
@@ -468,10 +454,10 @@ func TestBinding(t *testing.T) {
 			}
 			return pod.UID == gotAssumedPod.UID
 		},
-		GetNodeFunc: func(s string) (framework.NodeInfo, error) {
+		GetNodeInfoFunc: func(s string) framework.NodeInfo {
 			nInfo := framework.NewNodeInfo()
 			nInfo.SetNode(&testNode)
-			return nInfo, nil
+			return nInfo
 		},
 	}
 	pCache.AddNode(&testNode)
@@ -593,7 +579,10 @@ func TestPreemptAndResolveSameNodeConflict_Errors(t *testing.T) {
 	crdClient := godelclientfake.NewSimpleClientset()
 	crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, 0)
 
-	pCache := godelcache.New(30*time.Second, stop, "binder")
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(30 * time.Second).StopCh(stop).
+		ComponentName("binder").Obj()
+	pCache := godelcache.New(cacheHandler)
 
 	pCache.AddNode(&testNode)
 	pCache.AddPod(testpod1)
@@ -953,7 +942,7 @@ func TestPreemptAndResolveSameNodeConflict_Errors(t *testing.T) {
 						InitialAttemptTimestamp: time.Now(),
 					}
 				},
-				BinderQueue: queue.NewBinderQueue(DefaultUnitQueueSortFunc(), nil, nil),
+				BinderQueue: queue.NewBinderQueue(DefaultUnitQueueSortFunc(), nil, nil, pCache),
 				Error: func(p *framework.QueuedPodInfo, err error) {
 					errChan <- err
 				},
@@ -1070,7 +1059,11 @@ func TestPreemptAndResolveSameNodeConflict(t *testing.T) {
 	expectedDeletedPodNames := make(sets.String)
 	expectedDeletedPodNames.Insert(testpod1.Name, testpod2.Name)
 
-	pCache := godelcache.New(30*time.Second, stop, "binder")
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(30 * time.Second).StopCh(stop).
+		ComponentName("binder").Obj()
+	pCache := godelcache.New(cacheHandler)
+
 	pCache.AddNode(&testNode)
 	pCache.AddPod(testpod1)
 	pCache.AddPod(testpod2)
@@ -1104,7 +1097,7 @@ func TestPreemptAndResolveSameNodeConflict(t *testing.T) {
 				InitialAttemptTimestamp: time.Now(),
 			}
 		},
-		BinderQueue: queue.NewBinderQueue(DefaultUnitQueueSortFunc(), nil, nil),
+		BinderQueue: queue.NewBinderQueue(DefaultUnitQueueSortFunc(), nil, nil, pCache),
 		Error: func(p *framework.QueuedPodInfo, err error) {
 			errChan <- err
 		},
@@ -1767,7 +1760,11 @@ func TestCheckCrossNodePreemptionForUnit(t *testing.T) {
 			informerFactory.Start(stop)
 			cache.WaitForCacheSync(stop, podInformer.HasSynced)
 
-			pCache := godelcache.New(30*time.Second, stop, "binder")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(10 * time.Second).PodAssumedTTL(30 * time.Second).StopCh(stop).
+				ComponentName("binder").Obj()
+			pCache := godelcache.New(cacheHandler)
+
 			pCache.AddNode(fakeNode)
 			pCache.AddPod(item.existingPod[0])
 			pCache.AddPod(item.existingPod[1])
@@ -1790,7 +1787,7 @@ func TestCheckCrossNodePreemptionForUnit(t *testing.T) {
 						InitialAttemptTimestamp: time.Now(),
 					}
 				},
-				BinderQueue: queue.NewBinderQueue(DefaultUnitQueueSortFunc(), nil, nil),
+				BinderQueue: queue.NewBinderQueue(DefaultUnitQueueSortFunc(), nil, nil, pCache),
 				Error:       func(p *framework.QueuedPodInfo, err error) {},
 				BinderCache: pCache,
 				handle: NewFrameworkHandle(

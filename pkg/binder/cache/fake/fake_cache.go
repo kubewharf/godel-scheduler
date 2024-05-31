@@ -17,38 +17,39 @@ limitations under the License.
 package fake
 
 import (
-	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
-	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
-	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	policy "k8s.io/api/policy/v1"
 
-	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
+	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
+	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	unitstatus "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
+	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 )
 
 // BinderCache is used for testing
 type Cache struct {
-	AssumeFunc       func(*v1.Pod) error
-	ForgetFunc       func(*v1.Pod)
-	IsAssumedPodFunc func(*v1.Pod) bool
-	GetPodFunc       func(*v1.Pod) *v1.Pod
-	GetNodeFunc      func(string) (framework.NodeInfo, error)
-	binderutils.UnitStatusMap
+	AssumeFunc                  func(*v1.Pod) error
+	ForgetFunc                  func(*v1.Pod)
+	IsAssumedPodFunc            func(*v1.Pod) bool
+	GetPodFunc                  func(*v1.Pod) *v1.Pod
+	GetNodeInfoFunc             func(string) framework.NodeInfo
+	GetAvailablePlaceholderFunc func(pod *v1.Pod) (*v1.Pod, error)
 }
 
 // AssumePod is a fake method for testing.
-func (c *Cache) AssumePod(pod *v1.Pod) error {
-	return c.AssumeFunc(pod)
+func (c *Cache) AssumePod(podInfo *framework.CachePodInfo) error {
+	return c.AssumeFunc(podInfo.Pod)
 }
 
 // FinishBinding is a fake method for testing.
 func (c *Cache) FinishBinding(pod *v1.Pod) error { return nil }
 
 // ForgetPod is a fake method for testing.
-func (c *Cache) ForgetPod(pod *v1.Pod) error {
-	c.ForgetFunc(pod)
+func (c *Cache) ForgetPod(podInfo *framework.CachePodInfo) error {
+	c.ForgetFunc(podInfo.Pod)
 	return nil
 }
 
@@ -128,12 +129,8 @@ func (c *Cache) DeleteCNR(cnr *katalystv1alpha1.CustomNodeResource) error {
 	return nil
 }
 
-func (c *Cache) GetNode(nodename string) (framework.NodeInfo, error) {
-	return c.GetNodeFunc(nodename)
-}
-
-func (c *Cache) GetPodGroupPods(podGroupName string) []*v1.Pod {
-	return nil
+func (c *Cache) GetNodeInfo(nodename string) framework.NodeInfo {
+	return c.GetNodeInfoFunc(nodename)
 }
 
 func (c *Cache) AddPodGroup(podGroup *schedulingv1a1.PodGroup) error {
@@ -168,7 +165,7 @@ func (c *Cache) CheckIfVictimExist(deployNamespace, deployName, victimUID string
 	return false
 }
 
-func (c *Cache) GetPDBItems() []framework.PDBItem {
+func (c *Cache) GetPDBItemList() []framework.PDBItem {
 	return nil
 }
 
@@ -194,4 +191,16 @@ func (c *Cache) UpdateOwner(ownerType, key string, oldLabels, newLabels map[stri
 
 func (c *Cache) DeleteOwner(ownerType, key string) error {
 	return nil
+}
+
+func (c *Cache) GetUnitStatus(unitKey string) unitstatus.UnitStatus { return nil }
+
+func (c *Cache) FindStore(storeName commonstore.StoreName) commonstore.Store {
+	return nil
+}
+
+func (c *Cache) SetUnitSchedulingStatus(unitKey string, status unitstatus.SchedulingStatus) { return }
+
+func (c *Cache) GetUnitSchedulingStatus(unitKey string) unitstatus.SchedulingStatus {
+	return unitstatus.ScheduledStatus
 }

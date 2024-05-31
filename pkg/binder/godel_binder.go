@@ -22,10 +22,6 @@ import (
 	"sync"
 	"time"
 
-	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
-	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
-	"github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1"
-	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,18 +33,25 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 
+	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
+	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
+	"github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	cachedebugger "github.com/kubewharf/godel-scheduler/pkg/binder/cache/debugger"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/queue"
 	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
+	"github.com/kubewharf/godel-scheduler/pkg/plugins/nonnativeresource"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	"github.com/kubewharf/godel-scheduler/pkg/util/helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/pkg/util/tracing"
+	status "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
+	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 )
 
 const (
@@ -118,11 +121,16 @@ func New(
 
 	options := renderOptions(opts...)
 
-	binderCache := godelcache.New(5*time.Minute, stopEverything, "binder")
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(5 * time.Minute).StopCh(stopEverything).
+		ComponentName("godel-binder").Obj()
+	binderCache := godelcache.New(cacheHandler)
+
 	binderQueue := queue.NewBinderQueue(
 		DefaultUnitQueueSortFunc(),
 		crdInformerFactory.Scheduling().V1alpha1().PodGroups().Lister(),
 		informerFactory.Scheduling().V1().PriorityClasses().Lister(),
+		binderCache,
 	)
 
 	binder := &Binder{
@@ -260,6 +268,8 @@ func (binder *Binder) CheckAndBindUnit(ctx context.Context) bool {
 			klog.InfoS("Failed to check stage for unit", "stageIndex", i, "stageName", stage.stageName, "unitKey", unit.GetKey(), "err", err)
 		}
 
+		klog.V(4).InfoS("Finish to check stage for unit", "stageIndex", i, "stageName", stage.stageName, "unitKey", unit.GetKey())
+
 		if unitInfo.IsUnitFailed() {
 			err := fmt.Errorf("unit fails after %v", stage.stageName)
 			unitInfo.MoveAllTasksToFailedList(err)
@@ -355,7 +365,7 @@ func (binder *Binder) InitializeUnit(unit *framework.QueuedUnitInfo) *bindingUni
 	// new binding unit info struct
 	unitInfo := NewBindingUnitInfo(unit)
 	// get and set everScheduled for unit info
-	unitInfo.everScheduled = binder.BinderCache.GetUnitStatus(unitInfo.unitKey) == binderutils.ScheduledStatus
+	unitInfo.everScheduled = binder.BinderCache.GetUnitSchedulingStatus(unitInfo.unitKey) == status.ScheduledStatus
 
 	// split pods(tasks) into two different slices (assumed and new),
 	// and get victims and group them by nodes if there are any
@@ -397,14 +407,14 @@ func (binder *Binder) CheckCrossNodeTopologyForUnit(ctx context.Context, unitInf
 
 	for _, newTask := range unitInfo.GetNewTasks() {
 		nodeName := newTask.suggestedNode
-		nodeInfo, err := binder.BinderCache.GetNode(nodeName)
-		if err != nil {
+		nodeInfo := binder.BinderCache.GetNodeInfo(nodeName)
+		if nodeInfo == nil {
 			unitInfo.AddFailedTask(newTask,
-				fmt.Errorf("fail to get node in CheckCrossNodeTopologyForUnit for pod: %v, error: %v", podutil.GetPodKey(newTask.queuedPodInfo.Pod), err),
+				fmt.Errorf("fail to get node in CheckCrossNodeTopologyForUnit for pod: %v, error: nodeInfo %v doesn't exist", podutil.GetPodKey(newTask.queuedPodInfo.Pod), nodeName),
 				metrics.InternalErrorFailure, false)
 
 			if unitInfo.IsUnitFailed() {
-				err := fmt.Errorf("unit checks fail at CheckCrossNodeTopologyForUnit, err: %v", err)
+				err := fmt.Errorf("unit checks fail at CheckCrossNodeTopologyForUnit, err: nodeInfo %v doesn't exist", nodeName)
 				unitInfo.MoveAllTasksToFailedList(err)
 				return err
 			}
@@ -565,10 +575,10 @@ func (binder *Binder) CheckSameNodeConflictsForUnit(ctx context.Context, unitInf
 		}()
 
 		nodeName := nodeList[i]
-		nodeInfo, err := binder.BinderCache.GetNode(nodeName)
-		if err != nil {
+		nodeInfo := binder.BinderCache.GetNodeInfo(nodeName)
+		if nodeInfo == nil {
 			// fail all tasks on that node
-			unitInfo.MoveAllNewTasksOnNodeToFailedList(nodeName, fmt.Errorf("fail to get node info for node: %v, error: %v", nodeName, err))
+			unitInfo.MoveAllNewTasksOnNodeToFailedList(nodeName, fmt.Errorf("fail to get node info for node: %v", nodeName))
 			return
 		}
 
@@ -588,7 +598,9 @@ func (binder *Binder) CheckSameNodeConflictsForUnit(ctx context.Context, unitInf
 			status := CheckConflictPhase(ctx, task, clonedNodeInfo)
 			if status.IsSuccess() {
 				// check successfully, add this new task to cloned node info for following checks
+				assignMicroTopology(task.queuedPodInfo.Pod, clonedNodeInfo, task.State)
 				clonedNodeInfo.AddPod(task.queuedPodInfo.Pod)
+				cleanMicroTopology(task.queuedPodInfo.Pod)
 				continue
 			}
 
@@ -617,6 +629,21 @@ func (binder *Binder) CheckSameNodeConflictsForUnit(ctx context.Context, unitInf
 
 	parallelize.Until(parallelizeCtx, piece, checkTasks)
 	return parallelizeCtx.Err()
+}
+
+func assignMicroTopology(pod *v1.Pod, nodeInfo framework.NodeInfo, state *framework.CycleState) {
+	topo := nonnativeresource.AssignMicroTopology(nodeInfo, pod, state)
+	if topo != "" {
+		if pod.Annotations == nil {
+			pod.Annotations = map[string]string{}
+		}
+		pod.Annotations[podutil.MicroTopologyKey] = topo
+		klog.V(4).InfoS("Get assigned micro-topology", "pod", podutil.GetPodKey(pod), "node", nodeInfo.GetNodeName(), "topo", topo)
+	}
+}
+
+func cleanMicroTopology(pod *v1.Pod) {
+	delete(pod.Annotations, podutil.MicroTopologyKey)
 }
 
 func (binder *Binder) MarkVictimsAndAssumeTasks(ctx context.Context, unitInfo *bindingUnitInfo) error {
@@ -707,8 +734,8 @@ func (binder *Binder) assumeNewTasks(unitInfo *bindingUnitInfo) error {
 			}
 
 			cr.runningUnit.clonedPod.Spec.NodeName = cr.runningUnit.suggestedNode
-			// TODO: reservation for now is handled within cache, figure out if we need to move it out
-			if err := binder.BinderCache.AssumePod(cr.runningUnit.clonedPod); err != nil {
+			podInfo := framework.MakeCachePodInfoWrapper().Pod(cr.runningUnit.clonedPod).CycleState(cr.runningUnit.State).Obj()
+			if err := binder.BinderCache.AssumePod(podInfo); err != nil {
 				return fmt.Errorf("fail to assume pod: %v/%v, error: %v", cr.runningUnit.clonedPod.Namespace, cr.runningUnit.clonedPod.Name, err)
 			}
 
@@ -739,7 +766,8 @@ func (binder *Binder) forgetNewAssumedTasks(unitInfo *bindingUnitInfo) {
 		}
 		if cr.runningUnit.queuedPodInfo.ReservedPod != nil {
 			// this should be idempotent
-			if err := binder.BinderCache.ForgetPod(cr.runningUnit.queuedPodInfo.ReservedPod); err == nil {
+			podInfo := framework.MakeCachePodInfoWrapper().Pod(cr.runningUnit.queuedPodInfo.ReservedPod).Obj()
+			if err := binder.BinderCache.ForgetPod(podInfo); err == nil {
 				cr.runningUnit.queuedPodInfo.NewlyAssumedButStillInHandling = false
 				cr.runningUnit.queuedPodInfo.AllVolumeBound = false
 				cr.runningUnit.queuedPodInfo.ReservedPod = nil
@@ -802,9 +830,8 @@ func (binder *Binder) DeleteVictimsAndBindTasks(ctx context.Context, unitInfo *b
 			return err
 		}
 		// Currently, we only used PodGroupUnit scheduled result, so we don't need to update SinglePodUnit.
-		if unitInfo.queuedUnitInfo.Type() != framework.SinglePodUnitType {
-			binder.BinderCache.SetUnitStatus(unitInfo.queuedUnitInfo.GetKey(), binderutils.ScheduledStatus)
-			binder.BinderQueue.SetUnitStatus(unitInfo.queuedUnitInfo.GetKey(), binderutils.ScheduledStatus)
+		if unitInfo.queuedUnitInfo.Type() == framework.PodGroupUnitType {
+			binder.BinderCache.SetUnitSchedulingStatus(unitInfo.queuedUnitInfo.GetKey(), status.ScheduledStatus)
 		}
 	} else {
 		// can not bind tasks directly, move all ready tasks to waiting list
@@ -869,7 +896,8 @@ func (binder *Binder) RejectFailedTasks(unitInfo *bindingUnitInfo) {
 		}
 		if cr.assumed || cr.runningUnit.queuedPodInfo.NewlyAssumedButStillInHandling {
 			if cr.runningUnit.queuedPodInfo.ReservedPod != nil {
-				binder.BinderCache.ForgetPod(cr.runningUnit.queuedPodInfo.ReservedPod)
+				podInfo := framework.MakeCachePodInfoWrapper().Pod(cr.runningUnit.queuedPodInfo.ReservedPod).Obj()
+				binder.BinderCache.ForgetPod(podInfo)
 			}
 		}
 		// reject pod
@@ -926,7 +954,7 @@ func (binder *Binder) UnitTimeout(unit *framework.QueuedUnitInfo) bool {
 		// use creation time stamp to check if unit times out
 		// TODO: revisit later
 		deadline := unit.GetCreationTimestamp().Add(time.Duration(timeout) * time.Second)
-		if time.Now().After(deadline) && binder.BinderCache.GetUnitStatus(unit.GetKey()) != binderutils.ScheduledStatus {
+		if time.Now().After(deadline) && binder.BinderCache.GetUnitSchedulingStatus(unit.GetKey()) != status.ScheduledStatus {
 			return true
 		}
 	}

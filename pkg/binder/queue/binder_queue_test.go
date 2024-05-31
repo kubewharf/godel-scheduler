@@ -24,6 +24,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder/cache"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/unitqueuesort"
 	"github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -104,13 +106,18 @@ var crossNodeQPod = v1.Pod{
 	},
 }
 
+var cacheHandler = commoncache.MakeCacheHandlerWrapper().
+	Period(10 * time.Second).PodAssumedTTL(30 * time.Second).StopCh(make(chan struct{})).
+	ComponentName("godel-binder").Obj()
+
 func newDefaultUnitQueueSort() framework.UnitLessFunc {
 	sort := &unitqueuesort.DefaultUnitQueueSort{}
 	return sort.Less
 }
 
 func TestPriorityQueue_Add(t *testing.T) {
-	q := NewPriorityQueue(newDefaultUnitQueueSort(), nil, nil)
+	binderCache := cache.New(cacheHandler)
+	q := NewPriorityQueue(newDefaultUnitQueueSort(), nil, nil, binderCache)
 	if err := q.Add(&activeQPod); err != nil {
 		t.Errorf("add failed: %v", err)
 	}
@@ -142,7 +149,8 @@ func TestPriorityQueue_Add(t *testing.T) {
 }
 
 func TestMoveToReadyQueue(t *testing.T) {
-	q := NewPriorityQueue(newDefaultUnitQueueSort(), nil, nil)
+	binderCache := cache.New(cacheHandler)
+	q := NewPriorityQueue(newDefaultUnitQueueSort(), nil, nil, binderCache)
 	podInfo := q.newQueuedPodInfo(&preemptionQPod)
 	podInfo.Attempts = 2
 	q.AddUnitPreemptor(&framework.QueuedUnitInfo{

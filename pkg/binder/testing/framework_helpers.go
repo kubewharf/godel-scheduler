@@ -19,7 +19,6 @@ package testing
 import (
 	"time"
 
-	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
 	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	v1 "k8s.io/api/core/v1"
@@ -44,14 +43,6 @@ type MockBinderFrameworkHandle struct {
 	crdInformerFactory crdinformers.SharedInformerFactory
 	cache              godelcache.BinderCache
 	volumeBinder       scheduling.GodelVolumeBinder
-}
-
-func (mfh *MockBinderFrameworkHandle) GetPodGroupPods(podGroupName string) []*v1.Pod {
-	return mfh.cache.GetPodGroupPods(podGroupName)
-}
-
-func (mfh *MockBinderFrameworkHandle) GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGroup, error) {
-	return mfh.cache.GetPodGroupInfo(podGroupName)
 }
 
 func (mfh *MockBinderFrameworkHandle) ClientSet() clientset.Interface {
@@ -80,11 +71,11 @@ func (mfh *MockBinderFrameworkHandle) VolumeBinder() scheduling.GodelVolumeBinde
 }
 
 func (mfh *MockBinderFrameworkHandle) GetPDBItemList() []framework.PDBItem {
-	return mfh.cache.GetPDBItems()
+	return mfh.cache.GetPDBItemList()
 }
 
-func (mfh *MockBinderFrameworkHandle) GetNode(nodeName string) (framework.NodeInfo, error) {
-	return mfh.cache.GetNode(nodeName)
+func (mfh *MockBinderFrameworkHandle) GetNodeInfo(nodeName string) framework.NodeInfo {
+	return mfh.cache.GetNodeInfo(nodeName)
 }
 
 func NewBinderFramework(pluginRegistry, preemptionPluginRegistry framework.PluginMap, basePlugins *apis.BinderPluginCollection) framework.BinderFramework {

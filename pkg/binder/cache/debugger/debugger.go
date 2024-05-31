@@ -27,9 +27,9 @@ import (
 )
 
 // CacheDebugger provides ways to check and write cache information for debugging.
-// From https://github.com/kubernetes/kubernetes/pull/70500 The scheduler cache comparer
-// and dumper are triggered together when the scheduler receives a SIGUSR2:
-// kill -SIGUSR2 <the scheduler PID>
+// From https://github.com/kubernetes/kubernetes/pull/70500 The binder cache comparer
+// and dumper are triggered together when the binder receives a SIGUSR2:
+// kill -SIGUSR2 <the binder PID>
 type CacheDebugger struct {
 	Comparer CacheComparer
 	Dumper   CacheDumper

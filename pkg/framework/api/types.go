@@ -340,6 +340,18 @@ func (numaStatus *NumaStatus) GetSocket() int {
 	return numaStatus.socketId
 }
 
+func (numaStatus *NumaStatus) GetNumaResourcesAllocatable() *v1.ResourceList {
+	res := make(v1.ResourceList)
+	for resourceName, resourceStatus := range numaStatus.resourceStatuses {
+		if resourceStatus == nil {
+			continue
+		}
+		available := resourceStatus.Allocatable.DeepCopy()
+		res[v1.ResourceName(resourceName)] = available
+	}
+	return &res
+}
+
 type ResourceStatus struct {
 	Allocatable *resource.Quantity
 	Available   *resource.Quantity
