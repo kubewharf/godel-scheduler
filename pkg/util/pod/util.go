@@ -626,6 +626,14 @@ func GetPodOwnerInfoKey(pod *v1.Pod) string {
 	return GetOwnerInfoKey(podOwnerInfo)
 }
 
+func GetPodTemplateKey(pod *v1.Pod) string {
+	if podOwnerInfo := GetPodOwnerInfo(pod); podOwnerInfo != nil {
+		return GetOwnerInfoKey(podOwnerInfo)
+	}
+	// By default, use Pod key directly.
+	return GeneratePodKey(pod)
+}
+
 // TODO: Convergence related function calls.
 // GetPodOwner will consider PodGroup as well.
 func GetPodOwner(pod *v1.Pod) string {

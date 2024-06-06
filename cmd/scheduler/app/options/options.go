@@ -313,6 +313,11 @@ func (o *Options) ApplyTo(c *schedulerappconfig.Config) error {
 			if o.ComponentConfig.DefaultProfile.BlockQueue != nil && *o.ComponentConfig.DefaultProfile.BlockQueue != godelschedulerconfig.DefaultBlockQueue {
 				toUse.DefaultProfile.BlockQueue = o.ComponentConfig.DefaultProfile.BlockQueue
 			}
+
+			// check max waiting deletion duration is set
+			if toUse.DefaultProfile.MaxWaitingDeletionDuration == 0 {
+				toUse.DefaultProfile.MaxWaitingDeletionDuration = o.ComponentConfig.DefaultProfile.MaxWaitingDeletionDuration
+			}
 		}
 		// 6. preemption config
 		{

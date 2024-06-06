@@ -90,111 +90,131 @@ func (gs *podScheduler) PreemptInSpecificNodeGroup(
 	nodeGroup framework.NodeGroup, nodeToStatus framework.NodeToStatusMap,
 	cachedNominatedNodes *framework.CachedNominatedNodes,
 ) (result core.PodScheduleResult, err error) {
+	if framework.GetPodSchedulingStageInCycleState(state, framework.PreemptInPreferredNodes) {
+		if result, err = gs.PreemptInPreferredNodes(ctx, f, pf, unitState, commonPreemptionState, state, pod, nodeGroup, nodeToStatus, cachedNominatedNodes); err == nil {
+			return
+		}
+	} else {
+		klog.InfoS("Skip PreemptInPreferredNodes scheduling stage for pod", "pod", podutil.GetPodKey(pod))
+	}
+	if framework.GetPodSchedulingStageInCycleState(state, framework.PreemptInNodeCircles) {
+		if result, err = gs.PreemptInNodeCircles(ctx, f, pf, unitState, commonPreemptionState, state, pod, nodeGroup, nodeToStatus, cachedNominatedNodes); err == nil {
+			return
+		}
+	} else {
+		klog.InfoS("Skip PreemptInNodeCircles scheduling stage for pod", "pod", podutil.GetPodKey(pod))
+	}
+	return result, err
+}
+
+func (gs *podScheduler) PreemptInPreferredNodes(
+	ctx context.Context, f framework.SchedulerFramework,
+	pf framework.SchedulerPreemptionFramework,
+	unitState, commonPreemptionState, state *framework.CycleState, pod *v1.Pod,
+	nodeGroup framework.NodeGroup, nodeToStatus framework.NodeToStatusMap,
+	cachedNominatedNodes *framework.CachedNominatedNodes,
+) (result core.PodScheduleResult, err error) {
+	if len(nodeGroup.GetPreferredNodes().List()) == 0 {
+		return core.PodScheduleResult{}, fmt.Errorf("can not preempt in empty preferred nodes")
+	}
+
+	// Prepare information.
 	podTrace, _ := framework.GetPodTrace(state)
+	preemptTraceContext := podTrace.GetTraceContext(tracing.SchedulerPreemptPodSpan)
+	preferredNodes := nodeGroup.GetPreferredNodes()
+	preferredNodesCount := len(preferredNodes.List())
+
+	for i, nodeInfo := range preferredNodes.List() {
+		nodeName := nodeInfo.GetNodeName()
+		hooks := preferredNodes.Get(nodeName)
+		nodeInfoToUse, stateToUse, preferStatus := nodeInfo, state, &framework.Status{}
+
+		preemptTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Started to check preferred node, nodeName: %s, preferredNodeIndex: %d, totalPreferredNodes: %d", nodeName, i, preferredNodesCount)))
+		if nodeInfoToUse, stateToUse, preferStatus = hooks.PrePreferNode(ctx, unitState, stateToUse, pod, nodeInfoToUse); !preferStatus.IsSuccess() {
+			msg := "Failed to run PrePreferNode on node and skip this node"
+			statusErr := preferStatus.AsError()
+
+			klog.V(4).InfoS(msg, "pod", podutil.GetPodKey(pod), "nodeName", nodeName, "err", statusErr)
+			preemptTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("msg: %s, nodeName: %s, err: %v", msg, nodeName, statusErr)))
+			continue
+		}
+
+		nodeSet := []framework.NodeInfo{nodeInfoToUse}
+		nominatedNodeName, victims, err := gs.runPreemption(ctx, f, pf, stateToUse, commonPreemptionState, pod, nodeSet, nodeToStatus, cachedNominatedNodes)
+
+		// TODO: how to define `fit` in preemption?
+		fit := err == nil && len(nominatedNodeName) > 0
+		// ATTENTION: status.IsSuccess() == true if and only if fit == true
+		// TODO: more specific message after preemption framework constructed.
+		var status *framework.Status
+		if !fit {
+			status = framework.NewStatus(framework.Error, "failed to preempt")
+		}
+
+		if preferStatus = hooks.PostPreferNode(ctx, unitState, state, pod, nodeInfo, status); !preferStatus.IsSuccess() {
+			msg := "Failed to run PostPreferNode on node and skip this node"
+			statusErr := preferStatus.AsError()
+
+			klog.V(4).InfoS(msg, "pod", podutil.GetPodKey(pod), "nodeName", nodeName, "err", statusErr)
+			preemptTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("msg: %s, nodeName: %s, err: %v", msg, nodeName, statusErr)))
+			continue
+		}
+
+		if fit {
+			preemptTraceContext.WithFields(tracing.WithMessageField("Succeed to find feasible preferred node"))
+			return core.PodScheduleResult{
+				NominatedNode: utils.ConstructNominatedNode(nominatedNodeName, victims),
+				Victims:       victims,
+				// TODO: revisit this. Left the FilteredNodesStatuses to be nil for preferred nodes.
+				FilteredNodesStatuses: nil,
+			}, nil
+		}
+	}
+	preemptTraceContext.WithFields(tracing.WithMessageField("Can not preempt in preferred nodes"))
+	klog.InfoS("Can not preempt in preferred nodes", "pod", podutil.GetPodKey(pod))
+	return core.PodScheduleResult{}, fmt.Errorf("can not preempt in non-empty preferred nodes")
+}
+
+func (gs *podScheduler) PreemptInNodeCircles(
+	ctx context.Context, f framework.SchedulerFramework,
+	pf framework.SchedulerPreemptionFramework,
+	unitState, commonPreemptionState, state *framework.CycleState, pod *v1.Pod,
+	nodeGroup framework.NodeGroup, nodeToStatus framework.NodeToStatusMap,
+	cachedNominatedNodes *framework.CachedNominatedNodes,
+) (result core.PodScheduleResult, err error) {
+	podTrace, _ := framework.GetPodTrace(state)
+	preemptTraceContext := podTrace.GetTraceContext(tracing.SchedulerPreemptPodSpan)
 
 	trace := utiltrace.New("Preemption", utiltrace.Field{Key: "namespace", Value: pod.Namespace}, utiltrace.Field{Key: "name", Value: pod.Name})
 	defer trace.LogIfLong(100 * time.Millisecond)
-
-	if err := podPassesBasicChecks(pod, gs.pvcLister); err != nil {
-		return result, err
-	}
-	trace.Step("Basic checks done")
 
 	// check cached nominated nodes
 	{
 		nominatedNodeName, victims := gs.PreemptBasedOnCachedNominatedNodes(ctx, f, pf, state, commonPreemptionState, pod, cachedNominatedNodes)
 		if len(nominatedNodeName) > 0 {
+			preemptTraceContext.WithFields(tracing.WithMessageField("Succeed to find feasible node base on cached nominated nodes"))
+			preemptTraceContext.WithTags(tracing.WithHitCacheTag(tracing.ResultSuccess))
 			return core.PodScheduleResult{
 				NominatedNode: utils.ConstructNominatedNode(nominatedNodeName, victims),
 				Victims:       victims,
 			}, nil
 		}
 		klog.InfoS("Can not preempt in cached nominated nodes", "pod", podutil.GetPodKey(pod))
-	}
-
-	// check all nodes
-	runPreemption := func(ctx context.Context, f framework.SchedulerFramework, pf framework.SchedulerPreemptionFramework, state *framework.CycleState, pod *v1.Pod, preemptNodeCandidates []framework.NodeInfo) (nominatedNode string, victims *framework.Victims, err error) {
-		nominatedNodeName, victims, err := gs.runPreemption(ctx, f, pf, state, commonPreemptionState, pod, preemptNodeCandidates, nodeToStatus, cachedNominatedNodes)
-		if err != nil {
-			err = fmt.Errorf("error occured when preempting for pod %v/%v: %v", pod.Namespace, pod.Name, err)
-			klog.ErrorS(err, "Failed to preempt", "pod", klog.KObj(pod), "status", err)
-			return "", nil, err
-		}
-
-		if len(nominatedNodeName) == 0 {
-			// NewPreemptionError indicates that scheduler can't find a nominated node by preempting.
-			return "", nil, framework.NewPreemptionError(podutil.GetPodKey(pod), len(preemptNodeCandidates), nil)
-		}
-		return nominatedNodeName, victims, nil
-	}
-
-	// Preferred nodes
-	{
-		preferredNodes := nodeGroup.GetPreferredNodes()
-		if l := len(preferredNodes.List()); l > 0 {
-			preferTraceContext := podTrace.NewTraceContext(tracing.SchedulerPreemptPodSpan, tracing.SchedulerCheckPreferredNodesSpan)
-			for i, nodeInfo := range preferredNodes.List() {
-				nodeName := nodeInfo.GetNodeName()
-				hooks := preferredNodes.Get(nodeName)
-				nodeInfoToUse, stateToUse, preferStatus := nodeInfo, state, &framework.Status{}
-
-				if nodeInfoToUse, stateToUse, preferStatus = hooks.PrePreferNode(ctx, unitState, stateToUse, pod, nodeInfoToUse); !preferStatus.IsSuccess() {
-					msg := "Failed to run PrePreferNode on node and skip this node"
-					statusErr := preferStatus.AsError()
-
-					klog.V(4).InfoS(msg, "pod", klog.KObj(pod), "nodeName", nodeName, "err", statusErr)
-					preferTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("msg: %v, nodeName: %v, err: %v", msg, nodeName, statusErr)))
-					continue
-				}
-
-				nodeSet := []framework.NodeInfo{nodeInfoToUse}
-				nominatedNodeName, victims, err := runPreemption(ctx, f, pf, stateToUse, pod, nodeSet)
-
-				// TODO: how to define `fit` in preemption?
-				fit := err == nil && len(nominatedNodeName) > 0
-				// ATTENTION: status.IsSuccess() == true if and only if fit == true
-				// TODO: more specific message after preemption framework constructed.
-				var status *framework.Status
-				if fit {
-					status = nil
-				} else {
-					status = framework.NewStatus(framework.Error, "failed to preempt")
-				}
-
-				if preferStatus = hooks.PostPreferNode(ctx, unitState, state, pod, nodeInfo, status); !preferStatus.IsSuccess() {
-					msg := "Failed to run PostPreferNode on node and skip this node"
-					statusErr := preferStatus.AsError()
-
-					klog.V(4).InfoS(msg, "pod", klog.KObj(pod), "nodeName", nodeName, "err", statusErr)
-					preferTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("msg: %v, nodeName: %v, err: %v", msg, nodeName, statusErr)))
-					continue
-				}
-
-				if fit {
-					preferTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("evaluate %d preferred nodes and select %v in preempting", i+1, nodeName)))
-					preferTraceContext.WithTags(tracing.WithResultTag(tracing.ResultSuccess))
-					return core.PodScheduleResult{
-						NominatedNode: utils.ConstructNominatedNode(nominatedNodeName, victims),
-						Victims:       victims,
-						// TODO: revisit this. Left the FilteredNodesStatuses to be nil for preferred nodes.
-						FilteredNodesStatuses: nil,
-					}, nil
-				}
-			}
-			preferTraceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
-			preferTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("evaluate %d preferred nodes and find 0 feasible node in preempting", l)))
-			tracing.AsyncFinishTraceContext(preferTraceContext, time.Now())
-			klog.InfoS("Can not preempt in preferred nodes", "pod", podutil.GetPodKey(pod))
-		}
+		preemptTraceContext.WithFields(tracing.WithMessageField("Can not find feasible node base on cached nominated nodes"))
+		preemptTraceContext.WithTags(tracing.WithHitCacheTag(tracing.ResultFailure))
 	}
 
 	preemptInSpecificNodeCircle := func(nodeCircle framework.NodeCircle) (result core.PodScheduleResult, err error) {
-		klog.InfoS("Start preempt in specific node circle", "pod", podutil.GetPodKey(pod), "nodeCircle", nodeCircle.GetKey())
 		nodeSet := nodeCircle.List()
-		nominatedNodeName, victims, err := runPreemption(ctx, f, pf, state, pod, nodeSet)
+		nominatedNodeName, victims, err := gs.runPreemption(ctx, f, pf, state, commonPreemptionState, pod, nodeSet, nodeToStatus, cachedNominatedNodes)
 		if err != nil || len(nominatedNodeName) == 0 {
+			klog.ErrorS(err, "Failed to run preemption in node circle", "pod", podutil.GetPodKey(pod), "nodeCircle", nodeCircle.GetKey())
+			preemptTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Failed to run preemption, err: %v", err)))
 			return core.PodScheduleResult{}, err
 		}
+
+		klog.InfoS("Succeed to run preemption in node circle", "pod", podutil.GetPodKey(pod), "nodeCircle", nodeCircle.GetKey(), "nominatedNodeName", nominatedNodeName, "victims", victims)
+		preemptTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Succeed to run preemption, nominatedNodeName: %s, victims: %#v", nominatedNodeName, victims)))
 		return core.PodScheduleResult{
 			NominatedNode: utils.ConstructNominatedNode(nominatedNodeName, victims),
 			Victims:       victims,
@@ -202,13 +222,17 @@ func (gs *podScheduler) PreemptInSpecificNodeGroup(
 	}
 
 	nodeCircles := nodeGroup.GetNodeCircles()
-	preemptTraceContext := podTrace.GetTraceContext(tracing.SchedulerPreemptPodSpan)
-	for _, nodeCircle := range nodeCircles {
+	nodeCirclesCount := len(nodeCircles)
+	for i, nodeCircle := range nodeCircles {
+		klog.InfoS("Start preempt in specific node circle", "pod", podutil.GetPodKey(pod), "nodeCircle", nodeCircle.GetKey())
+		preemptTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Start to preempt in specific node circle, nodeCircleKey: %s, nodeCircleIndex: %d, totalNodeCircles: %d", nodeCircle.GetKey(), i, nodeCirclesCount)))
+
 		result, err = preemptInSpecificNodeCircle(nodeCircle)
-		preemptTraceContext.WithFields(tracing.WithNodeCircleKey(nodeCircle.GetKey()), tracing.WithErrorField(err))
 		if result.NominatedNode != nil {
 			break // should return
 		}
+
+		preemptTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Failed to preempt in this nodeCircle, err: %v", err)))
 	}
 
 	return result, err

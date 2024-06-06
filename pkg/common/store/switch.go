@@ -233,3 +233,21 @@ func (s *CommonStoresSwitchImpl) DeleteOwner(ownerType, key string) error {
 	defer s.mu.Unlock()
 	return s.Range(func(s Store) error { return s.DeleteOwner(ownerType, key) })
 }
+
+func (s *CommonStoresSwitchImpl) AddMovement(movement *schedulingv1a1.Movement) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Range(func(s Store) error { return s.AddMovement(movement) })
+}
+
+func (s *CommonStoresSwitchImpl) UpdateMovement(oldMovement, newMovement *schedulingv1a1.Movement) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Range(func(s Store) error { return s.UpdateMovement(oldMovement, newMovement) })
+}
+
+func (s *CommonStoresSwitchImpl) DeleteMovement(movement *schedulingv1a1.Movement) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Range(func(s Store) error { return s.DeleteMovement(movement) })
+}

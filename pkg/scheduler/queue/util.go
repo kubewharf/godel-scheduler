@@ -35,17 +35,12 @@ import (
 // newQueuedPodInfo builds a QueuedPodInfo object.
 func newQueuedPodInfo(pod *v1.Pod, clock util.Clock) *framework.QueuedPodInfo {
 	now := clock.Now()
-	ownerKey := util.GetOwnerReferenceKey(pod)
-	if len(ownerKey) == 0 {
-		ownerKey = podutil.GeneratePodKey(pod)
-	}
-
 	return &framework.QueuedPodInfo{
 		Pod:                     pod,
 		Timestamp:               now,
 		InitialAttemptTimestamp: now,
 		QueueSpan:               tracing.NewSpanInfo(framework.ExtractPodProperty(pod).ConvertToTracingTags()),
-		OwnerReferenceKey:       ownerKey,
+		OwnerReferenceKey:       podutil.GetPodTemplateKey(pod),
 	}
 }
 

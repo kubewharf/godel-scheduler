@@ -19,6 +19,7 @@ package daemonset
 import (
 	"context"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -61,4 +62,8 @@ func (i *DaemonSet) Locating(ctx context.Context, unit framework.ScheduleUnit, u
 	klog.InfoS("DaemonSet Locating for ScheduleUnit", "unitKey", unit.GetKey(), "nodeNames", set.UnsortedList())
 
 	return framework.FilterNodeGroup(nodeGroup, func(ni framework.NodeInfo) bool { return set.Has(ni.GetNodeName()) }), nil
+}
+
+func (i *DaemonSet) PreparePreferNode(ctx context.Context, unitCycleState, state *framework.CycleState, pod *v1.Pod) *framework.Status {
+	return nil
 }

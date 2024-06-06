@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/unit_plugins/daemonset"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/unit_plugins/joblevelaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/unit_plugins/noop"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/unit_plugins/rescheduling"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/unit_plugins/virtualkubelet"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/util"
 )
@@ -49,6 +50,7 @@ func NewOrderedUnitPluginRegistry() framework.PluginOrder {
 			daemonset.Name,
 			virtualkubelet.Name,
 			joblevelaffinity.Name,
+			rescheduling.Name,
 			noop.Name,
 		},
 	}
@@ -61,6 +63,7 @@ func NewUnitInTreeRegistry() UnitRegistry {
 		joblevelaffinity.Name: joblevelaffinity.New,
 		daemonset.Name:        daemonset.New,
 		virtualkubelet.Name:   virtualkubelet.New,
+		rescheduling.Name:     rescheduling.New,
 	}
 }
 

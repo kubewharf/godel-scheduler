@@ -86,6 +86,7 @@ defaultProfile:
 subClusterProfiles:            # SubCluster Profile Examples
   - subClusterName: "subCluster 1"
     disablePreemption: true
+    maxWaitingDeletionDuration: 300         # This should be 120s by default
     unitQueueSortPlugin:
       name: FCFS                            # Different unitQueueSortPlugin
     baseKubeletPlugins:                     # Different baseKubeletPlugins

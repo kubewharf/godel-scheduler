@@ -25,6 +25,7 @@ import (
 	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	"github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1"
 	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
+	"golang.org/x/time/rate"
 	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -33,6 +34,7 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
@@ -42,6 +44,7 @@ import (
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
 	cachedebugger "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/debugger"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/controller"
 	podscheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler/core/pod_scheduler"
 	unitscheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler/core/unit_scheduler"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/metrics"
@@ -85,6 +88,8 @@ type Scheduler struct {
 	schedulerMaintainer StatusMaintainer
 	recorder            events.EventRecorder
 	metricsRecorder     *godelcache.ClusterCollectable
+
+	movementController controller.CommonController
 }
 
 // New returns a Scheduler
@@ -150,6 +155,17 @@ func New(
 		metricsRecorder:     godelcache.NewEmptyClusterCollectable(godelSchedulerName),
 	}
 
+	if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
+		rateLimiter := workqueue.NewMaxOfRateLimiter(
+			workqueue.NewItemExponentialFailureRateLimiter(5*time.Millisecond, 500*time.Second),
+			// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
+			&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
+		)
+		movementQueue := workqueue.NewNamedRateLimitingQueue(rateLimiter, "Movement")
+		movementLister := crdInformerFactory.Scheduling().V1alpha1().Movements().Lister()
+		sched.movementController = controller.NewMovementController(movementQueue, stopEverything, movementLister, godelSchedulerName, crdClient)
+	}
+
 	// 3. Create sub-cluster workflows.
 	framework.SetGlobalSubClusterKey(options.subClusterKey)
 	framework.CleanClusterIndex()
@@ -195,6 +211,11 @@ func (sched *Scheduler) Run(ctx context.Context) {
 	}
 
 	rand.Seed(time.Now().Unix())
+
+	if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
+		sched.movementController.Run()
+		defer sched.movementController.Close()
+	}
 
 	sched.ScheduleSwitch.Run(ctx)
 }
@@ -270,6 +291,7 @@ func (sched *Scheduler) createDataSet(idx int, subCluster string, switchType fra
 		sched.client,
 		sched.crdClient,
 		sched.podLister,
+		sched.informerFactory.Core().V1().PersistentVolumeClaims().Lister(),
 		sched.pgLister,
 		sched.commonCache,
 		snapshot,
@@ -278,6 +300,7 @@ func (sched *Scheduler) createDataSet(idx int, subCluster string, switchType fra
 		podScheduler,
 		sched.clock,
 		sched.recorder,
+		time.Duration(subClusterConfig.MaxWaitingDeletionDuration)*time.Second,
 	)
 	debugger := cachedebugger.New(
 		sched.informerFactory.Core().V1().Nodes().Lister(),

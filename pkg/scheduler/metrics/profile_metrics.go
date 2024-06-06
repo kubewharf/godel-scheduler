@@ -102,6 +102,10 @@ func ObservePodSchedulingLatency(podProperty *api.PodProperty, attempts string, 
 	PodE2eSchedulingLatencyObserve(podProperty, attempts, duration)
 }
 
+func ObservePodsUseMovement(algorithm, result, reason, scheduler string) {
+	podsUseMovement.WithLabelValues(algorithm, result, reason, scheduler).Inc()
+}
+
 func ObserveUpdateSnapshotAttemptAndLatency(subCluster, qos, scheduler string, duration float64) {
 	SchedulingUpdateSnapshotDurationObserve(k8smetrics.Labels{
 		metrics.SubClusterLabel: subCluster,

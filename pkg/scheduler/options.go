@@ -83,6 +83,8 @@ type subClusterConfig struct {
 	PercentageOfNodesToScore          int32
 	IncreasedPercentageOfNodesToScore int32
 
+	MaxWaitingDeletionDuration int64
+
 	UseBlockQueue                 bool
 	UnitInitialBackoffSeconds     int64
 	UnitMaxBackoffSeconds         int64
@@ -122,6 +124,9 @@ func (c *subClusterConfig) complete(profile *config.GodelSchedulerProfile) {
 	}
 	if profile.AttemptImpactFactorOnPriority != nil {
 		c.AttemptImpactFactorOnPriority = *profile.AttemptImpactFactorOnPriority
+	}
+	if profile.MaxWaitingDeletionDuration != 0 {
+		c.MaxWaitingDeletionDuration = profile.MaxWaitingDeletionDuration
 	}
 	if profile.BasePluginsForKubelet != nil || profile.BasePluginsForNM != nil {
 		c.BasePlugins = renderBasePlugin(NewBasePlugins(), profile.BasePluginsForKubelet, profile.BasePluginsForNM)
@@ -168,6 +173,8 @@ func newDefaultSubClusterConfig(profile *config.GodelSchedulerProfile) *subClust
 		UnitMaxBackoffSeconds:         config.DefaultUnitMaxBackoffInSeconds,
 		AttemptImpactFactorOnPriority: config.DefaultAttemptImpactFactorOnPriority,
 
+		MaxWaitingDeletionDuration: config.DefaultMaxWaitingDeletionDuration,
+
 		BasePlugins:             NewBasePlugins(),
 		PluginConfigs:           []config.PluginConfig{},
 		PreemptionPluginConfigs: []config.PluginConfig{},
@@ -195,6 +202,7 @@ func newSubClusterConfigFromDefaultConfig(profile *config.GodelSchedulerProfile,
 		UnitInitialBackoffSeconds:     defaultConfig.UnitInitialBackoffSeconds,
 		UnitMaxBackoffSeconds:         defaultConfig.UnitMaxBackoffSeconds,
 		AttemptImpactFactorOnPriority: defaultConfig.AttemptImpactFactorOnPriority,
+		MaxWaitingDeletionDuration:    defaultConfig.MaxWaitingDeletionDuration,
 
 		BasePlugins:             defaultConfig.BasePlugins,
 		PluginConfigs:           defaultConfig.PluginConfigs,

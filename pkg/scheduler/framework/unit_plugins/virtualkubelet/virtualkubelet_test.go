@@ -130,7 +130,7 @@ func TestLocating(t *testing.T) {
 			EnableStore("PreemptionStore").
 			Obj())
 
-		nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, []framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, nodeLister)})
+		nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, nil, []framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, nodeLister)})
 
 		pl, err := New(nil, &fakehandle.MockUnitFrameworkHandle{Cache: cache})
 		if err != nil {

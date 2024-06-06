@@ -22,17 +22,31 @@ import (
 
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
+	"github.com/kubewharf/godel-scheduler/pkg/features"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
 	loadawarestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/load_aware_store"
+	movementstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/movement_store"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
 	pdbstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pdb_store"
 	podstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pod_store"
 	podgroupstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/podgroup_store"
 	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
 	unitstatusstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/unit_status_store"
+
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/component-base/featuregate"
 )
 
 func Test_makeStoreSwitch(t *testing.T) {
+	setFeatureGate := func(f featuregate.Feature, on bool) {
+		gate := utilfeature.DefaultFeatureGate.(featuregate.MutableFeatureGate)
+		if err := gate.SetFromMap(map[string]bool{string(f): on}); err != nil {
+			t.Errorf("failed to set featuregate %s", f)
+		}
+	}
+	// Reset to default value.
+	setFeatureGate(features.SupportRescheduling, false)
+
 	type args struct {
 		handler   commoncache.CacheHandler
 		storeType commonstore.StoreType
@@ -69,6 +83,26 @@ func Test_makeStoreSwitch(t *testing.T) {
 				pdbstore.Name,
 				podgroupstore.Name,
 				preemptionstore.Name,
+				unitstatusstore.Name,
+				loadawarestore.Name,
+				nodestore.Name,
+				podstore.Name,
+			},
+		},
+		{
+			name: "normal: no preemption, no queuechecker, has movement",
+			prepare: func() {
+				setFeatureGate(features.SupportRescheduling, true)
+			},
+			cleanup: func() {
+				setFeatureGate(features.SupportRescheduling, false)
+			},
+			args: args{
+				handler: commoncache.MakeCacheHandlerWrapper().Obj(),
+			},
+			want: []commonstore.StoreName{
+				podgroupstore.Name,
+				movementstore.Name,
 				unitstatusstore.Name,
 				loadawarestore.Name,
 				nodestore.Name,

@@ -204,3 +204,15 @@ func (c *Cache) SetUnitSchedulingStatus(unitKey string, status unitstatus.Schedu
 func (c *Cache) GetUnitSchedulingStatus(unitKey string) unitstatus.SchedulingStatus {
 	return unitstatus.ScheduledStatus
 }
+
+func (c *Cache) AddMovement(movement *schedulingv1a1.Movement) error {
+	return nil
+}
+
+func (c *Cache) UpdateMovement(oldMovement, newMovement *schedulingv1a1.Movement) error {
+	return nil
+}
+
+func (c *Cache) DeleteMovement(movement *schedulingv1a1.Movement) error {
+	return nil
+}

@@ -17,6 +17,8 @@ limitations under the License.
 package handle
 
 import (
+	"time"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
@@ -80,4 +82,6 @@ type UnitFrameworkHandle interface {
 	GetNodeInfo(nodeName string) framework.NodeInfo
 
 	FindStore(commonstore.StoreName) commonstore.Store
+
+	GetMaxWaitingDeletionDuration() time.Duration
 }

@@ -67,7 +67,7 @@ func getNodeGroupsFromTree(nodeCircleTree []*nodeCircleElem) ([]framework.NodeGr
 			}
 		}
 		elem.bottomNodeGroupsInTree = ngs
-		np := framework.NewNodeGroup(elem.nodeCircle.GetKey(), ngs)
+		np := framework.NewNodeGroup(elem.nodeCircle.GetKey(), nil, ngs)
 		nodeGroups[j] = np
 		j++
 	}
@@ -319,18 +319,18 @@ func findNodeGroupsByPreferAffinity(
 	unitAffinityTerm framework.UnitAffinityTerm,
 	nodeGroupTree []*nodeCircleElem,
 	startIndexOfNewElem int,
-	assignedNodes sets.String,
+	assignedOrPreferredNodes sets.String,
 	nodeLister framework.NodeInfoLister,
 ) ([]*nodeCircleElem, error) {
 	preferAffinityTerms := newNodeGroupAffinityTerms([]framework.UnitAffinityTerm{unitAffinityTerm})
-	preferAffinitySpecs, err := getPreferAffinitySpecs(ctx, podLauncher, preferAffinityTerms, assignedNodes, nodeLister)
+	preferAffinitySpecs, err := getPreferAffinitySpecs(ctx, podLauncher, preferAffinityTerms, assignedOrPreferredNodes, nodeLister)
 	if err != nil {
 		return nil, err
 	}
 
-	hasRunningPods := assignedNodes.Len() != 0
-	newNodeCircleElems := nodeGroupTree[startIndexOfNewElem:]
-	size := len(newNodeCircleElems)
+	hasRunningPods := assignedOrPreferredNodes.Len() != 0
+	newTopologyElems := nodeGroupTree[startIndexOfNewElem:]
+	size := len(newTopologyElems)
 	ordered := make([]framework.NodeCircleList, size)
 
 	errCh := parallelize.NewErrorChannel()
@@ -339,21 +339,21 @@ func findNodeGroupsByPreferAffinity(
 	sortRules, sortRulesErr := getSortRules(unit)
 
 	parallelize.Until(parallelCtx, size, func(index int) {
-		nodeGroup := newNodeCircleElems[index].nodeCircle
+		nodeGroup := newTopologyElems[index].nodeCircle
 		preferNodeGroups := make([]framework.NodeCircle, 0)
-		// if there are running pods，just get the sub node group where they are from the original node group
+		// If there are assigned or preferred nodes in the nodegroup，just get the sub topology area where they are from the original topology area.
 		if hasRunningPods {
-			klog.V(4).InfoS("Unit has running pods on nodes", "unitKey", unit.GetKey(), "numNodes", len(assignedNodes))
-			// there are running pods in the unit, filter nodes matching the same affinity specs of these running pods
-			if preferAffinitySpecs != nil { // if those running pods are in different topologies, `preferAffinitySpecs` will be nil (refer to UT for getPreferAffinitySpecs)
-				preferNodeGroups, err = groupNodesByAffinitySpecs(podLauncher, nodeGroup, assignedNodes, preferAffinitySpecs)
+			klog.V(4).InfoS("Unit has assigned or preferred nodes", "unitKey", unit.GetKey(), "numNodes", len(assignedOrPreferredNodes))
+			// If there are assigned or preferred nodes in the unit, filter out nodes not matching the same affnity specs
+			if preferAffinitySpecs != nil { // If these nodes are in different topologies, `preferAffinitySpecs` will be nil (refer to UT for getPreferAffinitySpecs)
+				preferNodeGroups, err = groupNodesByAffinitySpecs(podLauncher, nodeGroup, assignedOrPreferredNodes, preferAffinitySpecs)
 				if err != nil {
 					errCh.SendErrorWithCancel(err, cancel)
 					return
 				}
 			}
 		} else {
-			// no running pods, then nodes should be grouped by affinity terms
+			// No assigned or preferred nodes, then nodes should be grouped by affinity terms
 			tmpNodeGroups, err := groupNodesByAffinityTerms(parallelCtx, podLauncher, nodeGroup, preferAffinityTerms)
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)

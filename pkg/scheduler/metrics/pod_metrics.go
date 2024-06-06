@@ -230,6 +230,14 @@ var (
 			Help:      "The total resources of pending pod requested.",
 		}, []string{pkgmetrics.QueueLabel, pkgmetrics.ResourceLabel, pkgmetrics.QosLabel, pkgmetrics.SubClusterLabel, pkgmetrics.SchedulerLabel})
 
+	podsUseMovement = metrics.NewCounterVec(
+		&metrics.CounterOpts{
+			Subsystem:      SchedulerSubsystem,
+			Name:           "pods_use_movement_total",
+			Help:           "Number of pods scheduled based on movements.",
+			StabilityLevel: metrics.ALPHA,
+		}, []string{pkgmetrics.RescheduleAlgorithmLabel, pkgmetrics.ResultLabel, pkgmetrics.ReasonLabel, pkgmetrics.SchedulerLabel})
+
 	podEvaluatedNodes = metrics.NewHistogramVec(
 		&metrics.HistogramOpts{
 			Subsystem:      SchedulerSubsystem,

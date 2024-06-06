@@ -58,6 +58,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Node().V1alpha1().NMNodes().Informer()}, nil
 
 		// Group=scheduling.godel.kubewharf.io, Version=v1alpha1
+	case schedulingv1alpha1.SchemeGroupVersion.WithResource("movements"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Scheduling().V1alpha1().Movements().Informer()}, nil
 	case schedulingv1alpha1.SchemeGroupVersion.WithResource("podgroups"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Scheduling().V1alpha1().PodGroups().Informer()}, nil
 	case schedulingv1alpha1.SchemeGroupVersion.WithResource("schedulers"):

@@ -42,6 +42,11 @@ type ClusterNodeInfoLister interface {
 	Get(nodeName string) (NodeInfo, error)
 }
 
+type ClusterNodeInfoGetter interface {
+	// Returns the NodeInfo of the given node name.
+	Get(nodeName string) (NodeInfo, error)
+}
+
 // ClusterSharedLister groups scheduler-specific listers.
 type ClusterSharedLister interface {
 	NodeInfos() ClusterNodeInfoLister

@@ -28,6 +28,7 @@ import (
 
 type SchedulingV1alpha1Interface interface {
 	RESTClient() rest.Interface
+	MovementsGetter
 	PodGroupsGetter
 	SchedulersGetter
 }
@@ -35,6 +36,10 @@ type SchedulingV1alpha1Interface interface {
 // SchedulingV1alpha1Client is used to interact with features provided by the scheduling.godel.kubewharf.io group.
 type SchedulingV1alpha1Client struct {
 	restClient rest.Interface
+}
+
+func (c *SchedulingV1alpha1Client) Movements() MovementInterface {
+	return newMovements(c)
 }
 
 func (c *SchedulingV1alpha1Client) PodGroups(namespace string) PodGroupInterface {

@@ -175,7 +175,7 @@ github.com/josharian/intern
 # github.com/json-iterator/go v1.1.12
 ## explicit; go 1.12
 github.com/json-iterator/go
-# github.com/kubewharf/godel-scheduler-api v0.0.0-20231129083306-7282cca41429
+# github.com/kubewharf/godel-scheduler-api v0.0.0-20240715084102-cb5e548bca92
 ## explicit; go 1.21.4
 github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1
 github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1

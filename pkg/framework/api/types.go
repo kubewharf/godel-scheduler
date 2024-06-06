@@ -1177,3 +1177,50 @@ type LoadAwareNodeMetricInfo struct {
 	ProfileMilliCPUUsage int64
 	ProfileMEMUsage      int64
 }
+
+type (
+	SchedulingStage       int
+	SchedulingStagesState int
+)
+
+const (
+	ScheduleInPreferredNodes SchedulingStage = 1 << iota // 0b0001
+	ScheduleInNodeCircles                                // 0b0010
+	PreemptInPreferredNodes                              // 0b0100
+	PreemptInNodeCircles                                 // 0b1000
+
+	DefaultSchedulingStagesStates SchedulingStagesState = 0b1111
+)
+
+func SetSchedulingStageState(currentStates SchedulingStagesState, changedStage SchedulingStage, expectedExecute bool) SchedulingStagesState {
+	if expectedExecute {
+		return SchedulingStagesState(int(currentStates) | int(changedStage))
+	}
+	return SchedulingStagesState(int(currentStates) & int(^changedStage))
+}
+
+func GetSchedulingStagesState(states SchedulingStagesState, stage SchedulingStage) bool {
+	return (int(states) & int(stage)) != 0
+}
+
+func SetPodSchedulingStageInCycleState(cycleState *CycleState, changedStage SchedulingStage, expectedExecute bool) {
+	stageState := GetPodSchedulingStagesStageInCycleState(cycleState)
+	cycleState.Write(PodSchedulingStageStateKey, &stateData{data: SetSchedulingStageState(stageState, changedStage, expectedExecute)})
+}
+
+func GetPodSchedulingStageInCycleState(cycleState *CycleState, stage SchedulingStage) bool {
+	stageState := GetPodSchedulingStagesStageInCycleState(cycleState)
+	return GetSchedulingStagesState(stageState, stage)
+}
+
+func GetPodSchedulingStagesStageInCycleState(cycleState *CycleState) SchedulingStagesState {
+	stagesState := DefaultSchedulingStagesStates
+	if data, err := cycleState.Read(PodSchedulingStageStateKey); err == nil {
+		if s, ok := data.(*stateData); ok {
+			if value, ok := s.data.(SchedulingStagesState); ok {
+				stagesState = value
+			}
+		}
+	}
+	return stagesState
+}
