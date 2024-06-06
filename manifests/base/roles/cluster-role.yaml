@@ -175,3 +175,18 @@ rules:
       - customnoderesources
     verbs:
       - "*"
+  - apiGroups:
+      - "*"
+    resources:
+      - movements
+    verbs:
+      - list
+      - watch
+      - patch
+  - apiGroups:
+      - "*"
+    resources:
+      - movements/status
+    verbs:
+      - update
+      - patch

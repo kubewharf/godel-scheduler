@@ -18,8 +18,10 @@ package api
 
 import (
 	"context"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	unitstatus "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
 )
@@ -35,6 +37,7 @@ type UnitSchedulingRequest struct {
 type LocatingPlugin interface {
 	Plugin
 	Locating(context.Context, ScheduleUnit, *CycleState, NodeGroup) (NodeGroup, *Status)
+	PreparePreferNode(context.Context, *CycleState, *CycleState, *v1.Pod) *Status
 }
 
 type GroupingPlugin interface {
@@ -50,4 +53,8 @@ type SchedulerUnitFrameworkHandle interface {
 	GetUnitStatus(string) unitstatus.UnitStatus
 	IsCachedPod(pod *v1.Pod) (bool, error)
 	GetNodeInfo(nodeName string) NodeInfo
+
+	GetMaxWaitingDeletionDuration() time.Duration
+	GetSuggestedMovementAndNodes(ownerKey string) map[string][]*MovementDetailOnNode
+	GetDeletedPodsFromMovement(movementName string) sets.String
 }

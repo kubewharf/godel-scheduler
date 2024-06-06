@@ -83,6 +83,7 @@ type PreferredNodes interface {
 type NodeGroup interface {
 	GetKey() string
 	Validate() error
+	ClusterNodeInfoGetter
 
 	GetNodeCircles() NodeCircleList
 	SetNodeCircles(NodeCircleList)
@@ -101,6 +102,9 @@ type NodeCircleImpl struct {
 var _ NodeCircle = &NodeCircleImpl{}
 
 func NewNodeCircle(key string, lister NodeInfoLister) NodeCircle {
+	if lister == nil {
+		lister = NewNodeInfoLister()
+	}
 	return &NodeCircleImpl{key: key, NodeInfoLister: lister}
 }
 
@@ -154,17 +158,29 @@ func (i *PreferredNodesImpl) List() []NodeInfo {
 // ------------------------------------------------------------------------------------------
 
 type NodeGroupImpl struct {
-	Key            string
+	Key string
+	ClusterNodeInfoGetter
 	NodeCircles    []NodeCircle
 	PreferredNodes PreferredNodes
 }
 
 var _ NodeGroup = &NodeGroupImpl{}
 
-func NewNodeGroup(key string, nodeCircles []NodeCircle) NodeGroup {
+func NewNodeGroup(key string, getter ClusterNodeInfoGetter, nodeCircles []NodeCircle) NodeGroup {
+	if getter == nil {
+		getterImpl := &NodeInfoGetterImpl{NodeInfoMap: make(map[string]NodeInfo)}
+		for _, nc := range nodeCircles {
+			for _, nodeInfo := range nc.List() {
+				getterImpl.NodeInfoMap[nodeInfo.GetNodeName()] = nodeInfo
+			}
+		}
+		getter = getterImpl
+	}
 	return &NodeGroupImpl{
-		Key:         key,
-		NodeCircles: nodeCircles,
+		Key:                   key,
+		ClusterNodeInfoGetter: getter,
+		NodeCircles:           nodeCircles,
+		PreferredNodes:        NewPreferredNodes(),
 	}
 }
 
@@ -206,6 +222,21 @@ func (ng *NodeGroupImpl) GetPreferredNodes() PreferredNodes {
 
 func (ng *NodeGroupImpl) SetPreferredNodes(preferredNodes PreferredNodes) {
 	ng.PreferredNodes = preferredNodes
+}
+
+// ------------------------------------------------------------------------------------------
+
+type NodeInfoGetterImpl struct {
+	NodeInfoMap map[string]NodeInfo
+}
+
+func (g *NodeInfoGetterImpl) Get(nodeName string) (NodeInfo, error) {
+	if nodeInfo, ok := g.NodeInfoMap[nodeName]; ok && nodeInfo != nil {
+		if nodeInfo.GetNode() != nil || nodeInfo.GetNMNode() != nil {
+			return nodeInfo, nil
+		}
+	}
+	return nil, fmt.Errorf("nodeinfo not found for node name %q", nodeName)
 }
 
 // ------------------------------------------------------------------------------------------
@@ -311,7 +342,7 @@ func FilterPreferredNodes(preferredNodes PreferredNodes, filterFunc func(NodeInf
 }
 
 func FilterNodeGroup(nodeGroup NodeGroup, filterFunc func(NodeInfo) bool) NodeGroup {
-	newNodeGroup := NewNodeGroup(nodeGroup.GetKey(), nil)
+	newNodeGroup := NewNodeGroup(nodeGroup.GetKey(), nil, nil)
 	{
 		nodeCircles := nodeGroup.GetNodeCircles()
 		newNodeCircles := make([]NodeCircle, 0, len(nodeCircles))

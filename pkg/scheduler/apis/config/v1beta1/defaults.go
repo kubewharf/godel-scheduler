@@ -175,5 +175,8 @@ func SetDefaults_GodelSchedulerConfiguration(obj *GodelSchedulerConfiguration) {
 		if obj.DefaultProfile.BlockQueue == nil {
 			obj.DefaultProfile.BlockQueue = utilpointer.BoolPtr(config.DefaultBlockQueue)
 		}
+		if obj.DefaultProfile.MaxWaitingDeletionDuration == 0 {
+			obj.DefaultProfile.MaxWaitingDeletionDuration = config.DefaultMaxWaitingDeletionDuration
+		}
 	}
 }

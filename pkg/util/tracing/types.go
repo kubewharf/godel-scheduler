@@ -195,6 +195,10 @@ func WithResultTag(value interface{}) attribute.KeyValue {
 	return attribute.String("result", fmt.Sprint(value))
 }
 
+func WithHitCacheTag(result string) attribute.KeyValue {
+	return attribute.String("hitCache", result)
+}
+
 func WithReasonField(reason string) attribute.KeyValue {
 	return attribute.String("reason", reason)
 }

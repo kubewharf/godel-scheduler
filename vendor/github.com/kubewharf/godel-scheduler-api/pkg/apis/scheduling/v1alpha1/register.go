@@ -49,6 +49,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&PodGroupList{},
 		&Scheduler{},
 		&SchedulerList{},
+		&Movement{},
+		&MovementList{},
 	)
 
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)

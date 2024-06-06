@@ -18,6 +18,7 @@ require (
 	go.opentelemetry.io/otel v0.20.0
 	go.opentelemetry.io/otel/trace v0.20.0
 	golang.org/x/crypto v0.14.0
+	golang.org/x/time v0.3.0
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver v0.24.6
@@ -116,7 +117,6 @@ require (
 	golang.org/x/sys v0.13.0 // indirect
 	golang.org/x/term v0.13.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
-	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.8.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20220502173005-c8bf987b8c21 // indirect
@@ -137,6 +137,7 @@ require (
 
 replace (
 	github.com/google/gnostic => github.com/google/gnostic v0.5.7-v3refs
+	github.com/kubewharf/godel-scheduler-api => github.com/XinyiSong/godel-scheduler-api v0.0.0-20240606080346-efc0211f8c5a
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc => go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.20.0
 	golang.org/x/sys => golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a
 	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20220328201542-3ee0da9b0b42

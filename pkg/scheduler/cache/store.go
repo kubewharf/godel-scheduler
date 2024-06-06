@@ -19,6 +19,7 @@ package cache
 import (
 	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	loadawarestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/load_aware_store"
+	movementstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/movement_store"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
 	pdbstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pdb_store"
 	podstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pod_store"
@@ -34,6 +35,7 @@ var orderedStoreNames = []commonstore.StoreName{
 	podgroupstore.Name,
 
 	// pod related
+	movementstore.Name,
 	preemptionstore.Name,
 	unitstatusstore.Name,
 	loadawarestore.Name,

@@ -1,0 +1,186 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.0
+  creationTimestamp: null
+  name: movements.scheduling.godel.kubewharf.io
+spec:
+  group: scheduling.godel.kubewharf.io
+  names:
+    kind: Movement
+    listKind: MovementList
+    plural: movements
+    singular: movement
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Movement stores necessary information for rescheduling decisions.
+          It has a group of task movements which need to be performed in one attempt,
+          movement creator, movement generation and so on.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the behavior of a Movement.
+            properties:
+              creator:
+                description: Creator of this movement.
+                type: string
+              deletedTasks:
+                description: A list of tasks need to be rescheduled
+                items:
+                  description: Information of each task needs to be rescheduled
+                  properties:
+                    name:
+                      description: Task name, e.g. pod name
+                      type: string
+                    namespace:
+                      description: Task namespace, e.g. pod namespace
+                      type: string
+                    node:
+                      description: Node of this task
+                      type: string
+                    uid:
+                      description: Task uid, e.g. pod uid
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  - node
+                  - uid
+                  type: object
+                type: array
+              generation:
+                description: Generation of this movement. When a new round of rescheduling
+                  decisions are made, generation is bumped.
+                type: integer
+            type: object
+          status:
+            description: Status describes the current status of a Movement. This data
+              may not be up to date.
+            properties:
+              notifiedSchedulers:
+                description: Names of godel schedulers which have received this movement
+                  crd
+                items:
+                  type: string
+                type: array
+              ownerMovements:
+                description: A list of movement info for all owners
+                items:
+                  description: Contain node suggestions for each owner
+                  properties:
+                    nodeSuggestions:
+                      description: Information of suggested nodes
+                      items:
+                        description: Contain desired state and actual state for node
+                        properties:
+                          actualPods:
+                            description: Pods using this suggestion
+                            items:
+                              description: Information of each task needs to be rescheduled
+                              properties:
+                                name:
+                                  description: Task name, e.g. pod name
+                                  type: string
+                                namespace:
+                                  description: Task namespace, e.g. pod namespace
+                                  type: string
+                                node:
+                                  description: Node of this task
+                                  type: string
+                                uid:
+                                  description: Task uid, e.g. pod uid
+                                  type: string
+                              required:
+                              - name
+                              - namespace
+                              - node
+                              - uid
+                              type: object
+                            type: array
+                          desiredPodCount:
+                            description: Desired pod count for this node
+                            format: int64
+                            type: integer
+                          node:
+                            description: Node Name
+                            type: string
+                        type: object
+                      type: array
+                    owner:
+                      description: Information of task owner
+                      properties:
+                        name:
+                          description: Owner name
+                          type: string
+                        namespace:
+                          description: Owner namespace
+                          type: string
+                        type:
+                          description: Owner type, e.g. ReplicaSet/StatefulSet...
+                          type: string
+                        uid:
+                          description: Owner uid
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      - type
+                      - uid
+                      type: object
+                    tasksBreakSuggestion:
+                      description: Tasks scheduled successfully but not use suggestion
+                      items:
+                        description: Information of each task needs to be rescheduled
+                        properties:
+                          name:
+                            description: Task name, e.g. pod name
+                            type: string
+                          namespace:
+                            description: Task namespace, e.g. pod namespace
+                            type: string
+                          node:
+                            description: Node of this task
+                            type: string
+                          uid:
+                            description: Task uid, e.g. pod uid
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        - node
+                        - uid
+                        type: object
+                      type: array
+                  required:
+                  - owner
+                  type: object
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

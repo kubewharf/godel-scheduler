@@ -51,7 +51,8 @@ const (
 )
 
 const (
-	UpdateResultLabel  = "updateResult"
-	SuggestResultLabel = "suggestResult"
-	PhaseLabel         = "phase"
+	RescheduleAlgorithmLabel = "rescheduleAlgorithm"
+	UpdateResultLabel        = "updateResult"
+	SuggestResultLabel       = "suggestResult"
+	PhaseLabel               = "phase"
 )
