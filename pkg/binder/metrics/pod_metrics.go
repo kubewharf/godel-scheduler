@@ -169,6 +169,14 @@ var (
 			Buckets:        metrics.ExponentialBuckets(0.001, 2, 20),
 			StabilityLevel: metrics.ALPHA,
 		}, []string{pkgmetrics.AttemptsLabel, pkgmetrics.QosLabel, pkgmetrics.SubClusterLabel})
+
+	movementUpdateAttempts = metrics.NewCounterVec(
+		&metrics.CounterOpts{
+			Subsystem:      BinderSubsystem,
+			Name:           "movement_update_attempts_total",
+			Help:           "Number of attempts to update a movement.",
+			StabilityLevel: metrics.ALPHA,
+		}, []string{pkgmetrics.RescheduleAlgorithmLabel, pkgmetrics.UpdateResultLabel, pkgmetrics.SuggestResultLabel})
 )
 
 var (
