@@ -22,15 +22,18 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
 	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
@@ -38,11 +41,13 @@ import (
 	"github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	cachedebugger "github.com/kubewharf/godel-scheduler/pkg/binder/cache/debugger"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/controller"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/queue"
 	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	"github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/nonnativeresource"
@@ -89,14 +94,17 @@ type Binder struct {
 	recorder   events.EventRecorder
 	reconciler *BinderTasksReconciler
 
-	podLister corelisters.PodLister
-	pgLister  v1alpha1.PodGroupLister
+	podLister      corelisters.PodLister
+	pgLister       v1alpha1.PodGroupLister
+	movementLister v1alpha1.MovementLister
 
 	// node partition doesn't make any effect for now, remove it from binder
 	// TODO: figure out if we need this and add back if necessary
 	// it is useful for scheduler since it may affect scheduling decisions,
 	// for binder, we may implement a plugin to double confirm the result if necessary.
 	// schedulerInfo *SchedulerInfo
+
+	movementController controller.CommonController
 }
 
 // New returns a Binder
@@ -165,11 +173,29 @@ func New(
 		binderQueue,
 	)
 	debugger.ListenForSignal(stopEverything)
+	binder.initializeReschedulingModule(crdInformerFactory, stopEverything, crdClient)
 
 	// Add all event handlers
 	addAllEventHandlers(binder, informerFactory, crdInformerFactory, katalystCrdInformerFactory)
 
 	return binder, nil
+}
+
+func (binder *Binder) initializeReschedulingModule(
+	crdInformerFactory crdinformers.SharedInformerFactory,
+	stopEverything <-chan struct{}, crdClient godelclient.Interface,
+) {
+	if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
+		binder.movementLister = crdInformerFactory.Scheduling().V1alpha1().Movements().Lister()
+
+		rateLimiter := workqueue.NewMaxOfRateLimiter(
+			workqueue.NewItemExponentialFailureRateLimiter(5*time.Millisecond, 500*time.Second),
+			// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
+			&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
+		)
+		movementQueue := workqueue.NewNamedRateLimitingQueue(rateLimiter, "Movement")
+		binder.movementController = controller.NewMovementController(movementQueue, stopEverything, binder.movementLister, crdClient)
+	}
 }
 
 // Run begins watching and scheduling. It waits for cache to be synced, then starts scheduling and blocked until the context is done.
@@ -189,6 +215,10 @@ func (binder *Binder) Run(ctx context.Context) {
 		}
 	}
 	go wait.UntilWithContext(ctx, resolveConflicts, 0)
+
+	if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
+		binder.movementController.Run()
+	}
 
 	<-ctx.Done()
 }
@@ -1039,6 +1069,11 @@ func (binder *Binder) bindTasks(ctx context.Context, unitInfo *bindingUnitInfo) 
 
 			// emit bind event
 			binder.recorder.Eventf(task.queuedPodInfo.ReservedPod, nil, v1.EventTypeNormal, "Bind", "Binding", "Successfully assigned %v to %v", podutil.GetPodKey(task.queuedPodInfo.ReservedPod), task.suggestedNode)
+
+			if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
+				// update movement status if necessary
+				binder.movementController.AddPod(task.queuedPodInfo.ReservedPod)
+			}
 
 			return nil
 		}); err != nil {

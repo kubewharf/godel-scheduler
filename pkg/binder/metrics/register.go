@@ -55,6 +55,8 @@ var metricsList = []metrics.Registerable{
 	podE2ELatencyQuantile,
 	podGroupE2ELatency,
 
+	movementUpdateAttempts,
+
 	binderUnitE2ELatency,
 	rejectUnitMinMember,
 }

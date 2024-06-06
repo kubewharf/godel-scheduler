@@ -63,6 +63,10 @@ func ObserveBindingStageDuration(podProperty *api.PodProperty, operation, plugin
 	BindingStageDurationObserve(podProperty, operation, plugin, status, duration)
 }
 
+func ObserveMovementUpdateAttempts(rescheduleAlgorithm, updateResult, suggestResult string) {
+	movementUpdateAttempts.WithLabelValues(rescheduleAlgorithm, updateResult, suggestResult).Inc()
+}
+
 func ObserveRejectUnit(unit *api.QueuedUnitInfo, stage string) {
 	minMember, _ := unit.GetMinMember()
 	up := unit.GetUnitProperty()
