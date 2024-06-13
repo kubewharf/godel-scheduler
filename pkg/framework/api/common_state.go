@@ -21,6 +21,8 @@ import (
 
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/pkg/util/tracing"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (
@@ -49,6 +51,12 @@ const (
 	MissedError      = "missed %s"
 
 	PodPropertyKey = "PodProperty"
+
+	PodSchedulingStageStateKey = "PodSchedulingStageState"
+
+	NotScheduledPodKeysByTemplateKey = "NotScheduledPodKeysByTemplate"
+
+	PostNodeCircleSchedulingFuncKey = "PostNodeCircleSchedulingFunc"
 )
 
 // stateData contains single property to use in CycleState, use interface{} to do type casting
@@ -282,4 +290,45 @@ func GetPodProperty(state *CycleState) (*PodProperty, error) {
 		}
 	}
 	return nil, fmt.Errorf("unit property not found")
+}
+
+func SetNotScheduledPodKeysByTemplate(notScheduledPodKeysByTemplate map[string]sets.String, unitState *CycleState) error {
+	data := &stateData{
+		data: notScheduledPodKeysByTemplate,
+	}
+	unitState.Write(NotScheduledPodKeysByTemplateKey, data)
+	return nil
+}
+
+func GetNotScheduledPodKeysCountByTemplate(unitState *CycleState, ownerName string) (int, error) {
+	if data, err := unitState.Read(NotScheduledPodKeysByTemplateKey); err == nil {
+		if s, ok := data.(*stateData); ok {
+			if value, ok := s.data.(map[string]sets.String); ok {
+				return value[ownerName].Len(), nil
+			}
+			return 0, fmt.Errorf(UnsupportedError, NotScheduledPodKeysByTemplateKey)
+		}
+	}
+	return 0, fmt.Errorf(MissedError, NotScheduledPodKeysByTemplateKey)
+}
+
+type PostNodeCircleSchedulingFunc func(nodeCircle NodeCircle, pod *v1.Pod, suggestHost string, err error)
+
+func GetPostNodeCircleSchedulingFunc(state *CycleState) (PostNodeCircleSchedulingFunc, error) {
+	if state == nil {
+		return nil, fmt.Errorf("nil cycle state")
+	}
+
+	if data, err := state.Read(PostNodeCircleSchedulingFuncKey); err == nil {
+		if s, ok := data.(*stateData); ok {
+			return s.data.(PostNodeCircleSchedulingFunc), nil
+		}
+	}
+	return nil, fmt.Errorf("post nodeCircle scheduling func not found")
+}
+
+func RunPostNodeCircleSchedulingFunc(unitState *CycleState, nodeCircle NodeCircle, pod *v1.Pod, suggesstHost string, err error) {
+	if postSchedulingFunc, err := GetPostNodeCircleSchedulingFunc(unitState); err == nil {
+		postSchedulingFunc(nodeCircle, pod, suggesstHost, err)
+	}
 }

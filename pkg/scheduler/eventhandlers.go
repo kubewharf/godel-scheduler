@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
+	godelfeatures "github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	"github.com/kubewharf/godel-scheduler/pkg/util/features"
@@ -794,6 +795,44 @@ func (sched *Scheduler) onDaemonSetDelete(obj interface{}) {
 	sched.commonCache.DeleteOwner(util.OwnerTypeDaemonSet, util.GetDaemonSetKey(ds))
 }
 
+func (sched *Scheduler) addMovement(obj interface{}) {
+	movement, ok := obj.(*schedulingv1a1.Movement)
+	if !ok {
+		klog.InfoS("Failed to convert to *scheduling.Movement", "object", obj)
+		return
+	}
+
+	klog.V(5).InfoS("Detected an add event for movement", "movement", util.GetMovementName(movement))
+	sched.commonCache.AddMovement(movement)
+	sched.movementController.AddMovement(movement)
+}
+
+func (sched *Scheduler) updateMovement(oldObj, newObj interface{}) {
+	oldMovement, ok := oldObj.(*schedulingv1a1.Movement)
+	if !ok {
+		klog.InfoS("Failed to convert to *scheduling.Movement", "oldObject", oldObj)
+		return
+	}
+	newMovement, ok := newObj.(*schedulingv1a1.Movement)
+	if !ok {
+		klog.InfoS("Failed to convert to *scheduling.Movement", "newObject", newObj)
+		return
+	}
+	klog.V(5).InfoS("Detected an update event for movement", "movement", util.GetMovementName(newMovement))
+	sched.commonCache.UpdateMovement(oldMovement, newMovement)
+	sched.movementController.AddMovement(newMovement)
+}
+
+func (sched *Scheduler) deleteMovement(obj interface{}) {
+	movement, ok := obj.(*schedulingv1a1.Movement)
+	if !ok {
+		klog.InfoS("Failed to convert to *scheduling.Movement", "object", obj)
+		return
+	}
+	klog.V(5).InfoS("Detected a delete event for movement", "movement", util.GetMovementName(movement))
+	sched.commonCache.DeleteMovement(movement)
+}
+
 // addAllEventHandlers is a helper function used in tests and in Scheduler
 // to add event handlers for various informers.
 func addAllEventHandlers(
@@ -937,4 +976,14 @@ func addAllEventHandlers(
 			DeleteFunc: sched.deletePodGroupFromCache,
 		},
 	)
+
+	if utilfeature.DefaultFeatureGate.Enabled(godelfeatures.SupportRescheduling) {
+		crdInformerFactory.Scheduling().V1alpha1().Movements().Informer().AddEventHandler(
+			cache.ResourceEventHandlerFuncs{
+				AddFunc:    sched.addMovement,
+				UpdateFunc: sched.updateMovement,
+				DeleteFunc: sched.deleteMovement,
+			},
+		)
+	}
 }

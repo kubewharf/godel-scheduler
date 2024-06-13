@@ -153,6 +153,7 @@ func autoConvert_v1beta1_GodelSchedulerProfile_To_config_GodelSchedulerProfile(i
 	out.AttemptImpactFactorOnPriority = (*float64)(unsafe.Pointer(in.AttemptImpactFactorOnPriority))
 	out.UnitInitialBackoffSeconds = (*int64)(unsafe.Pointer(in.UnitInitialBackoffSeconds))
 	out.UnitMaxBackoffSeconds = (*int64)(unsafe.Pointer(in.UnitMaxBackoffSeconds))
+	out.MaxWaitingDeletionDuration = in.MaxWaitingDeletionDuration
 	out.CandidatesSelectPolicy = (*string)(unsafe.Pointer(in.CandidatesSelectPolicy))
 	out.BetterSelectPolicies = (*config.StringSlice)(unsafe.Pointer(in.BetterSelectPolicies))
 	return nil
@@ -174,6 +175,7 @@ func autoConvert_config_GodelSchedulerProfile_To_v1beta1_GodelSchedulerProfile(i
 	out.DisablePreemption = (*bool)(unsafe.Pointer(in.DisablePreemption))
 	out.CandidatesSelectPolicy = (*string)(unsafe.Pointer(in.CandidatesSelectPolicy))
 	out.BetterSelectPolicies = (*config.StringSlice)(unsafe.Pointer(in.BetterSelectPolicies))
+	out.MaxWaitingDeletionDuration = in.MaxWaitingDeletionDuration
 	out.BlockQueue = (*bool)(unsafe.Pointer(in.BlockQueue))
 	out.UnitQueueSortPlugin = (*config.Plugin)(unsafe.Pointer(in.UnitQueueSortPlugin))
 	out.AttemptImpactFactorOnPriority = (*float64)(unsafe.Pointer(in.AttemptImpactFactorOnPriority))

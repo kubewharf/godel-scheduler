@@ -973,3 +973,15 @@ func (cache *binderCache) UpdateOwner(ownerType, key string, oldLabels, newLabel
 func (cache *binderCache) DeleteOwner(ownerType, key string) error {
 	return nil
 }
+
+func (cache *binderCache) AddMovement(movement *schedulingv1a1.Movement) error {
+	return nil
+}
+
+func (cache *binderCache) UpdateMovement(oldMovement, newMovement *schedulingv1a1.Movement) error {
+	return nil
+}
+
+func (cache *binderCache) DeleteMovement(movement *schedulingv1a1.Movement) error {
+	return nil
+}

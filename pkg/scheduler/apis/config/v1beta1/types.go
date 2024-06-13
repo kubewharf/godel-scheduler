@@ -191,6 +191,8 @@ type GodelSchedulerProfile struct {
 	// If specified, it must be greater than or equal to unitInitialBackoffSeconds. If this value is null,
 	// the default value (10s) will be used.
 	UnitMaxBackoffSeconds *int64 `json:"unitMaxBackoffSeconds,omitempty"`
+	// Max attempts waiting for deletion completed
+	MaxWaitingDeletionDuration int64 `json:"maxWaitingDeletionDuration,omitempty"`
 
 	// CandidatesSelectPolicies
 	CandidatesSelectPolicy *string `json:"candidatesSelectPolicy,omitempty"`

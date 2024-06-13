@@ -20,12 +20,14 @@ import (
 	"fmt"
 
 	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
 	loadawarestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/load_aware_store"
+	movementstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/movement_store"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
 	pdbstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pdb_store"
 	podgroupstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/podgroup_store"
@@ -72,8 +74,8 @@ func NewEmptySnapshot(handler commoncache.CacheHandler) *Snapshot {
 func (s *Snapshot) MakeBasicNodeGroup() framework.NodeGroup {
 	nodeGroup := framework.NewNodeGroup(
 		framework.DefaultNodeGroupName,
+		s,
 		[]framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, s)})
-	nodeGroup.SetPreferredNodes(framework.NewPreferredNodes())
 	return nodeGroup
 }
 
@@ -169,6 +171,10 @@ func (s *Snapshot) ForgetPod(podInfo *framework.CachePodInfo) error {
 	return s.CommonStoresSwitch.Range(func(cs commonstore.Store) error { return cs.ForgetPod(podInfo) })
 }
 
+func (s *Snapshot) FindStore(storeName commonstore.StoreName) commonstore.Store {
+	return s.CommonStoresSwitch.Find(storeName)
+}
+
 // GetPreemptorsByVictim return preemptors by victim.
 //
 // Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
@@ -227,6 +233,14 @@ func (s *Snapshot) GetLoadAwareNodeMetricInfo(nodeName string, resourceType podu
 func (s *Snapshot) GetLoadAwareNodeUsage(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeUsage {
 	// TODO: Remove GetLoadAwareNodeUsage interface and expose Store by ScheduleFrameworkHandler directly.
 	return s.CommonStoresSwitch.Find(loadawarestore.Name).(*loadawarestore.LoadAwareStore).GetLoadAwareNodeUsage(nodeName, resourceType)
+}
+
+func (s *Snapshot) GetSuggestedMovementAndNodes(ownerKey string) map[string][]*framework.MovementDetailOnNode {
+	return s.CommonStoresSwitch.Find(movementstore.Name).(*movementstore.MovementStore).GetSuggestedMovementAndNodes(ownerKey)
+}
+
+func (s *Snapshot) GetDeletedPodsFromMovement(movementName string) sets.String {
+	return s.CommonStoresSwitch.Find(movementstore.Name).(*movementstore.MovementStore).GetDeletedPodsFromMovement(movementName)
 }
 
 // -------------------------------------- node slice for snapshot --------------------------------------

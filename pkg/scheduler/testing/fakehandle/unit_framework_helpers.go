@@ -17,7 +17,10 @@ limitations under the License.
 package fakehandle
 
 import (
+	"time"
+
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
@@ -75,4 +78,16 @@ func (gs *MockUnitSchedulerHandle) IsCachedPod(pod *v1.Pod) (bool, error) {
 
 func (gs *MockUnitSchedulerHandle) GetNodeInfo(nodeName string) framework.NodeInfo {
 	return gs.Snapshot.GetNodeInfo(nodeName)
+}
+
+func (gs *MockUnitSchedulerHandle) GetMaxWaitingDeletionDuration() time.Duration {
+	return 10 * time.Second
+}
+
+func (gs *MockUnitSchedulerHandle) GetSuggestedMovementAndNodes(ownerKey string) map[string][]*framework.MovementDetailOnNode {
+	return gs.Snapshot.GetSuggestedMovementAndNodes(ownerKey)
+}
+
+func (gs *MockUnitSchedulerHandle) GetDeletedPodsFromMovement(movementName string) sets.String {
+	return gs.Snapshot.GetDeletedPodsFromMovement(movementName)
 }

@@ -38,6 +38,7 @@ import (
 	"k8s.io/client-go/informers"
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/pointer"
 
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/features"
@@ -6079,7 +6080,9 @@ func TestPreemptInSpecificNodeGroup(t *testing.T) {
 		podCount                  int
 		cachedUsedNode            *framework.Candidate
 		cachedUnusedNodes         []*framework.Candidate
+		hasPreferredNodes         bool
 		crossNodesConstraints     bool
+		schedulingStagesState     *int
 		expectedResult            core.PodScheduleResult
 		expectedPodCount          int
 		expectedCachedUsedNode    *framework.Candidate
@@ -6597,7 +6600,8 @@ func TestPreemptInSpecificNodeGroup(t *testing.T) {
 					Req(map[v1.ResourceName]string{"cpu": "10"}).
 					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
 			},
-			podCount: 2,
+			podCount:          2,
+			hasPreferredNodes: true,
 			expectedResult: core.PodScheduleResult{
 				NominatedNode: &framework.NominatedNode{
 					NodeName: "n1",
@@ -6647,7 +6651,8 @@ func TestPreemptInSpecificNodeGroup(t *testing.T) {
 					Req(map[v1.ResourceName]string{"cpu": "10"}).
 					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
 			},
-			podCount: 2,
+			podCount:          2,
+			hasPreferredNodes: true,
 			expectedResult: core.PodScheduleResult{
 				NominatedNode: &framework.NominatedNode{
 					NodeName: "n1",
@@ -7015,10 +7020,93 @@ func TestPreemptInSpecificNodeGroup(t *testing.T) {
 			expectedCachedUsedNode:    nil,
 			expectedCachedUnusedNodes: nil,
 		},
+		{
+			name: "skip prefer nodes, preempt in node circles instead",
+			existingPods: []*v1.Pod{
+				testinghelper.MakePod().Namespace("p2").Name("p2").UID("p2").Node("n2").
+					Priority(10).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testinghelper.MakePod().Namespace("p3").Name("p3").UID("p3").Node("n3").
+					Priority(110).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).Obj(),
+				testinghelper.MakePod().Namespace("p5").Name("p5").UID("p5").Node("n5").
+					Priority(110).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testinghelper.MakePod().Namespace("p6").Name("p6").UID("p6").Node("n6").
+					Priority(110).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+			},
+			podCount:              1,
+			hasPreferredNodes:     true,
+			schedulingStagesState: pointer.Int(int(framework.SchedulingStagesState(0b1011))),
+			expectedResult: core.PodScheduleResult{
+				NominatedNode: &framework.NominatedNode{
+					NodeName: "n4",
+				},
+				Victims: &framework.Victims{
+					PreemptionState: framework.NewCycleState(),
+				},
+			},
+			expectedCachedUsedNode:    nil,
+			expectedCachedUnusedNodes: nil,
+		},
+		{
+			name: "skip nodecircles, fail",
+			existingPods: []*v1.Pod{
+				testinghelper.MakePod().Namespace("p3").Name("p3").UID("p3").Node("n3").
+					Priority(10).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testinghelper.MakePod().Namespace("p5").Name("p5").UID("p5").Node("n5").
+					Priority(10).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testinghelper.MakePod().Namespace("p6").Name("p6").UID("p6").Node("n6").
+					Priority(10).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+			},
+			podCount:                  0,
+			schedulingStagesState:     pointer.Int(int(framework.SchedulingStagesState(0b0111))),
+			expectedResult:            core.PodScheduleResult{},
+			expectedCachedUsedNode:    nil,
+			expectedCachedUnusedNodes: nil,
+		},
+		{
+			name: "skip preferred nodes and nodecircles, fail",
+			existingPods: []*v1.Pod{
+				testinghelper.MakePod().Namespace("p2").Name("p2").UID("p2").Node("n2").
+					Priority(10).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testinghelper.MakePod().Namespace("p3").Name("p3").UID("p3").Node("n3").
+					Priority(10).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testinghelper.MakePod().Namespace("p5").Name("p5").UID("p5").Node("n5").
+					Priority(10).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testinghelper.MakePod().Namespace("p6").Name("p6").UID("p6").Node("n6").
+					Priority(10).PriorityClassName("pc").
+					Req(map[v1.ResourceName]string{"cpu": "10"}).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+			},
+			podCount:                  0,
+			hasPreferredNodes:         true,
+			schedulingStagesState:     pointer.Int(int(framework.SchedulingStagesState(0b0011))),
+			expectedResult:            core.PodScheduleResult{},
+			expectedCachedUsedNode:    nil,
+			expectedCachedUnusedNodes: nil,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.SupportRescheduling): true})
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			schedulerCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
@@ -7033,9 +7121,12 @@ func TestPreemptInSpecificNodeGroup(t *testing.T) {
 
 			isolationCache := isolatedcache.NewIsolatedCache()
 
-			nodesInPreferNodes := []*v1.Node{
-				testinghelper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "10"}).Obj(),
-				testinghelper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "10"}).Obj(),
+			nodesInPreferNodes := []*v1.Node{}
+			if tt.hasPreferredNodes {
+				nodesInPreferNodes = []*v1.Node{
+					testinghelper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "10"}).Obj(),
+					testinghelper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "10"}).Obj(),
+				}
 			}
 			nodesInNodeCircles := [][]*v1.Node{
 				{
@@ -7118,6 +7209,9 @@ func TestPreemptInSpecificNodeGroup(t *testing.T) {
 			state := framework.NewCycleState()
 			framework.SetPodResourceTypeState(podutil.GuaranteedPod, state)
 			framework.SetPodTrace(&tracing.NoopSchedulingTrace{}, state)
+			if tt.schedulingStagesState != nil {
+				constructCycleStateSkipSpecificStage(state, framework.SchedulingStagesState(*tt.schedulingStagesState))
+			}
 
 			cachedNominatedNodes := &framework.CachedNominatedNodes{}
 			cachedNominatedNodes.SetPodCount(tt.podCount)
@@ -7142,5 +7236,13 @@ func TestPreemptInSpecificNodeGroup(t *testing.T) {
 				t.Errorf("expected %d but got %d", tt.expectedPodCount, cachedNominatedNodes.GetPodCount())
 			}
 		})
+	}
+}
+
+func constructCycleStateSkipSpecificStage(state *framework.CycleState, stage framework.SchedulingStagesState) {
+	for i := 0; i < 4; i++ {
+		if (int(stage) >> i & 1) == 0 {
+			framework.SetPodSchedulingStageInCycleState(state, framework.SchedulingStage(1<<i), false)
+		}
 	}
 }

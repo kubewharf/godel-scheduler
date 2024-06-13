@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
+	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -146,4 +147,13 @@ func SchedSleep(duration time.Duration) {
 	runtime.Gosched()
 	time.Sleep(duration)
 	runtime.Gosched()
+}
+
+func GetTaskInfoFromPod(pod *v1.Pod) *schedulingv1a1.TaskInfo {
+	return &schedulingv1a1.TaskInfo{
+		Name:      pod.Name,
+		Namespace: pod.Namespace,
+		UID:       pod.UID,
+		Node:      GetNodeNameFromPod(pod),
+	}
 }
