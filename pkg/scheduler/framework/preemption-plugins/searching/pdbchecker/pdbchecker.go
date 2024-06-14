@@ -25,6 +25,8 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/preempting/pdbchecker"
+	pdbstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pdb_store"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 )
 
@@ -34,7 +36,8 @@ const (
 )
 
 type PDBChecker struct {
-	handle            framework.SchedulerFrameworkHandle
+	handle            handle.PodFrameworkHandle
+	pluginHandle      pdbstore.StoreHandle
 	pdbsNameToIndexes map[string]int
 	pdbItems          []framework.PDBItem
 	pdbsAllowed       []int32
@@ -49,9 +52,14 @@ var (
 )
 
 // New initializes a new plugin and returns it.
-func NewPDBChecker(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewPDBChecker(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
+	var pluginHandle pdbstore.StoreHandle
+	if ins := handle.FindStore(pdbstore.Name); ins != nil {
+		pluginHandle = ins.(pdbstore.StoreHandle)
+	}
 	checker := &PDBChecker{
-		handle: handle,
+		handle:       handle,
+		pluginHandle: pluginHandle,
 	}
 	return checker, nil
 }
@@ -74,7 +82,7 @@ func (pdb *PDBChecker) ClusterPrePreempting(_ *v1.Pod, state, commonState *frame
 		return nil
 	}
 
-	pdbItems := pdb.handle.GetPDBItemList()
+	pdbItems := pdb.pluginHandle.GetPDBItemList()
 	pdbsAllowed := make([]int32, len(pdbItems))
 	pdbsNameToIndexes := map[string]int{}
 	for i, pdbItem := range pdbItems {
@@ -317,12 +325,12 @@ func (pdb *PDBChecker) getMatchedPDBIndexesFromOwner(podInfo *framework.PodInfo)
 		// pod does not have owner
 		return false, nil
 	}
-	exist, pdbUpdated, matchedPDBNames := pdb.handle.GetPDBItemListForOwner(podInfo.PodPreemptionInfo.OwnerType, podInfo.PodPreemptionInfo.OwnerKey)
+	exist, pdbUpdated, matchedPDBNames := pdb.pluginHandle.GetPDBsForOwner(podInfo.PodPreemptionInfo.OwnerType, podInfo.PodPreemptionInfo.OwnerKey)
 	if !exist {
 		// pod's owner does not exist in cache
 		return false, nil
 	}
-	if pdbUpdated && !util.EqualMap(pdb.handle.GetOwnerLabels(podInfo.PodPreemptionInfo.OwnerType, podInfo.PodPreemptionInfo.OwnerKey), podInfo.Pod.Labels) {
+	if pdbUpdated && !util.EqualMap(pdb.pluginHandle.GetOwnerLabels(podInfo.PodPreemptionInfo.OwnerType, podInfo.PodPreemptionInfo.OwnerKey), podInfo.Pod.Labels) {
 		// if owner's pdb has been updated, and pod's label is not equal to owner's label,
 		// the cached pdb info could not be used directly
 		return false, nil

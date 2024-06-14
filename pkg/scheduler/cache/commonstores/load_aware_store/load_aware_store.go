@@ -31,7 +31,7 @@ import (
 
 const Name commonstore.StoreName = "LoadAwareStore"
 
-func (c *LoadAwareStore) Name() commonstore.StoreName {
+func (s *LoadAwareStore) Name() commonstore.StoreName {
 	return Name
 }
 
@@ -218,6 +218,15 @@ func (s *LoadAwareStore) nodeMetricOp(cnr *katalystv1alpha1.CustomNodeResource, 
 	}
 	return nil
 }
+
+// -------------------------------------- Other Interface --------------------------------------
+
+type StoreHandle interface {
+	GetLoadAwareNodeMetricInfo(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeMetricInfo
+	GetLoadAwareNodeUsage(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeUsage
+}
+
+var _ StoreHandle = &LoadAwareStore{}
 
 func (s *LoadAwareStore) GetLoadAwareNodeMetricInfo(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeMetricInfo {
 	nodeMetricInfoObj := s.Store.Get(nodeName)

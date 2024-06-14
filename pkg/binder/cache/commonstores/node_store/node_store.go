@@ -38,7 +38,7 @@ import (
 
 const Name commonstore.StoreName = "NodeStore"
 
-func (c *NodeStore) Name() commonstore.StoreName {
+func (s *NodeStore) Name() commonstore.StoreName {
 	return Name
 }
 
@@ -384,7 +384,7 @@ func (s *NodeStore) ForgetPod(podInfo *framework.CachePodInfo) error {
 	return nil
 }
 
-func (cacheStore *NodeStore) UpdateSnapshot(store commonstore.Store) error {
+func (s *NodeStore) UpdateSnapshot(store commonstore.Store) error {
 	return nil
 }
 

@@ -26,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util/helper"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
@@ -35,7 +36,7 @@ const (
 )
 
 type JobLevelAffinity struct {
-	handler framework.SchedulerUnitFrameworkHandle
+	handler handle.UnitFrameworkHandle
 }
 
 var (
@@ -43,7 +44,7 @@ var (
 	_ framework.GroupingPlugin = &JobLevelAffinity{}
 )
 
-func New(_ runtime.Object, handler framework.SchedulerUnitFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, handler handle.UnitFrameworkHandle) (framework.Plugin, error) {
 	return &JobLevelAffinity{handler: handler}, nil
 }
 

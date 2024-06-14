@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -29,7 +30,7 @@ type MinHighestPriority struct{}
 
 var _ framework.CandidatesSortingPlugin = &MinHighestPriority{}
 
-func NewMinHighestPriority(_ runtime.Object, _ framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewMinHighestPriority(_ runtime.Object, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &MinHighestPriority{}, nil
 }
 

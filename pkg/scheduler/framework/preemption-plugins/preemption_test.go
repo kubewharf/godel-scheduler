@@ -221,12 +221,12 @@ func TestFilterVictimsPods(t *testing.T) {
 				Obj())
 			cache.UpdateSnapshot(snapshot)
 
-			fh, _ := st.NewSchedulerFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, nil, nil, nil, nil)
 			basePlugins, preemptionPluginRegistry, err := utils.GetPreemptionRelatedPlugins(fh)
 			if err != nil {
 				t.Errorf("failed to get preemption plugins: %v", err)
 			}
-			fh, _ = st.NewSchedulerFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, nil, preemptionPluginRegistry, nil, basePlugins)
+			fh, _ = st.NewPodFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, nil, preemptionPluginRegistry, nil, basePlugins)
 
 			fwk, _ := fh.GetFrameworkForPod(tt.pod)
 			state, err := fwk.InitCycleState(tt.pod)

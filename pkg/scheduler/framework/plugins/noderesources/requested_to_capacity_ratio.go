@@ -27,6 +27,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/validation"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/helper"
 )
 
@@ -37,7 +38,7 @@ const (
 )
 
 // NewRequestedToCapacityRatio initializes a new plugin and returns it.
-func NewRequestedToCapacityRatio(plArgs runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewRequestedToCapacityRatio(plArgs runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	args, err := getRequestedToCapacityRatioArgs(plArgs)
 	if err != nil {
 		return nil, err
@@ -88,7 +89,7 @@ func getRequestedToCapacityRatioArgs(obj runtime.Object) (config.RequestedToCapa
 // RequestedToCapacityRatio is a score plugin that allow users to apply bin packing
 // on core resources like CPU, Memory as well as extended resources like accelerators.
 type RequestedToCapacityRatio struct {
-	handle framework.SchedulerFrameworkHandle
+	handle handle.PodFrameworkHandle
 	resourceAllocationScorer
 }
 

@@ -27,6 +27,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/validation"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/loadaware/estimator"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
@@ -43,7 +44,7 @@ type ResourceTypeNameToWeightMap map[podutil.PodResourceType]resourceToWeightMap
 
 // LoadAware is a score plugin that favors nodes with low resource realtime utilization.
 type LoadAware struct {
-	handle    framework.SchedulerFrameworkHandle
+	handle    handle.PodFrameworkHandle
 	args      *config.LoadAwareArgs
 	weightMap ResourceTypeNameToWeightMap
 	estimator estimator.Estimator
@@ -135,7 +136,7 @@ func (la *LoadAware) ScoreExtensions() framework.ScoreExtensions {
 }
 
 // NewLoadAware initializes a new plugin and returns it.
-func NewLoadAware(laArgs runtime.Object, h framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewLoadAware(laArgs runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, error) {
 	args, ok := laArgs.(*config.LoadAwareArgs)
 	if !ok {
 		klog.InfoS(fmt.Sprintf("WARN: want args to be of type LoadAwareArgs, got %T", args))

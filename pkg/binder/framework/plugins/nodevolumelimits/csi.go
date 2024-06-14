@@ -22,6 +22,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/nodevolumelimits"
 )
@@ -47,7 +48,7 @@ func (pl *CSILimits) CheckConflicts(ctx context.Context, s *framework.CycleState
 }
 
 // New initializes a new plugin and returns it.
-func NewCSI(_ runtime.Object, handle framework.BinderFrameworkHandle) (framework.Plugin, error) {
+func NewCSI(_ runtime.Object, handle handle.BinderFrameworkHandle) (framework.Plugin, error) {
 	informerFactory := handle.SharedInformerFactory()
 	csiLimitsPlugin := nodevolumelimits.NewCSILimits(informerFactory)
 	return &CSILimits{

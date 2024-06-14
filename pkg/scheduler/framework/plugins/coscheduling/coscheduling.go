@@ -20,18 +20,21 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	podgroupstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/podgroup_store"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	unitutil "github.com/kubewharf/godel-scheduler/pkg/util/unit"
 )
 
 // Coscheduling is a plugin that schedules pods in a group.
 type Coscheduling struct {
-	frameworkHandler framework.SchedulerFrameworkHandle
+	frameworkHandler handle.PodFrameworkHandle
+	pluginHandle     podgroupstore.StoreHandle
 }
 
 var (
@@ -45,9 +48,15 @@ const (
 )
 
 // New initializes and returns a new Coscheduling plugin.
-func New(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
+	var pluginHandle podgroupstore.StoreHandle
+	if ins := handle.FindStore(podgroupstore.Name); ins != nil {
+		pluginHandle = ins.(podgroupstore.StoreHandle)
+	}
+
 	return &Coscheduling{
 		frameworkHandler: handle,
+		pluginHandle:     pluginHandle,
 	}, nil
 }
 
@@ -96,7 +105,7 @@ func (cs *Coscheduling) getPodGroup(pod *v1.Pod) (*v1alpha1.PodGroup, error) {
 		return nil, nil
 	}
 
-	podGroup, err := cs.frameworkHandler.GetPodGroupInfo(pgName)
+	podGroup, err := cs.pluginHandle.GetPodGroupInfo(pgName)
 	if err != nil {
 		return nil, err
 	}

@@ -23,6 +23,7 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	schedulerconfig "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/coscheduling"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/imagelocality"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/loadaware"
@@ -48,7 +49,7 @@ import (
 )
 
 // PluginFactory is a function that builds a plugin.
-type PluginFactory = func(configuration runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error)
+type PluginFactory = func(configuration runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error)
 
 // Registry is a collection of all available plugins. The framework uses a
 // registry to enable and initialize configured plugins.
@@ -141,7 +142,7 @@ func NewInTreePreemptionRegistry() Registry {
 }
 
 // NewPluginsRegistry returns a registry instance having all plugins, where profile shows which plugins to use in default, registry indicates how to initialize each plugin
-func NewPluginsRegistry(registry Registry, pluginArgs map[string]*schedulerconfig.PluginConfig, fh framework.SchedulerFrameworkHandle) (framework.PluginMap, error) {
+func NewPluginsRegistry(registry Registry, pluginArgs map[string]*schedulerconfig.PluginConfig, fh handle.PodFrameworkHandle) (framework.PluginMap, error) {
 	pluginMap := framework.PluginMap{}
 
 	var err error

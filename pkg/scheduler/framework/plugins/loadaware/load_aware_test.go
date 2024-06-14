@@ -160,7 +160,7 @@ func TestLoadAware(t *testing.T) {
 				}
 				schedulerCache.UpdateSnapshot(snapshot)
 			}
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, schedulerCache, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, schedulerCache, snapshot, nil, nil, nil, nil)
 
 			p, err := NewLoadAware(&test.args, fh)
 
@@ -315,7 +315,7 @@ func TestLoadAwareNodeMetricEstimator(t *testing.T) {
 				}
 				schedulerCache.UpdateSnapshot(snapshot)
 			}
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, schedulerCache, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, schedulerCache, snapshot, nil, nil, nil, nil)
 
 			plugin, _ := NewLoadAware(&config.LoadAwareArgs{
 				Estimator:                   estimator.NodeMetricEstimatorName,

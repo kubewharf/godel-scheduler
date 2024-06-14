@@ -24,13 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
-	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
-	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
-	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
-	katalystclientfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
-	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
-	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -44,14 +37,22 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/events"
 
+	"github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
+	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
+	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
+	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	cmdutil "github.com/kubewharf/godel-scheduler/pkg/util/cmd"
 	"github.com/kubewharf/godel-scheduler/pkg/util/node"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	unitstatus "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
+	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	katalystclientfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
+	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSchedulerCreation(t *testing.T) {
@@ -824,7 +825,7 @@ func TestScheduleUnit_RemoveVictims(t *testing.T) {
 	{
 		victims := []string{"test/testpod1/testpod1", "test/testpod2/testpod2"}
 		for _, victim := range victims {
-			preemptors := snapshot.GetPreemptorsByVictim(testNode.Name, victim)
+			preemptors := snapshot.FindStore(preemptionstore.Name).(*preemptionstore.PreemptionStore).GetPreemptorsByVictim(testNode.Name, victim)
 			gotVictimToPreemptors[victim] = sets.NewString(preemptors...)
 		}
 	}

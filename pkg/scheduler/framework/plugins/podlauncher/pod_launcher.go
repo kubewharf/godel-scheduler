@@ -24,11 +24,12 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 // PodLauncher is a plugin that checks if a pod can run on a certain node according to pod launcher
 type PodLauncher struct {
-	handle framework.SchedulerFrameworkHandle
+	handle handle.PodFrameworkHandle
 }
 
 var _ framework.FilterPlugin = &PodLauncher{}
@@ -53,6 +54,6 @@ func (pl *PodLauncher) Filter(ctx context.Context, state *framework.CycleState, 
 }
 
 // New initializes a new plugin and returns it.
-func New(_ runtime.Object, _ framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &PodLauncher{}, nil
 }

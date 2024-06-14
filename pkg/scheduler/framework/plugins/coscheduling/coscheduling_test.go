@@ -23,8 +23,6 @@ import (
 	"testing"
 	"time"
 
-	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
-	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,9 +30,12 @@ import (
 	"k8s.io/client-go/informers"
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
 
+	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
+	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
+	podgroupstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/podgroup_store"
 	schedulertesting "github.com/kubewharf/godel-scheduler/pkg/scheduler/testing"
 	testinghelper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	podAnnotations "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -121,8 +122,7 @@ func TestPreFilter(t *testing.T) {
 	timeoutPodGroup := createPodGroup(testPod1.Namespace, timeoutPgName, 3)
 	timeoutPodGroup.Status.Phase = schedulingv1a1.PodGroupTimeout
 
-	var podGroupInfoCache map[string]*schedulingv1a1.PodGroup
-	podGroupInfoCache = map[string]*schedulingv1a1.PodGroup{
+	podGroupInfoCache := map[string]*schedulingv1a1.PodGroup{
 		fmt.Sprintf("%s/%s", podGroup.Namespace, podGroup.Name):               podGroup,
 		fmt.Sprintf("%s/%s", invalidPodGroup.Namespace, invalidPodGroup.Name): invalidPodGroup,
 		fmt.Sprintf("%s/%s", timeoutPodGroup.Namespace, timeoutPodGroup.Name): timeoutPodGroup,
@@ -148,10 +148,14 @@ func TestPreFilter(t *testing.T) {
 	for _, n := range []*v1.Node{testNode1} {
 		cache.AddNode(n)
 	}
+	for _, pg := range podGroupInfoCache {
+		cache.AddPodGroup(pg)
+	}
+
 	cache.UpdateSnapshot(snapshot)
 
-	fh, _ := schedulertesting.NewSchedulerFrameworkHandleWithPodGroup(client, crdClient, informerFactory, snapshot, podGroupInfoCache)
-	coscheduling := &Coscheduling{frameworkHandler: fh}
+	fh, _ := schedulertesting.NewPodFrameworkHandle(client, crdClient, informerFactory, nil, cache, snapshot, nil, nil, nil, nil)
+	coscheduling := &Coscheduling{frameworkHandler: fh, pluginHandle: fh.FindStore(podgroupstore.Name).(podgroupstore.StoreHandle)}
 
 	// Normal pod without pod group annotation
 	code := coscheduling.PreFilter(context.Background(), framework.NewCycleState(), testPod1)

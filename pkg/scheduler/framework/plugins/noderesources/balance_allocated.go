@@ -29,13 +29,14 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/validation"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util/features"
 )
 
 // BalancedAllocation is a score plugin that calculates the difference between the cpu and memory fraction
 // of capacity, and prioritizes the host based on how close the two metrics are to each other.
 type BalancedAllocation struct {
-	handle framework.SchedulerFrameworkHandle
+	handle handle.PodFrameworkHandle
 	resourceAllocationScorer
 }
 
@@ -72,7 +73,7 @@ func (ba *BalancedAllocation) ScoreExtensions() framework.ScoreExtensions {
 }
 
 // NewBalancedAllocation initializes a new plugin and returns it.
-func NewBalancedAllocation(baArgs runtime.Object, h framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewBalancedAllocation(baArgs runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, error) {
 	var resToWeightMap resourceToWeightMap
 	args, ok := baArgs.(*config.NodeResourcesBalancedAllocatedArgs)
 	if ok {

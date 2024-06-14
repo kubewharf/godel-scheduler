@@ -27,11 +27,12 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/validation"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 // MostAllocated is a score plugin that favors nodes with high allocation based on requested resources.
 type MostAllocated struct {
-	handle framework.SchedulerFrameworkHandle
+	handle handle.PodFrameworkHandle
 	resourceAllocationScorer
 }
 
@@ -66,7 +67,7 @@ func (ma *MostAllocated) ScoreExtensions() framework.ScoreExtensions {
 }
 
 // NewMostAllocated initializes a new plugin and returns it.
-func NewMostAllocated(maArgs runtime.Object, h framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewMostAllocated(maArgs runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, error) {
 	var resToWeightMap resourceToWeightMap
 	args, ok := maArgs.(*config.NodeResourcesMostAllocatedArgs)
 	if ok {

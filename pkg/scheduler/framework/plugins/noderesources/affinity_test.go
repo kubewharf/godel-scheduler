@@ -152,7 +152,7 @@ func TestNodeResourcesAffinity_Score(t *testing.T) {
 			cycleState := framework.NewCycleState()
 			framework.SetPodResourceTypeState(podutil.GuaranteedPod, cycleState)
 
-			fh, _ := testutil.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			fh, _ := testutil.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 			pl, err := NewNodeResourcesAffinity(pluginArgs, fh)
 			if err != nil {
 				t.Fatalf("failed to new anti-affinity plugin, %v", err)

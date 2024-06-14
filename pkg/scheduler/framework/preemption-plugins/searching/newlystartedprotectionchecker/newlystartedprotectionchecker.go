@@ -26,6 +26,7 @@ import (
 	defaultsconfig "github.com/kubewharf/godel-scheduler/pkg/apis/config"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 const NewlyStartedProtectionCheckerName string = "NewlyStartedProtectionChecker"
@@ -37,7 +38,7 @@ type NewlyStartedProtectionChecker struct {
 var _ framework.VictimSearchingPlugin = &NewlyStartedProtectionChecker{}
 
 // New initializes a new plugin and returns it.
-func NewNewlyStartedProtectionChecker(plArgs runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewNewlyStartedProtectionChecker(plArgs runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	args, err := getNewlyStartedProtectionCheckerArgs(plArgs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new StartRecently plugin: %v", err)

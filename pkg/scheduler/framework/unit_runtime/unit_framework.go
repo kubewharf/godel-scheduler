@@ -30,6 +30,7 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/core"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/unit_plugins/joblevelaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/metrics"
 	"github.com/kubewharf/godel-scheduler/pkg/util/helper"
@@ -50,7 +51,7 @@ type SchedulerUnitFramework interface {
 // ------------------------------------------------------------------------------------------
 
 type UnitFramework struct {
-	handle         framework.SchedulerUnitFrameworkHandle
+	handle         handle.UnitFrameworkHandle
 	schedulerHooks core.SchedulerHooks
 
 	locatingPlugins []framework.LocatingPlugin
@@ -61,7 +62,7 @@ type UnitFramework struct {
 // The plugin should adaptively execute the corresponding logic based on the FeatureGate and the ScheduleUnit to be scheduled,
 // without the need to adjust the plugin's registration or not through a configuration file.
 func NewUnitFramework(
-	handle framework.SchedulerUnitFrameworkHandle,
+	handle handle.UnitFrameworkHandle,
 	schedulerHooks core.SchedulerHooks,
 	pluginRegistry framework.PluginMap,
 	pluginOrder framework.PluginOrder,

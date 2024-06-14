@@ -22,6 +22,8 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
+	loadawarestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/load_aware_store"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 
@@ -49,10 +51,11 @@ type NodeMetricEstimator struct {
 	// Is CPU scaling factor is 80, estimated CPU = 80 / 100 * request.cpu
 	estimatedScalingFactors map[v1.ResourceName]int64
 
-	handle framework.SchedulerFrameworkHandle
+	handle       handle.PodFrameworkHandle
+	pluginHandle loadawarestore.StoreHandle
 }
 
-func NewNodeMetricEstimator(args *config.LoadAwareArgs, handle framework.SchedulerFrameworkHandle) (Estimator, error) {
+func NewNodeMetricEstimator(args *config.LoadAwareArgs, handle handle.PodFrameworkHandle) (Estimator, error) {
 	resources := make(map[podutil.PodResourceType]sets.String)
 	for _, res := range args.Resources {
 		resourceSet := resources[res.ResourceType]
@@ -69,6 +72,11 @@ func NewNodeMetricEstimator(args *config.LoadAwareArgs, handle framework.Schedul
 		args.NodeMetricExpirationSeconds = DefaultNodeMetricExpirationSeconds
 	}
 
+	var pluginHandle loadawarestore.StoreHandle
+	if ins := handle.FindStore(loadawarestore.Name); ins != nil {
+		pluginHandle = ins.(loadawarestore.StoreHandle)
+	}
+
 	return &NodeMetricEstimator{
 		resources: resources,
 
@@ -78,7 +86,8 @@ func NewNodeMetricEstimator(args *config.LoadAwareArgs, handle framework.Schedul
 
 		estimatedScalingFactors: args.EstimatedScalingFactors,
 
-		handle: handle,
+		handle:       handle,
+		pluginHandle: pluginHandle,
 	}, nil
 }
 
@@ -87,7 +96,7 @@ func (e *NodeMetricEstimator) Name() string {
 }
 
 func (e *NodeMetricEstimator) ValidateNode(nodeInfo framework.NodeInfo, resourceType podutil.PodResourceType) *framework.Status {
-	nodeMetricInfo := e.handle.GetLoadAwareNodeMetricInfo(nodeInfo.GetNodeName(), resourceType)
+	nodeMetricInfo := e.pluginHandle.GetLoadAwareNodeMetricInfo(nodeInfo.GetNodeName(), resourceType)
 	if nodeMetricInfo == nil {
 		// TODO: revisit the policy.
 		return framework.NewStatus(framework.Error, fmt.Sprintf("no metric info on %v", nodeInfo.GetNodeName()))
@@ -139,7 +148,7 @@ func (e *NodeMetricEstimator) EstimatePod(pod *v1.Pod) (*framework.Resource, err
 }
 
 func (e *NodeMetricEstimator) EstimateNode(nodeInfo framework.NodeInfo, resourceType podutil.PodResourceType) (*framework.Resource, error) {
-	nodeUsage := e.handle.GetLoadAwareNodeUsage(nodeInfo.GetNodeName(), resourceType)
+	nodeUsage := e.pluginHandle.GetLoadAwareNodeUsage(nodeInfo.GetNodeName(), resourceType)
 	var estimatedResource *framework.Resource
 	{
 		estimatedResource = framework.NewResource(e.scalingResource(v1.ResourceList{

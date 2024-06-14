@@ -405,7 +405,7 @@ func TestSelectBestCandidate_NotUseCachedNominatedNodes(t *testing.T) {
 			crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, 0)
 			client := clientsetfake.NewSimpleClientset()
 			informerFactory := informers.NewSharedInformerFactory(client, 0)
-			fh, _ := st.NewSchedulerFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, nil, nil, nil, nil)
 
 			registry := schedulerframework.NewInTreePreemptionRegistry()
 			preemptionPluginRegistry, err := schedulerframework.NewPluginsRegistry(registry, nil, fh)
@@ -413,7 +413,7 @@ func TestSelectBestCandidate_NotUseCachedNominatedNodes(t *testing.T) {
 				t.Errorf("failed to new plugins registry: %v", err)
 			}
 			basePlugins := newPreemptionBasedPlugins()
-			fh, _ = st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, cache, snapshot, nil, preemptionPluginRegistry, nil, basePlugins[string(podutil.Kubelet)])
+			fh, _ = st.NewPodFrameworkHandle(nil, nil, nil, nil, cache, snapshot, nil, preemptionPluginRegistry, nil, basePlugins[string(podutil.Kubelet)])
 
 			fwk, err := fh.GetFrameworkForPod(tt.preemptor)
 			state, err := fwk.InitCycleState(tt.preemptor)
@@ -896,7 +896,7 @@ func TestSelectBestCandidate_UseCachedNominatedNodes(t *testing.T) {
 			crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, 0)
 			client := clientsetfake.NewSimpleClientset()
 			informerFactory := informers.NewSharedInformerFactory(client, 0)
-			fh, _ := st.NewSchedulerFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, nil, nil, nil, nil)
 			nodeResourcesPlugin, err := noderesources.NewFit(nil, fh)
 			if err != nil {
 				t.Errorf("Could not new nonnative topology plugin: %v", err)
@@ -908,7 +908,7 @@ func TestSelectBestCandidate_UseCachedNominatedNodes(t *testing.T) {
 				t.Errorf("failed to new plugins registry: %v", err)
 			}
 			basePlugins := newPreemptionBasedPlugins()
-			fh, _ = st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, preemptionPluginRegistry, nil, basePlugins[string(podutil.Kubelet)])
+			fh, _ = st.NewPodFrameworkHandle(nil, nil, nil, nil, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, preemptionPluginRegistry, nil, basePlugins[string(podutil.Kubelet)])
 
 			fwk, err := fh.GetFrameworkForPod(tt.preemptor)
 			state, err := fwk.InitCycleState(tt.preemptor)
@@ -1600,7 +1600,7 @@ func TestFindCandidates(t *testing.T) {
 					t.Errorf("Could not new node resources plugin: %v", err)
 				}
 
-				fh, _ := st.NewSchedulerFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
+				fh, _ := st.NewPodFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
 				nonNativeTopologyPlugin, err := nonnativeresource.NewNonNativeTopology(nil, fh)
 				if err != nil {
 					t.Errorf("Could not new nonnative topology plugin: %v", err)
@@ -1611,7 +1611,7 @@ func TestFindCandidates(t *testing.T) {
 				}
 
 				filterPluginRegistry := &framework.OrderedPluginRegistry{Plugins: []string{noderesources.FitName}}
-				fh, _ = st.NewSchedulerFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin, nonnativeresource.NonNativeTopologyName: nonNativeTopologyPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
+				fh, _ = st.NewPodFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin, nonnativeresource.NonNativeTopologyName: nonNativeTopologyPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
 				gs.betterSelectPoliciesRegistry = map[string]betterSelectPolicy{
 					config.BetterPreemptionPolicyAscending: gs.ascendingOrderPreemption,
 					config.BetterPreemptionPolicyDichotomy: gs.dichotomyPreemption,
@@ -1886,14 +1886,14 @@ func TestFindCandidates_SelectPolicy(t *testing.T) {
 				EnableStore("PreemptionStore").
 				Obj())
 			cache.UpdateSnapshot(snapshot)
-			fh, _ := st.NewSchedulerFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
 			basePlugins, preemptionPluginRegistry, err := utils.GetPreemptionRelatedPlugins(fh)
 			if err != nil {
 				t.Errorf("failed to get defualt plugins and configs: %v", err)
 			}
 
 			filterPluginRegistry := &framework.OrderedPluginRegistry{Plugins: []string{noderesources.FitName}}
-			fh, _ = st.NewSchedulerFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
+			fh, _ = st.NewPodFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
 
 			node := &v1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -2146,7 +2146,7 @@ func TestFindCandidates_CheckNominatedNodeCount(t *testing.T) {
 				t.Errorf("Could not new node resources plugin: %v", err)
 			}
 
-			fh, _ := st.NewSchedulerFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
 			nonNativeTopologyPlugin, err := nonnativeresource.NewNonNativeTopology(nil, fh)
 			if err != nil {
 				t.Errorf("Could not new nonnative topology plugin: %v", err)
@@ -2157,7 +2157,7 @@ func TestFindCandidates_CheckNominatedNodeCount(t *testing.T) {
 			}
 
 			filterPluginRegistry := &framework.OrderedPluginRegistry{Plugins: []string{noderesources.FitName}}
-			fh, _ = st.NewSchedulerFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin, nonnativeresource.NonNativeTopologyName: nonNativeTopologyPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
+			fh, _ = st.NewPodFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin, nonnativeresource.NonNativeTopologyName: nonNativeTopologyPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
 			gs.betterSelectPoliciesRegistry = map[string]betterSelectPolicy{
 				config.BetterPreemptionPolicyAscending: gs.ascendingOrderPreemption,
 				config.BetterPreemptionPolicyDichotomy: gs.dichotomyPreemption,
@@ -3894,7 +3894,7 @@ func TestBetterPreemption_PDB(t *testing.T) {
 					t.Errorf("Could not new node resources plugin: %v", err)
 				}
 
-				fh, _ := st.NewSchedulerFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
+				fh, _ := st.NewPodFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
 				nonNativeTopologyPlugin, err := nonnativeresource.NewNonNativeTopology(nil, fh)
 				if err != nil {
 					t.Errorf("Could not new nonnative topology plugin: %v", err)
@@ -3905,7 +3905,7 @@ func TestBetterPreemption_PDB(t *testing.T) {
 				}
 
 				filterPluginRegistry := &framework.OrderedPluginRegistry{Plugins: []string{noderesources.FitName}}
-				fh, _ = st.NewSchedulerFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin, nonnativeresource.NonNativeTopologyName: nonNativeTopologyPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
+				fh, _ = st.NewPodFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin, nonnativeresource.NonNativeTopologyName: nonNativeTopologyPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
 				gs.betterSelectPoliciesRegistry = map[string]betterSelectPolicy{
 					config.BetterPreemptionPolicyAscending: gs.ascendingOrderPreemption,
 					config.BetterPreemptionPolicyDichotomy: gs.dichotomyPreemption,
@@ -5785,7 +5785,7 @@ func TestBetterPreemption_PDB2(t *testing.T) {
 					t.Errorf("Could not new node resources plugin: %v", err)
 				}
 
-				fh, _ := st.NewSchedulerFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
+				fh, _ := st.NewPodFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
 				nonNativeTopologyPlugin, err := nonnativeresource.NewNonNativeTopology(nil, fh)
 				if err != nil {
 					t.Errorf("Could not new nonnative topology plugin: %v", err)
@@ -5796,7 +5796,7 @@ func TestBetterPreemption_PDB2(t *testing.T) {
 				}
 
 				filterPluginRegistry := &framework.OrderedPluginRegistry{Plugins: []string{noderesources.FitName}}
-				fh, _ = st.NewSchedulerFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin, nonnativeresource.NonNativeTopologyName: nonNativeTopologyPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
+				fh, _ = st.NewPodFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin, nonnativeresource.NonNativeTopologyName: nonNativeTopologyPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
 				gs.betterSelectPoliciesRegistry = map[string]betterSelectPolicy{
 					config.BetterPreemptionPolicyAscending: gs.ascendingOrderPreemption,
 					config.BetterPreemptionPolicyDichotomy: gs.dichotomyPreemption,
@@ -5989,7 +5989,7 @@ func TestPreemptBasedOnCachedNominatedNodes(t *testing.T) {
 		t.Errorf("Could not new node resources plugin: %v", err)
 	}
 
-	fh, _ := st.NewSchedulerFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
+	fh, _ := st.NewPodFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin}, nil, nil, nil)
 	nonNativeTopologyPlugin, err := nonnativeresource.NewNonNativeTopology(nil, fh)
 	if err != nil {
 		t.Errorf("Could not new nonnative topology plugin: %v", err)
@@ -6000,7 +6000,7 @@ func TestPreemptBasedOnCachedNominatedNodes(t *testing.T) {
 	}
 
 	filterPluginRegistry := &framework.OrderedPluginRegistry{Plugins: []string{noderesources.FitName}}
-	fh, _ = st.NewSchedulerFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin, nonnativeresource.NonNativeTopologyName: nonNativeTopologyPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
+	fh, _ = st.NewPodFrameworkHandle(gs.clientSet, gs.crdClient, gs.informerFactory, gs.crdInformerFactory, cache, snapshot, framework.PluginMap{noderesources.FitName: nodeResourcesPlugin, nonnativeresource.NonNativeTopologyName: nonNativeTopologyPlugin}, preemptionPluginRegistry, filterPluginRegistry, basePlugins)
 	gs.betterSelectPoliciesRegistry = map[string]betterSelectPolicy{
 		config.BetterPreemptionPolicyAscending: gs.ascendingOrderPreemption,
 		config.BetterPreemptionPolicyDichotomy: gs.dichotomyPreemption,

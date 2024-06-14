@@ -18,10 +18,6 @@ package api
 
 import (
 	"context"
-
-	v1 "k8s.io/api/core/v1"
-
-	unitstatus "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
 )
 
 // UnitSchedulingRequest contains necessary info used for making better scheduling decisions
@@ -40,14 +36,4 @@ type LocatingPlugin interface {
 type GroupingPlugin interface {
 	Plugin
 	Grouping(context.Context, ScheduleUnit, *CycleState, NodeGroup) ([]NodeGroup, *Status)
-}
-
-type SchedulerUnitFrameworkHandle interface {
-	SwitchType() SwitchType
-	SubCluster() string
-	SchedulerName() string
-
-	GetUnitStatus(string) unitstatus.UnitStatus
-	IsCachedPod(pod *v1.Pod) (bool, error)
-	GetNodeInfo(nodeName string) NodeInfo
 }

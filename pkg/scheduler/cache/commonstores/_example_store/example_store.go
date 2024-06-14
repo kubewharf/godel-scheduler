@@ -21,7 +21,8 @@ import (
 	"k8s.io/apiserver/pkg/features"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 
-	commonstore "code.byted.org/godel/godel/pkg/common/store"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
@@ -35,7 +36,7 @@ import (
 // Define the index names of the stores, each of which should be different from the other.
 const Name commonstore.StoreName = "ExampleStore"
 
-func (c *ExampleStore) Name() commonstore.StoreName {
+func (s *ExampleStore) Name() commonstore.StoreName {
 	return Name
 }
 
@@ -45,7 +46,7 @@ func init() {
 		// Args0: Name of the store.
 		Name,
 		// Args1: Whether the store should be built. Returning true means the store should be built.
-		//	Specifically: you can use featuregate or use the handler's method to determine if you
+		//	Specifically: you can use feature gate or use the handler's method to determine if you
 		//	need to build the storage.
 		func(h commoncache.CacheHandler) bool {
 			// For example:
@@ -124,7 +125,7 @@ func (s *ExampleStore) AddPod(pod *v1.Pod) error {
 func (s *ExampleStore) UpdatePod(oldPod *v1.Pod, newPod *v1.Pod) error {
 	// Remove the oldPod if existed.
 	{
-		key, err := podutil.GetPodUID(oldPod)
+		key, err := framework.GetPodKey(oldPod)
 		if err != nil {
 			return err
 		}
@@ -205,4 +206,21 @@ func (s *ExampleStore) nodeOp(node *v1.Node) error {
 	// Do something and return.
 	// ...
 	return nil
+}
+
+// -------------------------------------- Plugin Handle --------------------------------------
+
+type StoreHandle interface {
+	GetPodCount(nodeName string) int
+}
+
+var _ StoreHandle = &ExampleStore{}
+
+func (s *ExampleStore) GetPodCount(nodeName string) int {
+	storedObj := s.Store.Get(nodeName)
+	if storedObj == nil {
+		return 0
+	}
+	node := storedObj.(ExampleStoreNode)
+	return node.PodCount
 }

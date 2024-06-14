@@ -20,6 +20,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	unitstatus "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
 )
@@ -84,11 +85,14 @@ type BinderCache interface {
 	// ForgetPod removes an assumed pod from cache.
 	ForgetPod(podInfo *framework.CachePodInfo) error
 
+	// FindStore finds a common store in cache by store name.
+	FindStore(storeName commonstore.StoreName) commonstore.Store
+
+	// TODO: cleanup the following function methods.
+
 	GetUnitSchedulingStatus(unitKey string) unitstatus.SchedulingStatus
 	SetUnitSchedulingStatus(unitKey string, status unitstatus.SchedulingStatus)
 	GetUnitStatus(unitKey string) unitstatus.UnitStatus
-
-	GetPDBItemList() []framework.PDBItem
 
 	// Marks a pod to be deleted eventually
 	MarkPodToDelete(pod, preemptor *v1.Pod) error

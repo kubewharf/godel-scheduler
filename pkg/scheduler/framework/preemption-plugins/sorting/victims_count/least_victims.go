@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 const LeastVictimsName = "LeastVictims"
@@ -28,7 +29,7 @@ type LeastVictims struct{}
 
 var _ framework.CandidatesSortingPlugin = &LeastVictims{}
 
-func NewLeastVictims(_ runtime.Object, _ framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewLeastVictims(_ runtime.Object, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &LeastVictims{}, nil
 }
 
