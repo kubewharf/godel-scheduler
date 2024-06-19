@@ -26,9 +26,10 @@ import (
 	ktypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	schev1 "k8s.io/client-go/listers/scheduling/v1"
-	"k8s.io/client-go/tools/cache"
+	k8scache "k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
 	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
@@ -36,6 +37,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	"github.com/kubewharf/godel-scheduler/pkg/util/heap"
 	"github.com/kubewharf/godel-scheduler/pkg/util/tracing"
+	status "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
 )
 
 const (
@@ -67,9 +69,6 @@ type BinderQueue interface {
 	// Run starts the goroutines managing the queue.
 	Run()
 	Close()
-	GetUnitStatus(key string) binderutils.UnitStatus
-	SetUnitStatus(string, binderutils.UnitStatus)
-	DeleteUnitStatus(key string)
 
 	// ActiveWaitingUnit move unit from waitingQ to readyQ
 	ActiveWaitingUnit(unitKey string)
@@ -79,9 +78,10 @@ type BinderQueue interface {
 func NewBinderQueue(lessFn framework.UnitLessFunc,
 	pgLister v1alpha1.PodGroupLister,
 	pcLister schev1.PriorityClassLister,
+	cache cache.BinderCache,
 	opts ...Option,
 ) BinderQueue {
-	return NewPriorityQueue(lessFn, pgLister, pcLister, opts...)
+	return NewPriorityQueue(lessFn, pgLister, pcLister, cache, opts...)
 }
 
 // PriorityQueue provides the priority queues for resolving scheduling conflicts
@@ -91,6 +91,8 @@ type PriorityQueue struct {
 
 	stop  chan struct{}
 	clock util.Clock
+
+	cache cache.BinderCache
 
 	// pod initial backoff duration.
 	podInitialBackoffDuration time.Duration
@@ -113,7 +115,6 @@ type PriorityQueue struct {
 	pgLister v1alpha1.PodGroupLister
 	pcLister schev1.PriorityClassLister
 
-	unitStatus *binderutils.UnitStatusMap
 	// the key is pod UID
 	// if pods are not ready to be grouped as a unit(such as podgroup
 	// create events are still not caught), they will be stored in this list.
@@ -162,6 +163,7 @@ func NewPriorityQueue(
 	lessFn framework.UnitLessFunc,
 	pgLister v1alpha1.PodGroupLister,
 	pcLister schev1.PriorityClassLister,
+	cache cache.BinderCache,
 	opts ...Option,
 ) *PriorityQueue {
 	options := defaultPriorityQueueOptions
@@ -178,13 +180,13 @@ func NewPriorityQueue(
 	pq := &PriorityQueue{
 		clock:                     options.clock,
 		stop:                      make(chan struct{}),
+		cache:                     cache,
 		waitingUnitQ:              heap.NewWithRecorder("waiting", unitKeyFunc, comp, metrics.NewPendingUnitsRecorder("waiting")),
 		readyUnitQ:                heap.NewWithRecorder("ready", unitKeyFunc, comp, metrics.NewPendingUnitsRecorder("ready")),
 		podInitialBackoffDuration: options.podInitialBackoffDuration,
 		podMaxBackoffDuration:     options.podMaxBackoffDuration,
 		pcLister:                  pcLister,
 		pgLister:                  pgLister,
-		unitStatus:                binderutils.NewUnitStatusMap(),
 		waitingPodsList:           make(map[ktypes.UID]*framework.QueuedPodInfo),
 	}
 	pq.cond.L = &pq.lock
@@ -254,18 +256,18 @@ func (p *PriorityQueue) addPodUsingAnnotations(pInfo *framework.QueuedPodInfo) e
 	if unit == nil {
 		// unit isn't found in the queue, add it into waiting unit queue.
 		// TODO: wait for podgroup event instead of list it.
-		unit, err := binderutils.CreateScheduleUnit(p.pcLister, p.pgLister, pInfo)
+		scheduleUnit, err := binderutils.CreateScheduleUnit(p.pcLister, p.pgLister, pInfo)
 		if err != nil {
 			klog.ErrorS(err, "Failed to create unit", "pod", klog.KObj(pod))
 			// TODO: retry
 			p.addToPodWaitList(pInfo)
 			return err
 		}
-		klog.V(4).InfoS("Created a new unit for pod", "unitKey", unit.GetKey(), "pod", klog.KObj(pod))
+		klog.V(4).InfoS("Created a new unit for pod", "unitKey", scheduleUnit.GetKey(), "pod", klog.KObj(pod))
 
 		// new queuedUnitInfo
-		queuedUnitInfo := p.newQueuedUnitInfo(unit)
-		if queuedUnitInfo.ReadyToBePopulated() || p.unitStatus.GetUnitStatus(unit.GetKey()) == binderutils.ScheduledStatus {
+		queuedUnitInfo := p.newQueuedUnitInfo(scheduleUnit)
+		if queuedUnitInfo.ReadyToBePopulated() || p.cache.GetUnitSchedulingStatus(scheduleUnit.GetKey()) == status.ScheduledStatus {
 			if err := p.readyUnitQ.Add(queuedUnitInfo); err != nil {
 				klog.ErrorS(err, "Failed to add unit into readyQ", "unitKey", key)
 				return err
@@ -288,7 +290,7 @@ func (p *PriorityQueue) addPodUsingAnnotations(pInfo *framework.QueuedPodInfo) e
 		// found unit in waiting unit queue.
 		unit.AddPod(pInfo)
 		// move to ready queue if unit is ready to be popped.
-		if unit.ReadyToBePopulated() || p.unitStatus.GetUnitStatus(unit.GetKey()) == binderutils.ScheduledStatus {
+		if unit.ReadyToBePopulated() || p.cache.GetUnitSchedulingStatus(unit.GetKey()) == status.ScheduledStatus {
 			if err := p.waitingUnitQ.Delete(unit); err != nil {
 				klog.ErrorS(err, "Unable to delete unit from waitingQ", "unitKey", unit.GetKey())
 				return err
@@ -560,7 +562,7 @@ func MakeNextUnitFunc(queue BinderQueue) func() *framework.QueuedUnitInfo {
 }
 
 func podInfoKeyFunc(obj interface{}) (string, error) {
-	return cache.MetaNamespaceKeyFunc(obj.(*framework.QueuedPodInfo).Pod)
+	return k8scache.MetaNamespaceKeyFunc(obj.(*framework.QueuedPodInfo).Pod)
 }
 
 func unitKeyFunc(obj interface{}) (string, error) {
@@ -660,7 +662,7 @@ func (p *PriorityQueue) updateUnit(unit *framework.QueuedUnitInfo, theQueueUnitI
 	if u, _, _ := theQueueUnitIn.GetByKey(key); u != nil {
 		if p.readyUnitQ == theQueueUnitIn {
 			// in the ready unit queue
-			if !unit.ReadyToBePopulated() && p.unitStatus.GetUnitStatus(unit.GetKey()) != binderutils.ScheduledStatus {
+			if !unit.ReadyToBePopulated() && p.cache.GetUnitSchedulingStatus(key) == status.ScheduledStatus {
 				err := p.readyUnitQ.Delete(unit)
 				if err != nil {
 					return err
@@ -706,27 +708,7 @@ func (p *PriorityQueue) AddUnitPreemptor(unit *framework.QueuedUnitInfo) {
 	p.unitBackoffQ.Add(unit)
 }
 
-func (p *PriorityQueue) GetUnitStatus(key string) binderutils.UnitStatus {
-	p.lock.RLock()
-	defer p.lock.RUnlock()
-	return p.unitStatus.GetUnitStatus(key)
-}
-
-func (p *PriorityQueue) SetUnitStatus(key string, status binderutils.UnitStatus) {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-
-	p.unitStatus.SetUnitStatus(key, status)
-}
-
-func (p *PriorityQueue) DeleteUnitStatus(key string) {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-
-	p.unitStatus.DeleteUnitStatus(key)
-}
-
-// ActiveWaitingUnit move unit from waitingQ to readyQ
+// ActiveWaitingUnit checks and move unit from waitingQ to readyQ
 func (p *PriorityQueue) ActiveWaitingUnit(unitKey string) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
@@ -736,7 +718,7 @@ func (p *PriorityQueue) ActiveWaitingUnit(unitKey string) {
 		return
 	}
 
-	if !unit.ReadyToBePopulated() && p.unitStatus.GetUnitStatus(unit.GetKey()) != binderutils.ScheduledStatus {
+	if !unit.ReadyToBePopulated() && p.cache.GetUnitSchedulingStatus(unit.GetKey()) != status.ScheduledStatus {
 		return
 	}
 

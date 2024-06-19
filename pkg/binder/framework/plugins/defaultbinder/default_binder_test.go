@@ -22,8 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,8 +29,11 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
 
-	godelcache "github.com/kubewharf/godel-scheduler/pkg/binder/cache"
+	"github.com/google/go-cmp/cmp"
+	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	pt "github.com/kubewharf/godel-scheduler/pkg/binder/testing"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 )
 
 func TestDefaultBinder(t *testing.T) {
@@ -73,7 +74,10 @@ func TestDefaultBinder(t *testing.T) {
 
 			informerFactory := informers.NewSharedInformerFactory(client, 0)
 			crdClient := godelclientfake.NewSimpleClientset()
-			cache := godelcache.New(30*time.Second, make(chan struct{}), "binder")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(10 * time.Second).PodAssumedTTL(30 * time.Second).StopCh(make(chan struct{})).
+				ComponentName("godel-binder").Obj()
+			cache := cache.New(cacheHandler)
 			fh, err := pt.NewBinderFrameworkHandle(client, crdClient, informerFactory, nil, cache)
 			if err != nil {
 				t.Fatal(err)

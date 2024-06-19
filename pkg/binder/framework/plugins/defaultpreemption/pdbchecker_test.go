@@ -29,8 +29,9 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
 
-	godelcache "github.com/kubewharf/godel-scheduler/pkg/binder/cache"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	pt "github.com/kubewharf/godel-scheduler/pkg/binder/testing"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 )
@@ -70,7 +71,10 @@ func TestPDBChecker(t *testing.T) {
 			informerFactory := informers.NewSharedInformerFactory(client, 0)
 			crdClient := godelclientfake.NewSimpleClientset()
 			crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, 0)
-			cache := godelcache.New(30*time.Second, make(chan struct{}), "binder")
+			cacheHandler := commoncache.MakeCacheHandlerWrapper().
+				Period(10 * time.Second).PodAssumedTTL(30 * time.Second).StopCh(make(chan struct{})).
+				ComponentName("godel-binder").Obj()
+			cache := cache.New(cacheHandler)
 			fh, err := pt.NewBinderFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, cache)
 			if err != nil {
 				t.Fatal(err)

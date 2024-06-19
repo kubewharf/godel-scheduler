@@ -348,6 +348,11 @@ func MarshalMicroTopology(topology map[int]*v1.ResourceList) string {
 	return str
 }
 
+// NeedNumaBinding checks if need to consider numa topology
+func NeedNumaBinding(pod *v1.Pod) (bool, bool) {
+	return memoryEnhancement(pod.Annotations[MemoyEnhancementKey])
+}
+
 func GetPodDebugModeOnNode(pod *v1.Pod, node *v1.Node, nmNode *nodev1alpha1.NMNode) bool {
 	if GetPodDebugMode(pod) != DebugModeOn {
 		return false

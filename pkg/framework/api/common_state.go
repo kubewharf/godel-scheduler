@@ -49,6 +49,8 @@ const (
 	MissedError      = "missed %s"
 
 	PodPropertyKey = "PodProperty"
+
+	AssignedNumasKey = "AssignedNumas"
 )
 
 // stateData contains single property to use in CycleState, use interface{} to do type casting
@@ -282,4 +284,16 @@ func GetPodProperty(state *CycleState) (*PodProperty, error) {
 		}
 	}
 	return nil, fmt.Errorf("unit property not found")
+}
+
+func GetAssignedNumas(state *CycleState) ([]int, error) {
+	if state == nil {
+		return nil, fmt.Errorf("nil cycle state")
+	}
+	if data, err := state.Read(AssignedNumasKey); err == nil {
+		if s, ok := data.(*stateData); ok {
+			return s.data.([]int), nil
+		}
+	}
+	return nil, fmt.Errorf("assigned numas state not found")
 }

@@ -36,28 +36,28 @@ type CacheDumper struct {
 	podQueue godelqueue.BinderQueue
 }
 
-// DumpAll writes cached nodes and scheduling queue information to the scheduler logs.
+// DumpAll writes cached nodes and binder queue information to the binder logs.
 func (d *CacheDumper) DumpAll() {
 	d.dumpNodes()
 	d.dumpSchedulingQueue()
 }
 
-// dumpNodes writes NodeInfo to the scheduler logs.
+// dumpNodes writes NodeInfo to the binder logs.
 func (d *CacheDumper) dumpNodes() {
 	dump := d.cache.Dump()
 	klog.InfoS("Dump of cached NodeInfo")
-	klog.InfoS("The number of nodes which were cached in scheduler cache", "numberOfNodes", len(dump.Nodes))
+	klog.InfoS("The number of nodes which were cached in binder cache", "numberOfNodes", len(dump.Nodes))
 	for name, nodeInfo := range dump.Nodes {
 		klog.InfoS(d.printNodeInfo(name, nodeInfo))
 	}
 }
 
-// dumpSchedulingQueue writes pods in the scheduling queue to the scheduler logs.
+// dumpSchedulingQueue writes pods in the binder queue to the binder logs.
 func (d *CacheDumper) dumpSchedulingQueue() {
 	var podData strings.Builder
 	pendingPods := d.podQueue.PendingPods()
-	klog.InfoS("Dump of scheduling queue")
-	klog.InfoS("The number of  pods which were cached in the scheduling queue", "numberOfPods", len(pendingPods))
+	klog.InfoS("Dump of binder queue")
+	klog.InfoS("The number of  pods which were cached in the binder queue", "numberOfPods", len(pendingPods))
 	for _, p := range pendingPods {
 		podData.WriteString(printPod(p))
 	}

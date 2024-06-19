@@ -1,5 +1,5 @@
 /*
-Copyright 2019 The Kubernetes Authors.
+Copyright 2023 The Godel Scheduler Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,12 +17,11 @@ limitations under the License.
 package cache
 
 import (
-	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 
-	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	unitstatus "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
 )
 
 // BinderCache collects pods' information and provides node-level aggregated information.
@@ -67,12 +66,10 @@ type BinderCache interface {
 	// This method is expensive, and should be only used in non-critical path.
 	Dump() *commoncache.Dump
 
-	// PodCount returns the number of pods in the cache (including those from deleted nodes).
-	PodCount() (int, error)
-
 	// GetPod returns the pod from the cache with the same namespace and the
 	// same name of the specified pod.
 	GetPod(pod *v1.Pod) (*v1.Pod, error)
+	GetNodeInfo(nodename string) framework.NodeInfo
 
 	// IsAssumedPod returns true if the pod is assumed and not expired.
 	IsAssumedPod(pod *v1.Pod) (bool, error)
@@ -80,26 +77,23 @@ type BinderCache interface {
 	// FinishBinding signals that cache for assumed pod can be expired
 	FinishBinding(pod *v1.Pod) error
 
+	// AssumePod assumes a pod scheduled and aggregates the pod's information into its node.
+	// The implementation also decides the policy to expire pod before being confirmed (receiving Add event).
+	// After expiration, its information would be subtracted.
+	AssumePod(podInfo *framework.CachePodInfo) error
+	// ForgetPod removes an assumed pod from cache.
+	ForgetPod(podInfo *framework.CachePodInfo) error
+
+	GetUnitSchedulingStatus(unitKey string) unitstatus.SchedulingStatus
+	SetUnitSchedulingStatus(unitKey string, status unitstatus.SchedulingStatus)
+	GetUnitStatus(unitKey string) unitstatus.UnitStatus
+
+	GetPDBItemList() []framework.PDBItem
+
 	// Marks a pod to be deleted eventually
 	MarkPodToDelete(pod, preemptor *v1.Pod) error
 	RemoveDeletePodMarker(pod, preemptor *v1.Pod) error
 	RemoveDeletePodMarkerByKey(podKey, preemptorKey string) error
-
 	// check is pod is marked to delete
 	IsPodMarkedToDelete(pod *v1.Pod) (bool, error)
-	GetNode(nodename string) (framework.NodeInfo, error)
-	GetPodGroupPods(podGroupName string) []*v1.Pod
-	GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGroup, error)
-	GetUnitStatus(string) binderutils.UnitStatus
-	SetUnitStatus(string, binderutils.UnitStatus)
-	DeleteUnitStatus(string)
-
-	// AssumePod assumes a pod scheduled and aggregates the pod's information into its node.
-	// The implementation also decides the policy to expire pod before being confirmed (receiving Add event).
-	// After expiration, its information would be subtracted.
-	AssumePod(pod *v1.Pod) error
-	// ForgetPod removes an assumed pod from cache.
-	ForgetPod(pod *v1.Pod) error
-
-	GetPDBItems() []framework.PDBItem
 }

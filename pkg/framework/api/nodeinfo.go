@@ -1241,16 +1241,16 @@ func resourceListEqual(list1, list2 v1.ResourceList) bool {
 	return true
 }
 
-func (n *NumaStatus) clone() *NumaStatus {
-	if n == nil {
+func (numaStatus *NumaStatus) clone() *NumaStatus {
+	if numaStatus == nil {
 		return nil
 	}
 	clone := &NumaStatus{
-		socketId:         n.socketId,
+		socketId:         numaStatus.socketId,
 		resourceStatuses: make(map[string]*ResourceStatus),
 	}
 
-	for resourceName, resourceStatus := range n.resourceStatuses {
+	for resourceName, resourceStatus := range numaStatus.resourceStatuses {
 		resourceStatusClone := resourceStatus.clone()
 		clone.resourceStatuses[resourceName] = resourceStatusClone
 	}
@@ -1259,17 +1259,17 @@ func (n *NumaStatus) clone() *NumaStatus {
 }
 
 // GetNumaInfo return the numa's information in string's format
-func (n *NumaStatus) GetNumaInfo() string {
-	numaInfo := fmt.Sprintf("NumaTopologyInfo: \nSocketId: %v\n", n.socketId)
+func (numaStatus *NumaStatus) GetNumaInfo() string {
+	numaInfo := fmt.Sprintf("NumaTopologyInfo: \nSocketId: %v\n", numaStatus.socketId)
 	numaInfo += "Resource Status: \n"
-	for resourceName, resourceStatus := range n.resourceStatuses {
+	for resourceName, resourceStatus := range numaStatus.resourceStatuses {
 		numaInfo += fmt.Sprintf("ResourceName: %v\nresourceStatus:\n%+v\n", resourceName, resourceStatus)
 	}
 	return numaInfo
 }
 
-func (n *NumaStatus) IsEmptyForConflictResources() bool {
-	for resourceName, resourceStatus := range n.resourceStatuses {
+func (numaStatus *NumaStatus) IsEmptyForConflictResources() bool {
+	for resourceName, resourceStatus := range numaStatus.resourceStatuses {
 		if resourceStatus.Users.Len() == 0 {
 			continue
 		}
@@ -1281,20 +1281,20 @@ func (n *NumaStatus) IsEmptyForConflictResources() bool {
 	return true
 }
 
-func (n *NumaStatus) Equal(n2 *NumaStatus) bool {
-	if n == nil {
-		n = &NumaStatus{}
+func (numaStatus *NumaStatus) Equal(n2 *NumaStatus) bool {
+	if numaStatus == nil {
+		numaStatus = &NumaStatus{}
 	}
 	if n2 == nil {
 		n2 = &NumaStatus{}
 	}
-	if n.socketId != n2.socketId {
+	if numaStatus.socketId != n2.socketId {
 		return false
 	}
-	if len(n.resourceStatuses) != len(n2.resourceStatuses) {
+	if len(numaStatus.resourceStatuses) != len(n2.resourceStatuses) {
 		return false
 	}
-	for resourceName, resourceStatus := range n.resourceStatuses {
+	for resourceName, resourceStatus := range numaStatus.resourceStatuses {
 		if !resourceStatus.Equal(n2.resourceStatuses[resourceName]) {
 			return false
 		}

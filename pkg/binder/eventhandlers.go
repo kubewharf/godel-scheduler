@@ -32,7 +32,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
-	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	frameworkutils "github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
@@ -95,7 +94,7 @@ func (binder *Binder) deleteNodeFromCache(obj interface{}) {
 	// snapshotted before updates are written, we would update equivalence
 	// cache with stale information which is based on snapshot of old cache.
 	if err := binder.BinderCache.DeleteNode(node); err != nil {
-		klog.InfoS("Failed to execute binder cache RemoveNode", "err", err)
+		klog.InfoS("Failed to execute binder cache DeleteNode", "err", err)
 	}
 }
 
@@ -152,7 +151,7 @@ func (binder *Binder) deleteNMNodeFromCache(obj interface{}) {
 	// snapshotted before updates are written, we would update equivalence
 	// cache with stale information which is based on snapshot of old cache.
 	if err := binder.BinderCache.DeleteNMNode(nmNode); err != nil {
-		klog.InfoS("Failed to execute binder cache RemoveNMNode", "err", err)
+		klog.InfoS("Failed to execute binder cache DeleteNMNode", "err", err)
 	}
 }
 
@@ -209,26 +208,25 @@ func (binder *Binder) deleteCNRFromCache(obj interface{}) {
 	// snapshotted before updates are written, we would update equivalence
 	// cache with stale information which is based on snapshot of old cache.
 	if err := binder.BinderCache.DeleteCNR(cnr); err != nil {
-		klog.InfoS("Failed to execute binder cache RemoveCNR", "err", err)
+		klog.InfoS("Failed to execute binder cache DeleteCNR", "err", err)
 	}
 }
 
-func (binder *Binder) addPodToCache(obj interface{}) {
+func (binder *Binder) addPod(obj interface{}) {
 	pod, err := podutil.ConvertToPod(obj)
 	if err != nil {
 		klog.InfoS("Failed to add pod to cache", "err", err)
 		return
 	}
-	klog.V(3).InfoS("Found an add event for scheduled pod with assigned node", "namespace", pod.Namespace, "podName", pod.Name, "nodeName", pod.Spec.NodeName)
 
-	if needAddToCache(pod) {
-		if err := binder.BinderCache.AddPod(pod); err != nil {
-			klog.InfoS("Failed to execute binder cache AddPod", "err", err)
-		}
+	klog.V(3).InfoS("Found an add event for pod", "namespace", pod.Namespace, "podName", pod.Name, "nodeName", pod.Spec.NodeName)
+
+	if err := binder.BinderCache.AddPod(pod); err != nil {
+		klog.InfoS("Failed to execute binder cache AddPod", "err", err)
 	}
 }
 
-func (binder *Binder) updatePodInCache(oldObj, newObj interface{}) {
+func (binder *Binder) updatePod(oldObj, newObj interface{}) {
 	oldPod, err := podutil.ConvertToPod(oldObj)
 	if err != nil {
 		klog.InfoS("Failed to update pod with oldObj", "err", err)
@@ -240,36 +238,21 @@ func (binder *Binder) updatePodInCache(oldObj, newObj interface{}) {
 		return
 	}
 
-	klog.V(3).InfoS("Found an update event for scheduled pod", "namespace", newPod.Namespace, "pod", klog.KObj(newPod))
-
-	// NOTE: Updates must be written to binder cache before invalidating
-	// equivalence cache, because we could snapshot equivalence cache after the
-	// invalidation and then snapshot the cache itself. If the cache is
-	// snapshotted before updates are written, we would update equivalence
-	// cache with stale information which is based on snapshot of old cache.
-	if needAddToCache(oldPod, newPod) {
-		if err := binder.BinderCache.UpdatePod(oldPod, newPod); err != nil {
-			klog.InfoS("Failed to execute binder cache UpdatePod", "err", err)
-		}
+	klog.V(3).InfoS("Found an update event for pod", "namespace", newPod.Namespace, "pod", klog.KObj(newPod))
+	if err := binder.BinderCache.UpdatePod(oldPod, newPod); err != nil {
+		klog.InfoS("Failed to execute binder cache UpdatePod", "err", err)
 	}
 }
 
-func (binder *Binder) deletePodFromCache(obj interface{}) {
+func (binder *Binder) deletePod(obj interface{}) {
 	pod, err := podutil.ConvertToPod(obj)
 	if err != nil {
 		klog.InfoS("Failed to delete pod from cache", "err", err)
 		return
 	}
-	klog.V(3).InfoS("Found a delete event for scheduled pod", "pod", klog.KObj(pod))
-	// NOTE: Updates must be written to binder cache before invalidating
-	// equivalence cache, because we could snapshot equivalence cache after the
-	// invalidation and then snapshot the cache itself. If the cache is
-	// snapshotted before updates are written, we would update equivalence
-	// cache with stale information which is based on snapshot of old cache.
-	if needAddToCache(pod) {
-		if err := binder.BinderCache.DeletePod(pod); err != nil {
-			klog.InfoS("Failed to execute binder cache RemovePod", "err", err)
-		}
+	klog.V(3).InfoS("Found a delete event for pod", "pod", klog.KObj(pod))
+	if err := binder.BinderCache.DeletePod(pod); err != nil {
+		klog.InfoS("Failed to execute binder cache RemovePod", "err", err)
 	}
 }
 
@@ -404,26 +387,17 @@ func (binder *Binder) deletePodFromBinderQueue(obj interface{}) {
 		binder.handle.VolumeBinder().DeletePodBindings(pod)
 	}
 
-	// if assumed preemptor is deleted during the period of "Inhandling"
+	// if assumed preemptor is deleted during the period of "In-handling"
 	// we need to forget it from cache
 	if isAssumed, err := binder.BinderCache.IsAssumedPod(pod); err != nil {
 		klog.InfoS("Failed to check if pod is assumed", "pod", klog.KObj(pod), "err", err)
 	} else if isAssumed {
 		if currentPod, err := binder.BinderCache.GetPod(pod); err != nil {
 			klog.InfoS("Failed to get current pod", "pod", klog.KObj(pod), "err", err)
-		} else if err := binder.BinderCache.ForgetPod(currentPod); err != nil {
-			klog.InfoS("Failed to forget pod when deleted from binder queue", "pod", klog.KObj(pod), "err", err)
+		} else if err := binder.BinderCache.ForgetPod(framework.MakeCachePodInfoWrapper().Pod(currentPod).Obj()); err != nil {
+			klog.InfoS("Failed to forget pod when being deleted from binder queue", "pod", klog.KObj(pod), "err", err)
 		}
 	}
-}
-
-func needAddToCache(pods ...*v1.Pod) bool {
-	for _, pod := range pods {
-		if podutil.BoundPod(pod) {
-			return true
-		}
-	}
-	return false
 }
 
 func (binder *Binder) addPodGroup(obj interface{}) {
@@ -440,7 +414,7 @@ func (binder *Binder) addPodGroup(obj interface{}) {
 		return
 	}
 
-	binder.addUnitStatus(podGroup)
+	binder.BinderQueue.ActiveWaitingUnit(fmt.Sprintf("%s/%s/%s", framework.PodGroupUnitType, podGroup.Namespace, podGroup.Name))
 }
 
 func (binder *Binder) updatePodGroup(oldObj interface{}, newObj interface{}) {
@@ -467,7 +441,7 @@ func (binder *Binder) updatePodGroup(oldObj interface{}, newObj interface{}) {
 		return
 	}
 
-	binder.updateUnitStatus(newPodGroup)
+	binder.BinderQueue.ActiveWaitingUnit(fmt.Sprintf("%s/%s/%s", framework.PodGroupUnitType, newPodGroup.Namespace, newPodGroup.Name))
 }
 
 func (binder *Binder) deletePodGroup(obj interface{}) {
@@ -493,7 +467,6 @@ func (binder *Binder) deletePodGroup(obj interface{}) {
 		klog.InfoS("Failed to execute binder cache RemovePodGroup", "err", err)
 		return
 	}
-	binder.deleteUnitStatus(podGroup)
 }
 
 func (binder *Binder) onPdbAdd(obj interface{}) {
@@ -551,9 +524,9 @@ func addAllEventHandlers(
 	// scheduled pod cache
 	informerFactory.Core().V1().Pods().Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
-			AddFunc:    binder.addPodToCache,
-			UpdateFunc: binder.updatePodInCache,
-			DeleteFunc: binder.deletePodFromCache,
+			AddFunc:    binder.addPod,
+			UpdateFunc: binder.updatePod,
+			DeleteFunc: binder.deletePod,
 		},
 	)
 
@@ -607,46 +580,4 @@ func addAllEventHandlers(
 			DeleteFunc: binder.deletePodGroup,
 		},
 	)
-}
-
-func (binder *Binder) addUnitStatus(pg *schedulingv1a1.PodGroup) {
-	key := fmt.Sprintf("%s/%s/%s", framework.PodGroupUnitType, pg.Namespace, pg.Name)
-
-	var status binderutils.UnitStatus
-
-	switch pg.Status.Phase {
-	case schedulingv1a1.PodGroupPending:
-		status = binderutils.PendingStatus
-	case schedulingv1a1.PodGroupPreScheduling:
-		status = binderutils.PendingStatus
-	case schedulingv1a1.PodGroupScheduled:
-		status = binderutils.ScheduledStatus
-	case schedulingv1a1.PodGroupRunning:
-		status = binderutils.ScheduledStatus
-	case schedulingv1a1.PodGroupTimeout:
-		status = binderutils.TimeoutStatus
-	case schedulingv1a1.PodGroupFinished:
-		status = binderutils.ScheduledStatus
-	case schedulingv1a1.PodGroupFailed:
-		status = binderutils.ScheduledStatus
-	case schedulingv1a1.PodGroupUnknown:
-		status = binderutils.UnKnownStatus
-	}
-
-	binder.BinderCache.SetUnitStatus(key, status)
-	binder.BinderQueue.SetUnitStatus(key, status)
-	// When PodGroup is updated to ScheduledStatus, it is necessary to move Pods
-	// associated with that PodGroupUnit from waitingUnitQ to readyUnitQ.
-	// more details: https://github.com/kubewharf/godel-scheduler/merge_requests/723
-	binder.BinderQueue.ActiveWaitingUnit(key)
-}
-
-func (binder *Binder) updateUnitStatus(pg *schedulingv1a1.PodGroup) {
-	binder.addUnitStatus(pg)
-}
-
-func (binder *Binder) deleteUnitStatus(pg *schedulingv1a1.PodGroup) {
-	key := fmt.Sprintf("%s/%s/%s", framework.PodGroupUnitType, pg.Namespace, pg.Name)
-	binder.BinderCache.DeleteUnitStatus(key)
-	binder.BinderQueue.DeleteUnitStatus(key)
 }

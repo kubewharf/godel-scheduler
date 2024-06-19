@@ -746,9 +746,6 @@ type BinderFramework interface {
 // passed to the plugin factories at the time of plugin initialization. Plugins
 // must store and use this handle to call framework functions.
 type BinderFrameworkHandle interface {
-	GetPodGroupPods(podGroupName string) []*v1.Pod
-	GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGroup, error)
-
 	// ClientSet returns a kubernetes clientSet.
 	ClientSet() clientset.Interface
 	CRDClientSet() crdclientset.Interface
@@ -758,7 +755,7 @@ type BinderFrameworkHandle interface {
 	VolumeBinder() scheduling.GodelVolumeBinder
 	GetPDBItemList() []PDBItem
 
-	GetNode(string) (NodeInfo, error)
+	GetNodeInfo(string) NodeInfo
 }
 
 // PluginsRunner abstracts operations to run some plugins.

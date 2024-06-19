@@ -24,17 +24,18 @@ import (
 	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
 	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/cache"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/queue"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	podAnnotation "github.com/kubewharf/godel-scheduler/pkg/util/pod"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
-
-	"github.com/kubewharf/godel-scheduler/pkg/binder/cache"
-	"github.com/kubewharf/godel-scheduler/pkg/binder/queue"
-	podAnnotation "github.com/kubewharf/godel-scheduler/pkg/util/pod"
-	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
 var testSchedulerName = "test-scheduler"
@@ -166,8 +167,11 @@ func TestAddNominatedPod(t *testing.T) {
 		},
 	}
 
-	binderCache := cache.New(ttl, stopCh, "")
-	binderQueue := queue.NewPriorityQueue(nil, nil, nil)
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(ttl).StopCh(stopCh).
+		ComponentName("godel-binder").Obj()
+	binderCache := cache.New(cacheHandler)
+	binderQueue := queue.NewPriorityQueue(nil, nil, nil, binderCache)
 
 	binder := &Binder{
 		BinderCache:   binderCache,
@@ -208,9 +212,9 @@ func TestAddNominatedPod(t *testing.T) {
 	binder.updatePodInBinderQueue(pod, newPod)
 
 	// skip pod update for assumed pod
-	binderCache.AssumePod(newPod)
+	binderCache.AssumePod(framework.MakeCachePodInfoWrapper().Pod(newPod).Obj())
 	binder.updatePodInBinderQueue(pod, newPod)
-	binderCache.ForgetPod(newPod)
+	binderCache.ForgetPod(framework.MakeCachePodInfoWrapper().Pod(newPod).Obj())
 
 	newPod.DeletionTimestamp = nil
 	pod.Spec.NodeName = ""
@@ -248,26 +252,29 @@ func TestAddAssignedPod(t *testing.T) {
 		},
 	}
 
-	binderCache := cache.New(ttl, stopCh, "")
-	binderQueue := queue.NewPriorityQueue(nil, nil, nil)
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(ttl).StopCh(stopCh).
+		ComponentName("godel-binder").Obj()
+	binderCache := cache.New(cacheHandler)
+	binderQueue := queue.NewPriorityQueue(nil, nil, nil, binderCache)
 
 	binder := &Binder{
 		BinderCache: binderCache,
 		BinderQueue: binderQueue,
 	}
 
-	binder.addPodToCache(pod)
-	binder.updatePodInCache(pod, newPod)
+	binder.addPod(pod)
+	binder.updatePod(pod, newPod)
 
 	p, err := binder.BinderCache.GetPod(newPod)
 	assert.NoError(t, err)
 	assert.Equal(t, p.UID, newPod.UID)
 
-	binder.deletePodFromCache(newPod)
+	binder.deletePod(newPod)
 	_, err = binder.BinderCache.GetPod(newPod)
 	assert.Error(t, err)
-	binder.deletePodFromCache(newPod)
-	binder.deletePodFromCache(newPod)
+	binder.deletePod(newPod)
+	binder.deletePod(newPod)
 }
 
 func TestDeletePodWithNominatedNode(t *testing.T) {
@@ -310,8 +317,11 @@ func TestDeletePodWithNominatedNode(t *testing.T) {
 		},
 	}
 
-	binderCache := cache.New(ttl, stopCh, "")
-	binderQueue := queue.NewPriorityQueue(nil, nil, nil)
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(ttl).StopCh(stopCh).
+		ComponentName("godel-binder").Obj()
+	binderCache := cache.New(cacheHandler)
+	binderQueue := queue.NewPriorityQueue(nil, nil, nil, binderCache)
 
 	client, crdClient := clientsetfake.NewSimpleClientset(), godelclientfake.NewSimpleClientset()
 
@@ -327,7 +337,7 @@ func TestDeletePodWithNominatedNode(t *testing.T) {
 		),
 	}
 
-	binder.addPodToCache(pod)
+	binder.addPod(pod)
 	p, _ := binderCache.GetPod(pod)
 	assert.NotEqual(t, nil, p)
 	binder.addPodToBinderQueue(preemptor)
@@ -356,8 +366,11 @@ func TestNode(t *testing.T) {
 		Status:     v1.NodeStatus{Capacity: makeResources(10, 20, 32, 20).Capacity, Allocatable: makeAllocatableResources(10, 20, 10, 20)},
 	}
 
-	binderCache := cache.New(ttl, stopCh, "")
-	binderQueue := queue.NewPriorityQueue(nil, nil, nil)
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(ttl).StopCh(stopCh).
+		ComponentName("godel-binder").Obj()
+	binderCache := cache.New(cacheHandler)
+	binderQueue := queue.NewPriorityQueue(nil, nil, nil, binderCache)
 
 	binder := &Binder{
 		BinderCache: binderCache,
@@ -367,8 +380,8 @@ func TestNode(t *testing.T) {
 	binder.addNodeToCache(testNode)
 	binder.updateNodeInCache(testNode, testUpdateNode)
 
-	_, err := binder.BinderCache.GetNode(testNode.Name)
-	assert.NoError(t, err)
+	n := binder.BinderCache.GetNodeInfo(testNode.Name)
+	assert.NotNil(t, n)
 
 	binder.deleteNodeFromCache(testNode)
 }
@@ -388,8 +401,11 @@ func TestNode_Error(t *testing.T) {
 		Status:     v1.NodeStatus{Capacity: makeResources(10, 20, 32, 20).Capacity, Allocatable: makeAllocatableResources(10, 20, 10, 20)},
 	}
 
-	binderCache := cache.New(ttl, stopCh, "")
-	binderQueue := queue.NewPriorityQueue(nil, nil, nil)
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(ttl).StopCh(stopCh).
+		ComponentName("godel-binder").Obj()
+	binderCache := cache.New(cacheHandler)
+	binderQueue := queue.NewPriorityQueue(nil, nil, nil, binderCache)
 
 	binder := &Binder{
 		BinderCache: binderCache,
@@ -418,8 +434,11 @@ func TestNMNode(t *testing.T) {
 		},
 	}
 
-	binderCache := cache.New(ttl, stopCh, "")
-	binderQueue := queue.NewPriorityQueue(nil, nil, nil)
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(ttl).StopCh(stopCh).
+		ComponentName("godel-binder").Obj()
+	binderCache := cache.New(cacheHandler)
+	binderQueue := queue.NewPriorityQueue(nil, nil, nil, binderCache)
 
 	binder := &Binder{
 		BinderCache: binderCache,
@@ -429,8 +448,8 @@ func TestNMNode(t *testing.T) {
 	binder.addNMNodeToCache(testNMNode)
 	binder.updateNMNodeInCache(testNMNode, testUpdateNMNode)
 
-	_, err := binder.BinderCache.GetNode(testNMNode.Name)
-	assert.NoError(t, err)
+	n := binder.BinderCache.GetNodeInfo(testNMNode.Name)
+	assert.NotNil(t, n)
 
 	binder.deleteNMNodeFromCache(testNMNode)
 }
@@ -451,8 +470,11 @@ func TestNMNode_Error(t *testing.T) {
 		},
 	}
 
-	binderCache := cache.New(ttl, stopCh, "")
-	binderQueue := queue.NewPriorityQueue(nil, nil, nil)
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(ttl).StopCh(stopCh).
+		ComponentName("godel-binder").Obj()
+	binderCache := cache.New(cacheHandler)
+	binderQueue := queue.NewPriorityQueue(nil, nil, nil, binderCache)
 
 	binder := &Binder{
 		BinderCache: binderCache,

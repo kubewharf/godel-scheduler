@@ -19,8 +19,9 @@ package api
 import v1 "k8s.io/api/core/v1"
 
 type CachePodInfo struct {
-	Pod     *v1.Pod
-	Victims *Victims
+	Pod        *v1.Pod
+	CycleState *CycleState
+	Victims    *Victims
 }
 
 type CachePodInfoWrapper struct{ obj *CachePodInfo }
@@ -35,6 +36,11 @@ func (w *CachePodInfoWrapper) Obj() *CachePodInfo {
 
 func (w *CachePodInfoWrapper) Pod(p *v1.Pod) *CachePodInfoWrapper {
 	w.obj.Pod = p
+	return w
+}
+
+func (w *CachePodInfoWrapper) CycleState(s *CycleState) *CachePodInfoWrapper {
+	w.obj.CycleState = s
 	return w
 }
 

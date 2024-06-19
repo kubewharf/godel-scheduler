@@ -30,6 +30,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
+	"github.com/robfig/cron/v3"
 )
 
 // GetEarliestPodStartTime returns the earliest start time of all pods that
@@ -146,4 +147,15 @@ func SchedSleep(duration time.Duration) {
 	runtime.Gosched()
 	time.Sleep(duration)
 	runtime.Gosched()
+}
+
+// StartMinutelyScheduledCron starts a cron that runs every minute on the minute.
+func StartMinutelyScheduledCron(fun func()) error {
+	c := cron.New()
+	_, err := c.AddFunc("* * * * *", fun)
+	if err != nil {
+		return err
+	}
+	c.Start()
+	return nil
 }
