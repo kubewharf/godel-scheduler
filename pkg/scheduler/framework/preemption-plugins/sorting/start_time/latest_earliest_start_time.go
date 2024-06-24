@@ -21,6 +21,7 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	frameworkutils "github.com/kubewharf/godel-scheduler/pkg/framework/utils"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 const LatestEarliestStartTimeName = "LatestEarliestStartTime"
@@ -29,7 +30,7 @@ type LatestEarliestStartTime struct{}
 
 var _ framework.CandidatesSortingPlugin = &LatestEarliestStartTime{}
 
-func NewLatestEarliestStartTime(_ runtime.Object, _ framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewLatestEarliestStartTime(_ runtime.Object, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &LatestEarliestStartTime{}, nil
 }
 

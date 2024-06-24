@@ -22,6 +22,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/pkg/volume/scheduling"
@@ -89,7 +90,7 @@ func (pl *VolumeBinding) CheckConflicts(ctx context.Context, cs *framework.Cycle
 }
 
 // New initializes a new plugin with volume binder and returns it.
-func New(_ runtime.Object, fh framework.BinderFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, fh handle.BinderFrameworkHandle) (framework.Plugin, error) {
 	return &VolumeBinding{
 		binder: fh.VolumeBinder(),
 	}, nil

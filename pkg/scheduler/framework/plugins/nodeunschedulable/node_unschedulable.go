@@ -24,6 +24,7 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util/helper"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
@@ -78,6 +79,6 @@ func (pl *NodeUnschedulable) Filter(ctx context.Context, state *framework.CycleS
 }
 
 // New initializes a new plugin and returns it.
-func New(_ runtime.Object, _ framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &NodeUnschedulable{}, nil
 }

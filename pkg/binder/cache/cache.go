@@ -27,7 +27,6 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores"
 	deletedmarkerstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/deleted_marker_store"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/node_store"
-	pdbstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/pdb_store"
 	podstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/pod_store"
 	unitstatusstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/unit_status_store"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
@@ -176,12 +175,6 @@ func (cache *binderCache) GetUnitSchedulingStatus(unitKey string) unitstatus.Sch
 	return cache.CommonStoresSwitch.Find(unitstatusstore.Name).(*unitstatusstore.UnitStatusStore).GetUnitSchedulingStatus(unitKey)
 }
 
-func (cache *binderCache) GetPDBItemList() []framework.PDBItem {
-	cache.mu.RLock()
-	defer cache.mu.RUnlock()
-	return cache.CommonStoresSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetPDBItemList()
-}
-
 func (cache *binderCache) MarkPodToDelete(pod, preemptor *v1.Pod) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
@@ -210,4 +203,10 @@ func (cache *binderCache) GetUnitStatus(unitKey string) unitstatus.UnitStatus {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 	return cache.CommonStoresSwitch.Find(unitstatusstore.Name).(*unitstatusstore.UnitStatusStore).GetUnitStatus(unitKey)
+}
+
+func (cache *binderCache) FindStore(storeName commonstore.StoreName) commonstore.Store {
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+	return cache.CommonStoresSwitch.Find(storeName)
 }

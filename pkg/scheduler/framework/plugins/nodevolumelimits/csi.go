@@ -25,6 +25,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/nodevolumelimits"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 // CSILimits is a plugin that checks node volume limits.
@@ -53,7 +54,7 @@ func (pl *CSILimits) Filter(ctx context.Context, s *framework.CycleState, pod *v
 }
 
 // New initializes a new plugin and returns it.
-func NewCSI(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewCSI(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	informerFactory := handle.SharedInformerFactory()
 	csiLimitsPlugin := nodevolumelimits.NewCSILimits(informerFactory)
 	return &CSILimits{

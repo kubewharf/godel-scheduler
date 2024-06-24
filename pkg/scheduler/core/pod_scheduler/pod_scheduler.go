@@ -24,9 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
-	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
-	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/client-go/informers"
@@ -36,6 +33,9 @@ import (
 	"k8s.io/klog/v2"
 	utiltrace "k8s.io/utils/trace"
 
+	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
+	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/api/config"
 	schedulerconfig "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
@@ -660,28 +660,8 @@ func (gs *podScheduler) CRDSharedInformerFactory() crdinformers.SharedInformerFa
 	return gs.crdInformerFactory
 }
 
-func (gs *podScheduler) GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGroup, error) {
-	return gs.snapshot.GetPodGroupInfo(podGroupName)
-}
-
-func (gs *podScheduler) GetPDBItemList() []framework.PDBItem {
-	return gs.snapshot.GetPDBItemList()
-}
-
-func (gs *podScheduler) GetPDBItemListForOwner(ownerType, ownerKey string) (bool, bool, []string) {
-	return gs.snapshot.GetPDBItemListForOwner(ownerType, ownerKey)
-}
-
-func (gs *podScheduler) GetOwnerLabels(ownerType, ownerKey string) map[string]string {
-	return gs.snapshot.GetOwnerLabels(ownerType, ownerKey)
-}
-
-func (gs *podScheduler) GetLoadAwareNodeMetricInfo(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeMetricInfo {
-	return gs.snapshot.GetLoadAwareNodeMetricInfo(nodeName, resourceType)
-}
-
-func (gs *podScheduler) GetLoadAwareNodeUsage(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeUsage {
-	return gs.snapshot.GetLoadAwareNodeUsage(nodeName, resourceType)
+func (gs *podScheduler) FindStore(storeName commonstore.StoreName) commonstore.Store {
+	return gs.snapshot.FindStore(storeName)
 }
 
 func needCacheNodesForPod(pod *v1.Pod, podOwner string) bool {

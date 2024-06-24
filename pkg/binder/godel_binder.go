@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	cachedebugger "github.com/kubewharf/godel-scheduler/pkg/binder/cache/debugger"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/queue"
 	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
@@ -84,7 +85,7 @@ type Binder struct {
 	// question, and the error
 	Error func(*framework.QueuedPodInfo, error)
 
-	handle     framework.BinderFrameworkHandle
+	handle     handle.BinderFrameworkHandle
 	recorder   events.EventRecorder
 	reconciler *BinderTasksReconciler
 

@@ -120,7 +120,7 @@ func (s *PdbStore) UpdateSnapshot(store commonstore.Store) error {
 	return nil
 }
 
-// -------------------------------------- Other Interface --------------------------------------
+// -------------------------------------- Internal Function --------------------------------------
 
 func (s *PdbStore) addPDB(storedPDB framework.PDBItem, pdb *policy.PodDisruptionBudget) {
 	selector, err := metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
@@ -133,7 +133,18 @@ func (s *PdbStore) addPDB(storedPDB framework.PDBItem, pdb *policy.PodDisruption
 
 func (s *PdbStore) removePDB(pdbKey string) { return }
 
+// -------------------------------------- Other Interface --------------------------------------
+
+type StoreHandle interface {
+	GetPDBItemList() []framework.PDBItem
+}
+
+var _ StoreHandle = &PdbStore{}
+
 func (s *PdbStore) GetPDBItemList() []framework.PDBItem {
+	s.handler.Mutex().RLock()
+	defer s.handler.Mutex().RUnlock()
+
 	pdbItemList := make([]framework.PDBItem, 0, s.Pdbs.Len())
 	s.Pdbs.Range(func(_ string, obj generationstore.StoredObj) {
 		pdbItem := obj.(framework.PDBItem)

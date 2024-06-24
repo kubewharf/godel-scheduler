@@ -19,6 +19,7 @@ package utils
 import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/preemption-plugins/searching/newlystartedprotectionchecker"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/preemption-plugins/searching/pdbchecker"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/preemption-plugins/searching/podlauncherchecker"
@@ -26,7 +27,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/preemption-plugins/searching/priorityvaluechecker"
 )
 
-func GetPreemptionRelatedPlugins(fh framework.SchedulerFrameworkHandle) (*framework.PluginCollection, framework.PluginMap, error) {
+func GetPreemptionRelatedPlugins(fh handle.PodFrameworkHandle) (*framework.PluginCollection, framework.PluginMap, error) {
 	podLauncherChecker, _ := podlauncherchecker.NewPodLauncherChecker(nil, fh)
 	preemptibilityChecker, _ := preemptibilitychecker.NewPreemptibilityChecker(nil, fh)
 	newlyStartedProtectionChecker, _ := newlystartedprotectionchecker.NewNewlyStartedProtectionChecker(nil, fh)

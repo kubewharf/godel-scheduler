@@ -19,18 +19,11 @@ package cache
 import (
 	"fmt"
 
-	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
-
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
-	loadawarestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/load_aware_store"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
-	pdbstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pdb_store"
-	podgroupstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/podgroup_store"
-	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
-	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
 // Snapshot is a snapshot of s NodeInfo and NodeTree order. The scheduler takes a
@@ -169,64 +162,8 @@ func (s *Snapshot) ForgetPod(podInfo *framework.CachePodInfo) error {
 	return s.CommonStoresSwitch.Range(func(cs commonstore.Store) error { return cs.ForgetPod(podInfo) })
 }
 
-// GetPreemptorsByVictim return preemptors by victim.
-//
-// Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
-// are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
-func (s *Snapshot) GetPreemptorsByVictim(node, victim string) []string {
-	// TODO: Remove GetPreemptorsByVictim interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.CommonStoresSwitch.Find(preemptionstore.Name).(*preemptionstore.PreemptionStore).GetPreemptorsByVictim(node, victim)
-}
-
-// GetPDBItemList return PDB items in snapshot.
-//
-// Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
-// are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
-func (s *Snapshot) GetPDBItemList() []framework.PDBItem {
-	// TODO: Remove GetPDBItemList interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.CommonStoresSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetPDBItemList()
-}
-
-func (s *Snapshot) GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGroup, error) {
-	// TODO: Remove GetPodGroupInfo interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.CommonStoresSwitch.Find(podgroupstore.Name).(*podgroupstore.PodGroupStore).GetPodGroupInfo(podGroupName)
-}
-
-// GetPDBItemListForOwner return PDB items for the owner in snapshot.
-//
-// Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
-// are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
-func (s *Snapshot) GetPDBItemListForOwner(ownerType, ownerKey string) (bool, bool, []string) {
-	// TODO: Remove GetPDBItemListForOwner interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.CommonStoresSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetPDBsForOwner(ownerType, ownerKey)
-}
-
-// GetOwnerLabels return owner labels in snapshot.
-//
-// Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
-// are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
-func (s *Snapshot) GetOwnerLabels(ownerType, ownerKey string) map[string]string {
-	// TODO: Remove GetOwnerLabels interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.CommonStoresSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetOwnerLabels(ownerType, ownerKey)
-}
-
-// GetOwnersForPDB return owner according to specific PDB in snapshot.
-//
-// Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
-// are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
-func (s *Snapshot) GetOwnersForPDB(key, ownerType string) []string {
-	// TODO: Remove GetOwnersForPDB interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.CommonStoresSwitch.Find(pdbstore.Name).(*pdbstore.PdbStore).GetOwnersForPDB(key, ownerType)
-}
-
-func (s *Snapshot) GetLoadAwareNodeMetricInfo(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeMetricInfo {
-	// TODO: Remove GetLoadAwareNodeMetricInfo interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.CommonStoresSwitch.Find(loadawarestore.Name).(*loadawarestore.LoadAwareStore).GetLoadAwareNodeMetricInfo(nodeName, resourceType)
-}
-
-func (s *Snapshot) GetLoadAwareNodeUsage(nodeName string, resourceType podutil.PodResourceType) *framework.LoadAwareNodeUsage {
-	// TODO: Remove GetLoadAwareNodeUsage interface and expose Store by ScheduleFrameworkHandler directly.
-	return s.CommonStoresSwitch.Find(loadawarestore.Name).(*loadawarestore.LoadAwareStore).GetLoadAwareNodeUsage(nodeName, resourceType)
+func (s *Snapshot) FindStore(storeName commonstore.StoreName) commonstore.Store {
+	return s.CommonStoresSwitch.Find(storeName)
 }
 
 // -------------------------------------- node slice for snapshot --------------------------------------

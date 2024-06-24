@@ -31,6 +31,7 @@ import (
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/noderesources"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -127,7 +128,7 @@ func validateLabelName(labelName string, fldPath *field.Path) field.ErrorList {
 }
 
 // NewFit initializes a new plugin and returns it.
-func NewFit(plArgs runtime.Object, _ framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewFit(plArgs runtime.Object, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	args, err := getFitArgs(plArgs)
 	if err != nil {
 		return nil, err

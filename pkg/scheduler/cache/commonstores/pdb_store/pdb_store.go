@@ -308,6 +308,16 @@ func (s *PdbStore) removePDB(pdbKey string) {
 	})
 }
 
+// -------------------------------------- Other Interface --------------------------------------
+
+type StoreHandle interface {
+	GetPDBItemList() []framework.PDBItem
+	GetPDBsForOwner(ownerType, ownerKey string) (bool, bool, []string)
+	GetOwnerLabels(ownerType, ownerKey string) map[string]string
+}
+
+var _ StoreHandle = &PdbStore{}
+
 func (s *PdbStore) GetPDBItemList() []framework.PDBItem {
 	pdbItemList := make([]framework.PDBItem, 0, s.Pdbs.Len())
 	s.Pdbs.Range(func(_ string, obj generationstore.StoredObj) {

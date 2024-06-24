@@ -25,6 +25,8 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	frameworkutils "github.com/kubewharf/godel-scheduler/pkg/framework/utils"
+	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
@@ -32,7 +34,7 @@ import (
 // Before performing the real preemption calculation, we perform heuristic check to end the preemption
 // process in advance in some scenarios.
 // Ref: https://en.wikipedia.org/wiki/Heuristic_(computer_science)
-func HeuristicCheck(handle framework.SchedulerFrameworkHandle, pod *v1.Pod, node framework.NodeInfo) bool {
+func HeuristicCheck(handle handle.PodFrameworkHandle, pod *v1.Pod, node framework.NodeInfo) bool {
 	// 0) Check OccupiableResources
 	{
 		// We have maintained all pods in node by Splay-Tree.
@@ -71,7 +73,7 @@ func OccupiableResourcesCheck(priority int64, podResourceType podutil.PodResourc
 // This function is stable and does not change the order of received pods. So, if it
 // receives a sorted list, grouping will preserve the order of the input list.
 func FilterVictimsPods(
-	fwh framework.SchedulerFrameworkHandle,
+	fwh handle.PodFrameworkHandle,
 	pfw framework.SchedulerPreemptionFramework,
 	state *framework.CycleState,
 	preemptionState *framework.CycleState,
@@ -94,10 +96,16 @@ func FilterVictimsPods(
 			return potentialVictims
 		}
 	}
+
+	var preemptionStoreHandle preemptionstore.StoreHandle
+	if ins := fwh.FindStore(preemptionstore.Name); ins != nil {
+		preemptionStoreHandle = ins.(preemptionstore.StoreHandle)
+	}
+
 	for _, pi := range nodeInfo.GetVictimCandidates(framework.NewPartitionInfo(priorityLower, priorityUpper, podResourceType)) {
 		pod := pi.Pod
 		podKey := podutil.GeneratePodKey(pod)
-		if preemptors := fwh.SnapshotSharedLister().GetPreemptorsByVictim(nodeName, podKey); len(preemptors) > 0 {
+		if preemptors := preemptionStoreHandle.GetPreemptorsByVictim(nodeName, podKey); len(preemptors) > 0 {
 			klog.InfoS("WARN: Failed to select the pod as a victim for the new preemptor as it was already a victim of others",
 				"pod", klog.KObj(pod), "preemptor", klog.KObj(preemptor), "otherPreemptors", preemptors)
 			continue

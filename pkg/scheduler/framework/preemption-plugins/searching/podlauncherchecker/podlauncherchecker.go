@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -34,7 +35,7 @@ type PodLauncherChecker struct{}
 var _ framework.VictimSearchingPlugin = &PodLauncherChecker{}
 
 // New initializes a new plugin and returns it.
-func NewPodLauncherChecker(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewPodLauncherChecker(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &PodLauncherChecker{}, nil
 }
 

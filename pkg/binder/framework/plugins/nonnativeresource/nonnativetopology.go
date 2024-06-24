@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	listerv1 "k8s.io/client-go/listers/core/v1"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/nonnativeresource"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -38,7 +39,7 @@ type NonNativeTopology struct {
 
 var _ framework.CheckConflictsPlugin = &NonNativeTopology{}
 
-func New(_ runtime.Object, handle framework.BinderFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, handle handle.BinderFrameworkHandle) (framework.Plugin, error) {
 	informerFactory := handle.SharedInformerFactory()
 	podLister := informerFactory.Core().V1().Pods().Lister()
 	return &NonNativeTopology{

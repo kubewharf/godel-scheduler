@@ -24,6 +24,7 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	schedulerconfig "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/unit_plugins/daemonset"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/unit_plugins/joblevelaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/unit_plugins/noop"
@@ -32,7 +33,7 @@ import (
 )
 
 // UnitPluginFactory is a function that builds a plugin.
-type UnitPluginFactory = func(configuration runtime.Object, handle framework.SchedulerUnitFrameworkHandle) (framework.Plugin, error)
+type UnitPluginFactory = func(configuration runtime.Object, handle handle.UnitFrameworkHandle) (framework.Plugin, error)
 
 // UnitRegistry is a collection of all available plugins. The framework uses a
 // registry to enable and initialize configured plugins.
@@ -66,7 +67,7 @@ func NewUnitInTreeRegistry() UnitRegistry {
 func NewUnitPluginsRegistry(
 	registry UnitRegistry,
 	pluginArgs map[string]*schedulerconfig.PluginConfig, // TODO: Do we need UnitPlugin args in future?
-	handler framework.SchedulerUnitFrameworkHandle,
+	handler handle.UnitFrameworkHandle,
 ) framework.PluginMap {
 	pluginMap := framework.PluginMap{}
 

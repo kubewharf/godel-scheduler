@@ -27,11 +27,12 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/validation"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 // LeastAllocated is a score plugin that favors nodes with fewer allocation requested resources based on requested resources.
 type LeastAllocated struct {
-	handle framework.SchedulerFrameworkHandle
+	handle handle.PodFrameworkHandle
 	resourceAllocationScorer
 }
 
@@ -67,7 +68,7 @@ func (la *LeastAllocated) ScoreExtensions() framework.ScoreExtensions {
 }
 
 // NewLeastAllocated initializes a new plugin and returns it.
-func NewLeastAllocated(laArgs runtime.Object, h framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewLeastAllocated(laArgs runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, error) {
 	var resToWeightMap resourceToWeightMap
 	args, ok := laArgs.(*config.NodeResourcesLeastAllocatedArgs)
 	if ok {

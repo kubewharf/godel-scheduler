@@ -22,6 +22,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/nodeports"
 )
@@ -61,6 +62,6 @@ func (pl *NodePorts) CheckConflicts(_ context.Context, _ *framework.CycleState, 
 }
 
 // New initializes a new plugin and returns it.
-func New(_ runtime.Object, _ framework.BinderFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, _ handle.BinderFrameworkHandle) (framework.Plugin, error) {
 	return &NodePorts{}, nil
 }

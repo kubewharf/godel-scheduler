@@ -104,6 +104,12 @@ func (s *PodGroupStore) UpdateSnapshot(store commonstore.Store) error {
 
 // -------------------------------------- Other Interface --------------------------------------
 
+type StoreHandle interface {
+	GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGroup, error)
+}
+
+var _ StoreHandle = &PodGroupStore{}
+
 func (s *PodGroupStore) GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGroup, error) {
 	pgObj := s.store.Get(podGroupName)
 	if pgObj == nil {

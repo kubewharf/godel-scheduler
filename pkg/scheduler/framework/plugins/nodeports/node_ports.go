@@ -25,6 +25,7 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/nodeports"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 // NodePorts is a plugin that checks if a node has free ports for the requested pod ports.
@@ -116,6 +117,6 @@ func (pl *NodePorts) Filter(ctx context.Context, cycleState *framework.CycleStat
 }
 
 // New initializes a new plugin and returns it.
-func New(_ runtime.Object, _ framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &NodePorts{}, nil
 }

@@ -28,6 +28,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	pluginhelper "github.com/kubewharf/godel-scheduler/pkg/plugins/helper"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util/helper"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
@@ -69,7 +70,7 @@ func (state *preFilterState) Clone() framework.StateData {
 
 // NodeAffinity is a plugin that checks if a pod node selector matches the node label.
 type NodeAffinity struct {
-	handle framework.SchedulerFrameworkHandle
+	handle handle.PodFrameworkHandle
 }
 
 var (
@@ -207,6 +208,6 @@ func (pl *NodeAffinity) ScoreExtensions() framework.ScoreExtensions {
 }
 
 // New initializes a new plugin and returns it.
-func New(_ runtime.Object, h framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &NodeAffinity{handle: h}, nil
 }

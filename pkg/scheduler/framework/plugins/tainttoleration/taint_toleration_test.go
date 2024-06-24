@@ -252,7 +252,7 @@ func TestTaintTolerationScore(t *testing.T) {
 				cache.AddNode(n)
 			}
 			cache.UpdateSnapshot(snapshot)
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 
 			p, _ := New(nil, fh)
 			nodeInfos := make([]framework.NodeInfo, len(test.nodes))

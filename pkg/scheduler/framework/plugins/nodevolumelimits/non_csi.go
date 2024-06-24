@@ -25,6 +25,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/nodevolumelimits"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 var (
@@ -38,7 +39,7 @@ var (
 const AzureDiskName = "AzureDiskLimits"
 
 // NewAzureDisk returns function that initializes a new plugin and returns it.
-func NewAzureDisk(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewAzureDisk(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	var err error
 	informerFactory := handle.SharedInformerFactory()
 	azureDiskPlugin, err = nodevolumelimits.NewAzureDisk(informerFactory)
@@ -52,7 +53,7 @@ func NewAzureDisk(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (
 const CinderName = "CinderLimits"
 
 // NewCinder returns function that initializes a new plugin and returns it.
-func NewCinder(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewCinder(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	var err error
 	informerFactory := handle.SharedInformerFactory()
 	cinderPlugin, err = nodevolumelimits.NewCinder(informerFactory)
@@ -66,7 +67,7 @@ func NewCinder(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (fra
 const EBSName = "EBSLimits"
 
 // NewEBS returns function that initializes a new plugin and returns it.
-func NewEBS(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewEBS(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	var err error
 	informerFactory := handle.SharedInformerFactory()
 	ebsPlugin, err = nodevolumelimits.NewEBS(informerFactory)
@@ -80,7 +81,7 @@ func NewEBS(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framew
 const GCEPDName = "GCEPDLimits"
 
 // NewGCEPD returns function that initializes a new plugin and returns it.
-func NewGCEPD(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewGCEPD(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	var err error
 	informerFactory := handle.SharedInformerFactory()
 	gcepdPlugin, err = nodevolumelimits.NewGCEPD(informerFactory)

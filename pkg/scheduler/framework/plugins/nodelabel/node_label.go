@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/validation"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -40,7 +41,7 @@ const (
 )
 
 // New initializes a new plugin and returns it.
-func New(plArgs runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func New(plArgs runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	args, err := getArgs(plArgs)
 	if err != nil {
 		return nil, err
@@ -69,7 +70,7 @@ func getArgs(obj runtime.Object) (config.NodeLabelArgs, error) {
 
 // NodeLabel checks whether a pod can fit based on the node labels which match a filter that it requests.
 type NodeLabel struct {
-	handle framework.SchedulerFrameworkHandle
+	handle handle.PodFrameworkHandle
 	args   config.NodeLabelArgs
 }
 

@@ -23,6 +23,7 @@ import (
 	"k8s.io/klog/v2"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 )
 
@@ -35,7 +36,7 @@ type PreemptibilityChecker struct {
 var _ framework.VictimSearchingPlugin = &PreemptibilityChecker{}
 
 // New initializes a new plugin and returns it.
-func NewPreemptibilityChecker(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewPreemptibilityChecker(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	checker := &PreemptibilityChecker{
 		pcLister: handle.SharedInformerFactory().Scheduling().V1().PriorityClasses().Lister(),
 	}

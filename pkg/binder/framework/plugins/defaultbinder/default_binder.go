@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 )
@@ -34,13 +35,13 @@ const Name = "DefaultBinder"
 
 // DefaultBinder binds pods to nodes using a k8s client.
 type DefaultBinder struct {
-	handle framework.BinderFrameworkHandle
+	handle handle.BinderFrameworkHandle
 }
 
 var _ framework.BindPlugin = &DefaultBinder{}
 
 // New creates a DefaultBinder.
-func New(_ runtime.Object, handle framework.BinderFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, handle handle.BinderFrameworkHandle) (framework.Plugin, error) {
 	return &DefaultBinder{handle: handle}, nil
 }
 

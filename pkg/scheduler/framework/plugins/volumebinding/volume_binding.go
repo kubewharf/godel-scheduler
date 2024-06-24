@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/pkg/volume/scheduling"
 )
@@ -89,7 +90,7 @@ func (pl *VolumeBinding) Filter(ctx context.Context, cs *framework.CycleState, p
 }
 
 // New initializes a new plugin with volume binder and returns it.
-func New(_ runtime.Object, fh framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, fh handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &VolumeBinding{
 		binder: scheduling.NewBaseVolumeBinder(
 			fh.SharedInformerFactory().Storage().V1().CSINodes(),

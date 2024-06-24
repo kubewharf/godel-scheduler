@@ -19,15 +19,17 @@ package testing
 import (
 	"time"
 
-	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
-	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 
+	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
+	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/apis"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/binder/cache"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	binderruntime "github.com/kubewharf/godel-scheduler/pkg/binder/framework/runtime"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/volume/scheduling"
 )
@@ -70,8 +72,8 @@ func (mfh *MockBinderFrameworkHandle) VolumeBinder() scheduling.GodelVolumeBinde
 	return mfh.volumeBinder
 }
 
-func (mfh *MockBinderFrameworkHandle) GetPDBItemList() []framework.PDBItem {
-	return mfh.cache.GetPDBItemList()
+func (mfh *MockBinderFrameworkHandle) FindStore(storeName commonstore.StoreName) commonstore.Store {
+	return mfh.cache.FindStore(storeName)
 }
 
 func (mfh *MockBinderFrameworkHandle) GetNodeInfo(nodeName string) framework.NodeInfo {
@@ -88,7 +90,7 @@ func NewBinderFrameworkHandle(
 	informerFactory informers.SharedInformerFactory,
 	crdInformerFactory crdinformers.SharedInformerFactory,
 	cache godelcache.BinderCache,
-) (framework.BinderFrameworkHandle, error) {
+) (handle.BinderFrameworkHandle, error) {
 	return &MockBinderFrameworkHandle{
 		clientSet:          client,
 		crdClient:          crdClient,

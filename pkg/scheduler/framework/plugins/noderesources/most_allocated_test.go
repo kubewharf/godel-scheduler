@@ -275,7 +275,7 @@ func TestNodeResourcesMostAllocated(t *testing.T) {
 			}
 			cache.UpdateSnapshot(snapshot)
 
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 			p, err := NewMostAllocated(&test.args, fh)
 
 			if len(test.wantErr) != 0 {

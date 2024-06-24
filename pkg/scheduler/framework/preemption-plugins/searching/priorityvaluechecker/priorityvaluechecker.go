@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -39,7 +40,7 @@ var (
 )
 
 // New initializes a new plugin and returns it.
-func NewPriorityValueChecker(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewPriorityValueChecker(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	checker := &PriorityValueChecker{}
 	return checker, nil
 }

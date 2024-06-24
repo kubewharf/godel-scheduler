@@ -30,6 +30,7 @@ import (
 	godelfeatures "github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/nonnativeresource"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -77,7 +78,7 @@ var (
 	_ framework.PreFilterPlugin = &NonNativeTopology{}
 )
 
-func NewNonNativeTopology(_ runtime.Object, handle framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewNonNativeTopology(_ runtime.Object, handle handle.PodFrameworkHandle) (framework.Plugin, error) {
 	informerFactory := handle.SharedInformerFactory()
 	podLister := informerFactory.Core().V1().Pods().Lister()
 	return &NonNativeTopology{

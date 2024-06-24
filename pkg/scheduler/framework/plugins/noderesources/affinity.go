@@ -29,6 +29,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/validation"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
@@ -36,7 +37,7 @@ import (
 // NodeResourcesAffinity is a score plugin that favors nodes affinity
 // with the resource request of pod get high score, vice versa.
 type NodeResourcesAffinity struct {
-	handle framework.SchedulerFrameworkHandle
+	handle handle.PodFrameworkHandle
 	resourceAllocationScorer
 }
 
@@ -118,7 +119,7 @@ var defaultAffinityResources = map[v1.ResourceName]int64{
 }
 
 // NewNodeResourcesAffinity initializes a new plugin and returns it.
-func NewNodeResourcesAffinity(atArgs runtime.Object, h framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewNodeResourcesAffinity(atArgs runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, error) {
 	var resToWeightMap resourceToWeightMap
 	args, ok := atArgs.(*config.NodeResourcesAffinityArgs)
 	if ok {

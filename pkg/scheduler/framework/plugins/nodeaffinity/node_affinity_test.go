@@ -871,7 +871,7 @@ func TestNodeAffinityPriority(t *testing.T) {
 			}
 			cache.UpdateSnapshot(snapshot)
 
-			fh, _ := testingutil.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			fh, _ := testingutil.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 			p, _ := New(nil, fh)
 			var gotList framework.NodeScoreList
 			for _, n := range test.nodes {

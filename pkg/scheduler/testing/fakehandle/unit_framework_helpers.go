@@ -20,23 +20,25 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/events"
 
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	unitstatus "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
 )
 
-type MockUnitSchedulerHandle struct {
+type MockUnitFrameworkHandle struct {
 	Cache    cache.SchedulerCache
 	Snapshot *cache.Snapshot
 }
 
-var _ framework.SchedulerUnitFrameworkHandle = &MockUnitSchedulerHandle{}
+var _ handle.UnitFrameworkHandle = &MockUnitFrameworkHandle{}
 
-func NewMockUnitSchedulerHandle(
+func NewMockUnitFrameworkHandle(
 	cache cache.SchedulerCache,
 	snapshot *cache.Snapshot,
-) *MockUnitSchedulerHandle {
-	gs := &MockUnitSchedulerHandle{
+) *MockUnitFrameworkHandle {
+	gs := &MockUnitFrameworkHandle{
 		Cache:    cache,
 		Snapshot: snapshot,
 	}
@@ -45,34 +47,42 @@ func NewMockUnitSchedulerHandle(
 
 // ---------------------------------------------------------------------------------------------------------
 
-func (gs *MockUnitSchedulerHandle) SchedulerName() string {
+func (gs *MockUnitFrameworkHandle) SchedulerName() string {
 	return ""
 }
 
-func (gs *MockUnitSchedulerHandle) SwitchType() framework.SwitchType {
+func (gs *MockUnitFrameworkHandle) SwitchType() framework.SwitchType {
 	return 0
 }
 
-func (gs *MockUnitSchedulerHandle) SubCluster() string {
+func (gs *MockUnitFrameworkHandle) SubCluster() string {
 	return ""
 }
 
-func (gs *MockUnitSchedulerHandle) EventRecorder() events.EventRecorder {
+func (gs *MockUnitFrameworkHandle) EventRecorder() events.EventRecorder {
 	return nil
 }
 
-func (gs *MockUnitSchedulerHandle) DisablePreemption() bool {
+func (gs *MockUnitFrameworkHandle) DisablePreemption() bool {
 	return false
 }
 
-func (gs *MockUnitSchedulerHandle) GetUnitStatus(unitKey string) unitstatus.UnitStatus {
+func (gs *MockUnitFrameworkHandle) GetUnitStatus(unitKey string) unitstatus.UnitStatus {
 	return gs.Cache.GetUnitStatus(unitKey)
 }
 
-func (gs *MockUnitSchedulerHandle) IsCachedPod(pod *v1.Pod) (bool, error) {
+func (gs *MockUnitFrameworkHandle) IsCachedPod(pod *v1.Pod) (bool, error) {
 	return gs.Cache.IsCachedPod(pod)
 }
 
-func (gs *MockUnitSchedulerHandle) GetNodeInfo(nodeName string) framework.NodeInfo {
+func (gs *MockUnitFrameworkHandle) GetNodeInfo(nodeName string) framework.NodeInfo {
 	return gs.Snapshot.GetNodeInfo(nodeName)
+}
+
+func (mfh *MockUnitFrameworkHandle) FindStore(storeName commonstore.StoreName) commonstore.Store {
+	return mfh.Snapshot.FindStore(storeName)
+}
+
+func (gs *MockUnitFrameworkHandle) IsAssumedPod(pod *v1.Pod) (bool, error) {
+	return gs.Cache.IsAssumedPod(pod)
 }

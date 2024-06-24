@@ -20,13 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"sync"
 	"time"
 
-	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
-	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
-	"github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,11 +32,16 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 
+	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
+	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
+	"github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/core"
 	schedulerframework "github.com/kubewharf/godel-scheduler/pkg/scheduler/framework"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/runtime"
 	unitruntime "github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/unit_runtime"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/metrics"
@@ -91,9 +92,9 @@ type unitScheduler struct {
 }
 
 var (
-	_ core.UnitScheduler                     = &unitScheduler{}
-	_ core.SchedulerHooks                    = &unitScheduler{}
-	_ framework.SchedulerUnitFrameworkHandle = &unitScheduler{}
+	_ core.UnitScheduler         = &unitScheduler{}
+	_ core.SchedulerHooks        = &unitScheduler{}
+	_ handle.UnitFrameworkHandle = &unitScheduler{}
 )
 
 func NewUnitScheduler(
@@ -230,7 +231,7 @@ func (gs *unitScheduler) ReservePod(ctx context.Context, clonedPod *v1.Pod, sche
 	return targetNode, nil
 }
 
-// --------------------------------------------------- SchedulerUnitFrameworkHandle ---------------------------------------------------
+// --------------------------------------------------- UnitFrameworkHandle ---------------------------------------------------
 
 func (gs *unitScheduler) SchedulerName() string {
 	return gs.schedulerName
@@ -254,6 +255,14 @@ func (gs *unitScheduler) IsCachedPod(pod *v1.Pod) (bool, error) {
 
 func (gs *unitScheduler) GetNodeInfo(nodeName string) framework.NodeInfo {
 	return gs.Snapshot.GetNodeInfo(nodeName)
+}
+
+func (gs *unitScheduler) FindStore(storeName commonstore.StoreName) commonstore.Store {
+	return gs.Snapshot.FindStore(storeName)
+}
+
+func (gs *unitScheduler) IsAssumedPod(pod *v1.Pod) (bool, error) {
+	return gs.Cache.IsAssumedPod(pod)
 }
 
 // --------------------------------------------------- UnitScheduler ---------------------------------------------------

@@ -106,7 +106,7 @@ func TestRequestedToCapacityRatio(t *testing.T) {
 			}
 			cache.UpdateSnapshot(snapshot)
 
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 			args := config.RequestedToCapacityRatioArgs{
 				Shape: []config.UtilizationShapePoint{
 					{Utilization: 0, Score: 10},
@@ -382,7 +382,7 @@ func TestResourceBinPackingSingleExtended(t *testing.T) {
 			}
 			cache.UpdateSnapshot(snapshot)
 
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 			args := config.RequestedToCapacityRatioArgs{
 				Shape: []config.UtilizationShapePoint{
 					{Utilization: 0, Score: 0},
@@ -642,7 +642,7 @@ func TestResourceBinPackingMultipleExtended(t *testing.T) {
 			}
 			cache.UpdateSnapshot(snapshot)
 
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 			args := config.RequestedToCapacityRatioArgs{
 				Shape: []config.UtilizationShapePoint{
 					{Utilization: 0, Score: 0},

@@ -533,7 +533,7 @@ func TestCSILimits(t *testing.T) {
 			client := clientsetfake.NewSimpleClientset()
 			informerFactory := informers.NewSharedInformerFactory(client, 0)
 			crdClient := godelclientfake.NewSimpleClientset()
-			fh, _ := st.NewSchedulerFrameworkHandle(client, crdClient, informerFactory, nil, nil, nil, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(client, crdClient, informerFactory, nil, nil, nil, nil, nil, nil, nil)
 			fwk, _ := fh.GetFrameworkForPod(test.newPod)
 			state, _ := fwk.InitCycleState(test.newPod)
 

@@ -185,7 +185,7 @@ func TestNodeMetricEstimatorValidateNode(t *testing.T) {
 				schedulerCache.AddCNR(tt.cnr)
 				schedulerCache.UpdateSnapshot(snapshot)
 			}
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, schedulerCache, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, schedulerCache, snapshot, nil, nil, nil, nil)
 
 			estimator, err := NewNodeMetricEstimator(&loadAwareSchedulingArgs, fh)
 			if err != nil {
@@ -303,8 +303,11 @@ func TestNodeMetricEstimatorEstimatePod(t *testing.T) {
 				UsageThresholds:             defaultUsageThresholds,
 				EstimatedScalingFactors:     defaultEstimatedScalingFactors,
 			}
-
-			estimator, err := NewNodeMetricEstimator(&loadAwareSchedulingArgs, nil)
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
+				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
+				Obj())
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			estimator, err := NewNodeMetricEstimator(&loadAwareSchedulingArgs, fh)
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 			}
@@ -437,7 +440,8 @@ func TestNodeMetricEstimatorEstimateNode(t *testing.T) {
 				}
 				schedulerCache.UpdateSnapshot(snapshot)
 			}
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, schedulerCache, snapshot, nil, nil, nil, nil)
+
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 
 			estimator, err := NewNodeMetricEstimator(&loadAwareSchedulingArgs, fh)
 			if err != nil {

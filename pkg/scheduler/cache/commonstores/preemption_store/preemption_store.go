@@ -175,6 +175,12 @@ func (s *PreemptionStore) PeriodWorker(mu *sync.RWMutex) {
 
 // -------------------------------------- Other Interface --------------------------------------
 
+type StoreHandle interface {
+	GetPreemptorsByVictim(node, victim string) []string
+}
+
+var _ StoreHandle = &PreemptionStore{}
+
 func (s *PreemptionStore) GetPreemptorsByVictim(node, victim string) []string {
 	return s.store.GetPreemptorsByVictim(node, victim)
 }

@@ -24,6 +24,7 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
@@ -42,7 +43,7 @@ type DefaultEstimator struct {
 	resources map[podutil.PodResourceType]sets.String
 }
 
-func NewDefaultEstimator(args *config.LoadAwareArgs, handle framework.SchedulerFrameworkHandle) (Estimator, error) {
+func NewDefaultEstimator(args *config.LoadAwareArgs, handle handle.PodFrameworkHandle) (Estimator, error) {
 	resources := make(map[podutil.PodResourceType]sets.String)
 	for _, res := range args.Resources {
 		resourceSet := resources[res.ResourceType]

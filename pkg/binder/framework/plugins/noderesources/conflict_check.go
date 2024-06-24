@@ -22,6 +22,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/noderesources"
 )
@@ -59,6 +60,6 @@ func (pl *ConflictCheck) CheckConflicts(_ context.Context, state *framework.Cycl
 	return nil
 }
 
-func NewConflictCheck(_ runtime.Object, _ framework.BinderFrameworkHandle) (framework.Plugin, error) {
+func NewConflictCheck(_ runtime.Object, _ handle.BinderFrameworkHandle) (framework.Plugin, error) {
 	return &ConflictCheck{}, nil
 }

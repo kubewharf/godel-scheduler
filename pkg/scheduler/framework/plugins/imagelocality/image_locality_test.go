@@ -206,7 +206,7 @@ func TestImageLocalityPriority(t *testing.T) {
 
 			state := framework.NewCycleState()
 			framework.SetPodResourceTypeState(podutil.GuaranteedPod, state)
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 
 			p, _ := New(nil, fh)
 			var gotList framework.NodeScoreList
