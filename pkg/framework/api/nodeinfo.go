@@ -87,7 +87,6 @@ type NodeInfo interface {
 	Clone() NodeInfo
 	String() string
 
-	GetPodsWithAffinity() []*PodInfo
 	GetPodsWithRequiredAntiAffinity() []*PodInfo
 
 	AddPod(pod *v1.Pod)
@@ -265,12 +264,6 @@ func (n *NodeInfoImpl) SetUsedPorts(info HostPortInfo) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.UsedPorts = info
-}
-
-func (n *NodeInfoImpl) GetPodsWithAffinity() []*PodInfo {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-	return n.PodInfoMaintainer.GetPodsWithAffinity()
 }
 
 func (n *NodeInfoImpl) GetPodsWithRequiredAntiAffinity() []*PodInfo {

@@ -20,9 +20,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
+	"github.com/kubewharf/godel-scheduler/pkg/util"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (
@@ -31,7 +34,7 @@ const (
 )
 
 type NodeCircle interface {
-	NodeInfoLister
+	ClusterNodeInfoLister
 	GetKey() string
 	Validate() error
 }
@@ -83,6 +86,7 @@ type PreferredNodes interface {
 type NodeGroup interface {
 	GetKey() string
 	Validate() error
+	ClusterNodeInfoGetter
 
 	GetNodeCircles() NodeCircleList
 	SetNodeCircles(NodeCircleList)
@@ -95,13 +99,16 @@ type NodeGroup interface {
 
 type NodeCircleImpl struct {
 	key string
-	NodeInfoLister
+	ClusterNodeInfoLister
 }
 
 var _ NodeCircle = &NodeCircleImpl{}
 
-func NewNodeCircle(key string, lister NodeInfoLister) NodeCircle {
-	return &NodeCircleImpl{key: key, NodeInfoLister: lister}
+func NewNodeCircle(key string, lister ClusterNodeInfoLister) NodeCircle {
+	if lister == nil {
+		lister = NewClusterNodeInfoLister()
+	}
+	return &NodeCircleImpl{key: key, ClusterNodeInfoLister: lister}
 }
 
 func (nc *NodeCircleImpl) GetKey() string {
@@ -109,10 +116,10 @@ func (nc *NodeCircleImpl) GetKey() string {
 }
 
 func (nc *NodeCircleImpl) Validate() error {
-	if nc.NodeInfoLister == nil {
+	if nc.ClusterNodeInfoLister == nil {
 		return fmt.Errorf("lister is nil")
 	}
-	nodes := nc.NodeInfoLister.List()
+	nodes := nc.ClusterNodeInfoLister.List()
 	if len(nodes) == 0 {
 		return fmt.Errorf("no nodes in this node circle")
 	}
@@ -153,18 +160,31 @@ func (i *PreferredNodesImpl) List() []NodeInfo {
 
 // ------------------------------------------------------------------------------------------
 
+var _ NodeGroup = &NodeGroupImpl{}
+
 type NodeGroupImpl struct {
-	Key            string
+	Key string
+	ClusterNodeInfoGetter
 	NodeCircles    []NodeCircle
 	PreferredNodes PreferredNodes
 }
 
-var _ NodeGroup = &NodeGroupImpl{}
-
-func NewNodeGroup(key string, nodeCircles []NodeCircle) NodeGroup {
+// NewNodeGroup creates and returns a new NodeGroup. A non-nil `getter` is passed usually when the
+// node set is large but unchanged, for example, when we get a basic NodeGroup from the snapshot.
+func NewNodeGroup(key string, getter ClusterNodeInfoGetter, nodeCircles []NodeCircle) NodeGroup {
+	if getter == nil {
+		getterImpl := &NodeInfoGetterImpl{NodeInfoMap: make(map[string]NodeInfo)}
+		for _, nc := range nodeCircles {
+			for _, nodeInfo := range nc.List() {
+				getterImpl.NodeInfoMap[nodeInfo.GetNodeName()] = nodeInfo
+			}
+		}
+		getter = getterImpl
+	}
 	return &NodeGroupImpl{
-		Key:         key,
-		NodeCircles: nodeCircles,
+		Key:                   key,
+		ClusterNodeInfoGetter: getter,
+		NodeCircles:           nodeCircles,
 	}
 }
 
@@ -173,6 +193,10 @@ func (ng *NodeGroupImpl) GetKey() string {
 }
 
 func (ng *NodeGroupImpl) Validate() error {
+	if ng.ClusterNodeInfoGetter == nil {
+		return fmt.Errorf("getter is nil")
+	}
+
 	var hasAvailableNodes bool
 	if preferredNodes := ng.PreferredNodes; preferredNodes != nil && len(preferredNodes.List()) > 0 {
 		hasAvailableNodes = true
@@ -210,85 +234,132 @@ func (ng *NodeGroupImpl) SetPreferredNodes(preferredNodes PreferredNodes) {
 
 // ------------------------------------------------------------------------------------------
 
-// NodeInfoListerImpl implements NodeInfoLister interface.
-type NodeInfoListerImpl struct {
-	// nodeInfoMap is a map of node name to its NodeInfo.
+type NodeInfoGetterImpl struct {
 	NodeInfoMap map[string]NodeInfo
-	// InPartitionNodes is the list of nodes in the partition of the scheduler.
-	InPartitionNodes []NodeInfo
-	// OutOfPartitionNodes is the list of nodes out of the partition of the scheduler.
-	OutOfPartitionNodes []NodeInfo
-	// HavePodsWithAffinityNodes is the list of nodes with at least one pod declaring affinity terms.
-	HavePodsWithAffinityNodes []NodeInfo
-	// HavePodsWithRequiredAntiAffinityNodes is the list of nodes with at least one pod declaring
-	// required anti-affinity terms.
-	HavePodsWithRequiredAntiAffinityNodes []NodeInfo
 }
 
-var _ NodeInfoLister = &NodeInfoListerImpl{}
-
-// NewNodeInfoLister creates a new NodeInfoLister object.
-func NewNodeInfoLister() NodeInfoLister {
-	return &NodeInfoListerImpl{
-		NodeInfoMap: make(map[string]NodeInfo),
-	}
-}
-
-// List returns the list of NodeInfos.
-func (i *NodeInfoListerImpl) List() []NodeInfo {
-	return append(i.InPartitionNodes, i.OutOfPartitionNodes...)
-}
-
-// HavePodsWithAffinityList returns the list of NodeInfos of nodes with pods with affinity terms.
-func (i *NodeInfoListerImpl) HavePodsWithAffinityList() []NodeInfo {
-	return i.HavePodsWithAffinityNodes
-}
-
-// HavePodsWithRequiredAntiAffinityList returns the list of NodeInfos of nodes with pods with required anti-affinity terms.
-func (i *NodeInfoListerImpl) HavePodsWithRequiredAntiAffinityList() []NodeInfo {
-	return i.HavePodsWithRequiredAntiAffinityNodes
-}
-
-// Get returns the NodeInfo of the given node name.
-func (i *NodeInfoListerImpl) Get(nodeName string) (NodeInfo, error) {
-	if v, ok := i.NodeInfoMap[nodeName]; ok && (v.GetNode() != nil || v.GetNMNode() != nil) {
-		return v, nil
+func (g *NodeInfoGetterImpl) Get(nodeName string) (NodeInfo, error) {
+	if nodeInfo, ok := g.NodeInfoMap[nodeName]; ok && nodeInfo != nil {
+		if nodeInfo.GetNode() != nil || nodeInfo.GetNMNode() != nil {
+			return nodeInfo, nil
+		}
 	}
 	return nil, fmt.Errorf("nodeinfo not found for node name %q", nodeName)
 }
 
+// ------------------------------------------------------------------------------------------
+
+// NodeInfoListerImpl implements ClusterNodeInfoLister interface.
+type NodeInfoListerImpl struct {
+	// InPartitionNodes is the list of nodes in the partition of the scheduler.
+	InPartitionNodes []NodeInfo
+	// OutOfPartitionNodes is the list of nodes out of the partition of the scheduler.
+	OutOfPartitionNodes []NodeInfo
+}
+
+var _ ClusterNodeInfoLister = &NodeInfoListerImpl{}
+
+// NewClusterNodeInfoLister creates a new NodeInfoLister object.
+func NewClusterNodeInfoLister() ClusterNodeInfoLister {
+	return &NodeInfoListerImpl{}
+}
+
+func (i *NodeInfoListerImpl) List() []NodeInfo {
+	if i == nil {
+		return nil
+	}
+	return append(i.InPartitionNodes, i.OutOfPartitionNodes...)
+}
+
 func (i *NodeInfoListerImpl) InPartitionList() []NodeInfo {
+	if i == nil {
+		return nil
+	}
 	return i.InPartitionNodes
 }
 
 func (i *NodeInfoListerImpl) OutOfPartitionList() []NodeInfo {
+	if i == nil {
+		return nil
+	}
 	return i.OutOfPartitionNodes
 }
 
-func (i *NodeInfoListerImpl) AddNodeInfo(nodeInfo NodeInfo) {
-	nodeName := nodeInfo.GetNodeName()
-	if _, ok := i.NodeInfoMap[nodeName]; ok {
-		return
+func (i *NodeInfoListerImpl) Len() int {
+	if i == nil {
+		return 0
 	}
-	i.NodeInfoMap[nodeName] = nodeInfo
+	return len(i.InPartitionNodes) + len(i.OutOfPartitionNodes)
+}
+
+func (i *NodeInfoListerImpl) AddNodeInfo(nodeInfo NodeInfo) {
+
 	if nodeInfo.GetNodeInSchedulerPartition() || nodeInfo.GetNMNodeInSchedulerPartition() {
 		i.InPartitionNodes = append(i.InPartitionNodes, nodeInfo)
 	} else {
 		i.OutOfPartitionNodes = append(i.OutOfPartitionNodes, nodeInfo)
 	}
-	if len(nodeInfo.GetPodsWithAffinity()) > 0 {
-		i.HavePodsWithAffinityNodes = append(i.HavePodsWithAffinityNodes, nodeInfo)
-	}
-	if len(nodeInfo.GetPodsWithRequiredAntiAffinity()) > 0 {
-		i.HavePodsWithRequiredAntiAffinityNodes = append(i.HavePodsWithRequiredAntiAffinityNodes, nodeInfo)
-	}
 }
 
 // ------------------------------------------------------------------------------------------
 
-func FilterNodeInfoLister(lister NodeInfoLister, filterFunc func(NodeInfo) bool) NodeInfoLister {
+// SplitNodeInfoLister split the node slices in the lister
+func SplitNodeInfoLister(lister ClusterNodeInfoLister, nodeNameSet sets.String) (ClusterNodeInfoLister, ClusterNodeInfoLister) {
+	split := func(nodeSlice []NodeInfo) (sliceMatch, sliceNotMatch []NodeInfo) {
+		retMatch, retNotMatch := []NodeInfo{}, []NodeInfo{}
+		sz := len(nodeSlice)
+		if sz > 0 {
+			// We create a new slice to save the result of the check temporarily and then traverse the slice serially,
+			// rather than appending the `ret` slice concurrently which leads to lots of lock overhead.
+			flags := make([]bool, sz)
+
+			stop := false
+
+			util.ParallelizeUntil(&stop, 32, sz, func(i int) {
+				flags[i] = nodeNameSet.Has(nodeSlice[i].GetNodeName())
+			})
+			ret := make([]NodeInfo, sz)
+			left, right := 0, sz-1
+			for i := range flags {
+				if flags[i] {
+					ret[left] = nodeSlice[i]
+					left++
+				} else {
+					ret[right] = nodeSlice[i]
+					right--
+				}
+			}
+			if left > 0 {
+				retMatch = ret[:left]
+			}
+			if right < sz-1 {
+				retNotMatch = ret[right+1:]
+			}
+		}
+		return retMatch, retNotMatch
+	}
+
+	listerMatch, listerNotMatch := &NodeInfoListerImpl{}, &NodeInfoListerImpl{}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		nodes := lister.InPartitionList()
+		listerMatch.InPartitionNodes, listerNotMatch.InPartitionNodes = split(nodes)
+	}()
+	go func() {
+		defer wg.Done()
+		nodes := lister.OutOfPartitionList()
+		listerMatch.OutOfPartitionNodes, listerNotMatch.OutOfPartitionNodes = split(nodes)
+	}()
+	wg.Wait()
+
+	return listerMatch, listerNotMatch
+}
+
+func FliterNodeInfoLister(lister ClusterNodeInfoLister, filterFunc func(NodeInfo) bool) ClusterNodeInfoLister {
 	nodes := lister.List()
-	ret := &NodeInfoListerImpl{NodeInfoMap: make(map[string]NodeInfo)}
+	ret := &NodeInfoListerImpl{}
 	for _, node := range nodes {
 		if !filterFunc(node) {
 			continue
@@ -311,29 +382,26 @@ func FilterPreferredNodes(preferredNodes PreferredNodes, filterFunc func(NodeInf
 }
 
 func FilterNodeGroup(nodeGroup NodeGroup, filterFunc func(NodeInfo) bool) NodeGroup {
-	newNodeGroup := NewNodeGroup(nodeGroup.GetKey(), nil)
-	{
-		nodeCircles := nodeGroup.GetNodeCircles()
-		newNodeCircles := make([]NodeCircle, 0, len(nodeCircles))
-		for _, nodeCircle := range nodeCircles {
-			newNodeCircle := NewNodeCircle(
-				nodeCircle.GetKey(),
-				FilterNodeInfoLister(nodeCircle, func(nodeInfo NodeInfo) bool {
-					return filterFunc(nodeInfo)
-				}),
-			)
-			if len(newNodeCircle.List()) > 0 {
-				newNodeCircles = append(newNodeCircles, newNodeCircle)
-			}
-		}
-		newNodeGroup.SetNodeCircles(newNodeCircles)
-	}
-	{
-		preferredNodes := nodeGroup.GetPreferredNodes()
-		if preferredNodes != nil {
-			newNodeGroup.SetPreferredNodes(FilterPreferredNodes(preferredNodes, filterFunc))
+	nodeCircles := nodeGroup.GetNodeCircles()
+	newNodeCircles := make([]NodeCircle, 0, len(nodeCircles))
+	for _, nodeCircle := range nodeCircles {
+		newNodeCircle := NewNodeCircle(
+			nodeCircle.GetKey(),
+			FliterNodeInfoLister(nodeCircle, func(nodeInfo NodeInfo) bool {
+				return filterFunc(nodeInfo)
+			}),
+		)
+		if len(newNodeCircle.List()) > 0 {
+			newNodeCircles = append(newNodeCircles, newNodeCircle)
 		}
 	}
+	newNodeGroup := NewNodeGroup(nodeGroup.GetKey(), nil, newNodeCircles)
+
+	preferredNodes := nodeGroup.GetPreferredNodes()
+	if preferredNodes != nil {
+		newNodeGroup.SetPreferredNodes(FilterPreferredNodes(preferredNodes, filterFunc))
+	}
+
 	return newNodeGroup
 }
 
