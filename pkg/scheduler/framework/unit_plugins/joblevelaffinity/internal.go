@@ -38,17 +38,15 @@ var defaultSortRule = framework.SortRule{
 	Order:     framework.AscendingOrder,
 }
 
-func getSortRules(unit framework.ScheduleUnit) ([]framework.SortRule, error) {
-	sortRules, err := unit.GetSortRulesForAffinity()
-	if err != nil {
-		return nil, err
-	}
+func getSortRules(unit framework.ScheduleUnit) []framework.SortRule {
+	sortRules := unit.GetSortRulesForAffinity()
 
 	// If there is no sort rules, we add default rule.
 	if len(sortRules) == 0 {
 		sortRules = []framework.SortRule{defaultSortRule}
 	}
-	return sortRules, nil
+
+	return sortRules
 }
 
 // ------------------------------------------------------------------------------------------

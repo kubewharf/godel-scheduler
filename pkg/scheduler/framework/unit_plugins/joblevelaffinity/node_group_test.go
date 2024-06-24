@@ -23,12 +23,6 @@ import (
 	"time"
 
 	"github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
-	"github.com/stretchr/testify/assert"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
-
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/api/fake"
@@ -36,18 +30,45 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/testing/fakehandle"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
+
+	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-func TestSortNodeGroups(t *testing.T) {
+func makeUnitWithRequest(resourceName v1.ResourceName, quantity resource.Quantity) framework.ScheduleUnit {
 	pg := &v1alpha1.PodGroup{}
 	pg.Spec.Affinity = &v1alpha1.Affinity{
 		PodGroupAffinity: &v1alpha1.PodGroupAffinity{},
 	}
+	pg.Spec.MinMember = 1
 	unit := framework.NewPodGroupUnit(pg, 0)
+	var requests v1.ResourceList
+	if resourceName.String() != "" {
+		requests = v1.ResourceList{
+			resourceName: quantity,
+		}
+	}
 	unit.AddPod(&framework.QueuedPodInfo{
-		Pod: &v1.Pod{},
+		Pod: &v1.Pod{
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Resources: v1.ResourceRequirements{
+							Requests: requests,
+						},
+					},
+				},
+			},
+		},
 	})
 
+	return unit
+}
+
+func TestSortAndMarkTopologyElems(t *testing.T) {
 	lister1 := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
 	lister2 := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
 	lister3 := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
@@ -116,12 +137,14 @@ func TestSortNodeGroups(t *testing.T) {
 
 	testCases := []struct {
 		name        string
+		unit        framework.ScheduleUnit
 		nodeCircles []framework.NodeCircle
 		sortRules   []framework.SortRule
 		expected    []framework.NodeCircle
 	}{
 		{
 			name:        "empty sortRule, sort by cpu capacity asc",
+			unit:        makeUnitWithRequest("", resource.Quantity{}),
 			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
 			// The default sortRule (cpu|capacity|ascending) will be added in the real scehduling process,
 			// but no sort rule will be added in this unit test. Thus the nodeGroup order here is not changed.
@@ -129,6 +152,7 @@ func TestSortNodeGroups(t *testing.T) {
 		},
 		{
 			name: "sort by gpu capacity desc",
+			unit: makeUnitWithRequest("", resource.Quantity{}),
 			sortRules: []framework.SortRule{
 				{
 					Resource:  framework.GPUResource,
@@ -141,6 +165,7 @@ func TestSortNodeGroups(t *testing.T) {
 		},
 		{
 			name: "sort by mem capacity asc, gpu capacity asc",
+			unit: makeUnitWithRequest("", resource.Quantity{}),
 			sortRules: []framework.SortRule{
 				{
 					Resource:  framework.MemoryResource,
@@ -158,6 +183,7 @@ func TestSortNodeGroups(t *testing.T) {
 		},
 		{
 			name: "sort by mem capacity desc, gpu capacity asc",
+			unit: makeUnitWithRequest("", resource.Quantity{}),
 			sortRules: []framework.SortRule{
 				{
 					Resource:  framework.MemoryResource,
@@ -175,6 +201,7 @@ func TestSortNodeGroups(t *testing.T) {
 		},
 		{
 			name: "sort by available gpu, desc",
+			unit: makeUnitWithRequest("", resource.Quantity{}),
 			sortRules: []framework.SortRule{
 				{
 					Resource:  framework.GPUResource,
@@ -187,6 +214,7 @@ func TestSortNodeGroups(t *testing.T) {
 		},
 		{
 			name: "sort by available mem asc, available gpu asc",
+			unit: makeUnitWithRequest("", resource.Quantity{}),
 			sortRules: []framework.SortRule{
 				{
 					Resource:  framework.MemoryResource,
@@ -204,6 +232,7 @@ func TestSortNodeGroups(t *testing.T) {
 		},
 		{
 			name: "sort by available mem desc, available gpu asc",
+			unit: makeUnitWithRequest("", resource.Quantity{}),
 			sortRules: []framework.SortRule{
 				{
 					Resource:  framework.MemoryResource,
@@ -219,15 +248,172 @@ func TestSortNodeGroups(t *testing.T) {
 			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
 			expected:    []framework.NodeCircle{nc2, nc3, nc1},
 		},
+		{
+			name: "sort by gpu capacity desc, unit requests cpu resource and no topology domains filtered out",
+			unit: makeUnitWithRequest(v1.ResourceCPU, resource.MustParse("1000m")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc3, nc2, nc1},
+		},
+		{
+			name: "sort by gpu capacity desc, unit requests cpu resource and 1 topology domain filtered out",
+			unit: makeUnitWithRequest(v1.ResourceCPU, resource.MustParse("1500m")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc3, nc2},
+		},
+		{
+			name: "sort by gpu capacity desc, unit requests cpu resource and 2 topology domains filtered out",
+			unit: makeUnitWithRequest(v1.ResourceCPU, resource.MustParse("2001m")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc3},
+		},
+		{
+			name: "sort by gpu capacity desc, unit requests cpu resource and 3 topology domains filtered out",
+			unit: makeUnitWithRequest(v1.ResourceCPU, resource.MustParse("5000m")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{},
+		},
+		{
+			name: "sort by gpu capacity desc, unit requests memory resource and no topology domains filtered out",
+			unit: makeUnitWithRequest(v1.ResourceMemory, resource.MustParse("1024")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc3, nc2, nc1},
+		},
+		{
+			name: "sort by gpu capacity desc, unit requests memory resource and 1 topology domain filtered out",
+			unit: makeUnitWithRequest(v1.ResourceMemory, resource.MustParse("1025")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc3, nc2},
+		},
+		{
+			name: "sort by gpu capacity desc, unit requests memory resource and 3 topology domains filtered out",
+			unit: makeUnitWithRequest(v1.ResourceMemory, resource.MustParse("2049")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{},
+		},
+		{
+			name: "sort by gpu capacity desc, unit requests gpu resource and no topology domains filtered out",
+			unit: makeUnitWithRequest(util.ResourceGPU, resource.MustParse("0")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc3, nc2, nc1},
+		},
+		{
+			name: "sort by gpu capacity desc, unit requests gpu resource and 1 topology domain filtered out",
+			unit: makeUnitWithRequest(util.ResourceGPU, resource.MustParse("2")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc3, nc2},
+		},
+		{
+			name: "sort by gpu capacity desc, unit requests gpu resource and 2 topology domains filtered out",
+			unit: makeUnitWithRequest(util.ResourceGPU, resource.MustParse("10")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc3},
+		},
+		{
+			name: "sort by gpu capacity desc, unit requests gpu resource and 3 topology domains filtered out",
+			unit: makeUnitWithRequest(util.ResourceGPU, resource.MustParse("13")),
+			sortRules: []framework.SortRule{
+				{
+					Resource:  framework.GPUResource,
+					Dimension: framework.Capacity,
+					Order:     framework.DescendingOrder,
+				},
+			},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{},
+		},
 	}
 
 	for i := range testCases {
 		tt := &testCases[i]
 		t.Run(tt.name, func(t *testing.T) {
-			sortNodeCircles(context.TODO(), unit, tt.nodeCircles, tt.sortRules)
-			for j := range tt.nodeCircles {
-				if tt.nodeCircles[j].GetKey() != tt.expected[j].GetKey() {
-					t.Errorf("expected %#v, got %#v", tt.expected[j].GetKey(), tt.nodeCircles[j].GetKey())
+			minRequest, err := computeUnitMinResourceRequest(tt.unit, false)
+			if err != nil {
+				t.Errorf("failed to get min request: %v", err)
+			}
+			topologyElems := getTopologyElems(tt.nodeCircles)
+			sortAndMarkTopologyElems(context.TODO(), tt.unit, topologyElems, tt.sortRules, minRequest, false)
+			var got []framework.NodeCircle
+			for j := range topologyElems {
+				if !topologyElems[j].cutOff {
+					got = append(got, topologyElems[j].nodeCircle)
+				}
+			}
+			if len(got) != len(tt.expected) {
+				t.Errorf("expected length %#v, got %#v", len(tt.expected), len(got))
+			}
+			for j := range got {
+				if got[j].GetKey() != tt.expected[j].GetKey() {
+					t.Errorf("expected %#v, got %#v", tt.expected[j].GetKey(), got[j].GetKey())
 				}
 			}
 		})
@@ -420,19 +606,20 @@ func TestGroupNodesByAffinityTerms(t *testing.T) {
 	)
 	nodeGroup := framework.NewNodeCircle("", framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup, nodes...)
-	topologyKey1 := "topologyKey1:topologyVal1;"
+	// same format with nodegroup key [kv]
+	topologyKey1 := "[topologyKey1:topologyVal1;]"
 	nodeGroup1 := framework.NewNodeCircle(topologyKey1, framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup1, nodes[:3]...)
-	topologyKey2 := "topologyKey1:topologyVal2;"
+	topologyKey2 := "[topologyKey1:topologyVal2;]"
 	nodeGroup2 := framework.NewNodeCircle(topologyKey2, framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup2, nodes[3])
-	topologyKey3 := "topologyKey1:topologyVal1;topologyKey2:topologyVal1;"
+	topologyKey3 := "[topologyKey1:topologyVal1;topologyKey2:topologyVal1;]"
 	nodeGroup3 := framework.NewNodeCircle(topologyKey3, framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup3, nodes[:2]...)
-	topologyKey4 := "topologyKey1:topologyVal1;topologyKey2:topologyVal2;"
+	topologyKey4 := "[topologyKey1:topologyVal1;topologyKey2:topologyVal2;]"
 	nodeGroup4 := framework.NewNodeCircle(topologyKey4, framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup4, nodes[2])
-	topologyKey5 := "topologyKey1:topologyVal2;topologyKey2:topologyVal1;"
+	topologyKey5 := "[topologyKey1:topologyVal2;topologyKey2:topologyVal1;]"
 	nodeGroup5 := framework.NewNodeCircle(topologyKey5, framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup5, nodes[3])
 
@@ -769,7 +956,7 @@ func makeNodeInfo(name string) framework.NodeInfo {
 }
 
 func TestGetNodeGroupsFromTree(t *testing.T) {
-	wrongTree := []*nodeCircleElem{
+	wrongTree := []*topologyElem{
 		{
 			nodeCircle: framework.NewNodeCircle("nc0", nil),
 			children:   []int{1, 2},
@@ -799,7 +986,7 @@ func TestGetNodeGroupsFromTree(t *testing.T) {
 			children:   []int{},
 		},
 	}
-	wrongTree2 := []*nodeCircleElem{
+	wrongTree2 := []*topologyElem{
 		{
 			nodeCircle: framework.NewNodeCircle("nc0", nil),
 			children:   []int{1, 2},
@@ -829,7 +1016,7 @@ func TestGetNodeGroupsFromTree(t *testing.T) {
 			children:   []int{},
 		},
 	}
-	oneRequiredAndTwoPreferredAffinityTermTree := []*nodeCircleElem{
+	oneRequiredAndTwoPreferredTopologyTree := []*topologyElem{
 		{
 			nodeCircle: framework.NewNodeCircle("BigPodA", nil), // index 0
 			children:   []int{2, 3},
@@ -891,7 +1078,7 @@ func TestGetNodeGroupsFromTree(t *testing.T) {
 			children:   []int{},
 		},
 	}
-	oneRequiredAndTwoPreferredAffinityTermNodeGroups := []framework.NodeGroup{
+	oneRequiredAndTwoPreferredNodeGroups := []framework.NodeGroup{
 		&framework.NodeGroupImpl{
 			Key:         "Tor9",
 			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor9", nil)},
@@ -966,7 +1153,7 @@ func TestGetNodeGroupsFromTree(t *testing.T) {
 	nodeInfoLister3 := framework.NodeInfoListerImpl{
 		InPartitionNodes: []framework.NodeInfo{nodeInfo3},
 	}
-	treeWithRunningPodsInSamePreferredDomain := []*nodeCircleElem{
+	treeWithRunningPodsInSamePreferredDomain := []*topologyElem{
 		{
 			nodeCircle: framework.NewNodeCircle("BigPodA", &nodeInfoLister1), // index 0
 			children:   []int{1},
@@ -994,54 +1181,166 @@ func TestGetNodeGroupsFromTree(t *testing.T) {
 			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("BigPodA", &nodeInfoLister1)},
 		},
 	}
+	oneRequiredAndTwoPreferredTopologyTreeWithSomeTermsCutOff := []*topologyElem{
+		{
+			nodeCircle: framework.NewNodeCircle("BigPodA", nil), // index 0
+			children:   []int{2, 3},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("BigPodB", nil), // index 1
+			children:   []int{4, 5},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("MiniPodA1", nil), // index 2
+			children:   []int{6, 7, 8},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("MiniPodA2", nil), // index 3
+			children:   []int{9, 10},
+			cutOff:     true,
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("MiniPodB1", nil), // index 4
+			children:   []int{11, 12},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("MiniPodB2", nil), // index 5
+			children:   []int{13, 14},
+			cutOff:     true,
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("Tor1", nil), // index 6
+			children:   []int{},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("Tor2", nil), // index 7
+			children:   []int{},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("Tor3", nil), // index 8
+			children:   []int{},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("Tor4", nil), // index 9
+			children:   []int{},
+			cutOff:     true,
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("Tor5", nil), // index 10
+			children:   []int{},
+			cutOff:     true,
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("Tor6", nil), // index 11
+			children:   []int{},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("Tor7", nil), // index 12
+			children:   []int{},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("Tor8", nil), // index 13
+			children:   []int{},
+			cutOff:     true,
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("Tor9", nil), // index 14
+			children:   []int{},
+			cutOff:     true,
+		},
+	}
+	oneRequiredAndTwoPreferredNodeGroupsWithSomeGroupsCutOff := []framework.NodeGroup{
+		&framework.NodeGroupImpl{
+			Key:         "Tor7",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor7", nil)},
+		},
+		&framework.NodeGroupImpl{
+			Key:         "Tor6",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor6", nil)},
+		},
+		&framework.NodeGroupImpl{
+			Key:         "Tor3",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor3", nil)},
+		},
+		&framework.NodeGroupImpl{
+			Key:         "Tor2",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor2", nil)},
+		},
+		&framework.NodeGroupImpl{
+			Key:         "Tor1",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor1", nil)},
+		},
+		&framework.NodeGroupImpl{
+			Key:         "MiniPodB1",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor7", nil), framework.NewNodeCircle("Tor6", nil)},
+		},
+		&framework.NodeGroupImpl{
+			Key:         "MiniPodA1",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor3", nil), framework.NewNodeCircle("Tor2", nil), framework.NewNodeCircle("Tor1", nil)},
+		},
+		&framework.NodeGroupImpl{
+			Key:         "BigPodB",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor9", nil), framework.NewNodeCircle("Tor8", nil), framework.NewNodeCircle("Tor7", nil), framework.NewNodeCircle("Tor6", nil)},
+		},
+		&framework.NodeGroupImpl{
+			Key:         "BigPodA",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor5", nil), framework.NewNodeCircle("Tor4", nil), framework.NewNodeCircle("Tor3", nil), framework.NewNodeCircle("Tor2", nil), framework.NewNodeCircle("Tor1", nil)},
+		},
+	}
 
 	tests := []struct {
 		name               string
-		nodeGroupTree      []*nodeCircleElem
+		topologyElem       []*topologyElem
 		expectedNodeGroups []framework.NodeGroup
 		expectedError      error
 	}{
 		{
 			name:               "nil tree",
-			nodeGroupTree:      nil,
+			topologyElem:       nil,
 			expectedNodeGroups: nil,
-			expectedError:      fmt.Errorf("empty node group tree"),
+			expectedError:      fmt.Errorf("empty topology tree"),
 		},
 		{
 			name:               "empty tree",
-			nodeGroupTree:      []*nodeCircleElem{},
+			topologyElem:       []*topologyElem{},
 			expectedNodeGroups: nil,
-			expectedError:      fmt.Errorf("empty node group tree"),
+			expectedError:      fmt.Errorf("empty topology tree"),
 		},
 		{
 			name:               "wrong child index in some element",
-			nodeGroupTree:      wrongTree,
+			topologyElem:       wrongTree,
 			expectedNodeGroups: nil,
 			expectedError:      fmt.Errorf("unexpected child index 7 in elem 2 while length of tree is 7"),
 		},
 		{
 			name:               "some elem has nil node group",
-			nodeGroupTree:      wrongTree2,
+			topologyElem:       wrongTree2,
 			expectedNodeGroups: nil,
-			expectedError:      fmt.Errorf("nil node group in elem 3"),
+			expectedError:      fmt.Errorf("nil node circle in elem 3"),
 		},
 		{
 			name:               "1 required and 2 preferred affinity terms",
-			nodeGroupTree:      oneRequiredAndTwoPreferredAffinityTermTree,
-			expectedNodeGroups: oneRequiredAndTwoPreferredAffinityTermNodeGroups,
+			topologyElem:       oneRequiredAndTwoPreferredTopologyTree,
+			expectedNodeGroups: oneRequiredAndTwoPreferredNodeGroups,
 			expectedError:      nil,
 		},
 		{
 			name:               "running pods in same preferred domain",
-			nodeGroupTree:      treeWithRunningPodsInSamePreferredDomain,
+			topologyElem:       treeWithRunningPodsInSamePreferredDomain,
 			expectedNodeGroups: nodeGroupsWithRunningPodsInSamePreferredDomain,
+			expectedError:      nil,
+		},
+		{
+			name:               "1 required and 2 preferred affinity term, and some node groups cut off",
+			topologyElem:       oneRequiredAndTwoPreferredTopologyTreeWithSomeTermsCutOff,
+			expectedNodeGroups: oneRequiredAndTwoPreferredNodeGroupsWithSomeGroupsCutOff,
 			expectedError:      nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			nodeGroups, err := getNodeGroupsFromTree(tt.nodeGroupTree)
+			nodeGroups, err := getNodeGroupsFromTree(tt.topologyElem)
 			if err != nil || tt.expectedError != nil {
 				if err == nil || tt.expectedError == nil || err.Error() != tt.expectedError.Error() {
 					t.Fatalf("expected err: %v, got: %v", tt.expectedError, err)
@@ -1077,8 +1376,8 @@ func TestGrouping(t *testing.T) {
 	defer close(stop)
 	cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
 		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
-		EnableStore("PreemptionStore").
+		PodAssumedTTL(time.Second).Period(10*time.Second).StopCh(make(<-chan struct{})).
+		EnableStore("PreemptionStore", "QueueStore", "HostUniqueStore").
 		Obj())
 
 	nodes := []*v1.Node{
@@ -1325,6 +1624,17 @@ func TestGrouping(t *testing.T) {
 					podutil.PodResourceTypeAnnotationKey: string(podutil.GuaranteedPod),
 				},
 			},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceCPU: resource.MustParse("7"),
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 	queuedUnitInfo.AddPod(queuedPodInfo)
@@ -1334,38 +1644,38 @@ func TestGrouping(t *testing.T) {
 			Key:         "tor:tor1;",
 			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor1;", nil)},
 		},
-		&framework.NodeGroupImpl{
-			Key:         "tor:tor2;",
-			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor2;", nil)},
-		},
-		&framework.NodeGroupImpl{
-			Key:         "tor:tor3;",
-			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor3;", nil)},
-		},
+		// &framework.NodeGroupImpl{
+		// 	Key:         "tor:tor2;",
+		// 	NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor2;", nil)},
+		// },
+		// &framework.NodeGroupImpl{
+		// 	Key:         "tor:tor3;",
+		// 	NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor3;", nil)},
+		// },
 		&framework.NodeGroupImpl{
 			Key:         "tor:tor4;",
 			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor4;", nil)},
 		},
-		&framework.NodeGroupImpl{
-			Key:         "tor:tor5;",
-			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor5;", nil)},
-		},
+		// &framework.NodeGroupImpl{
+		// 	Key:         "tor:tor5;",
+		// 	NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor5;", nil)},
+		// },
 		&framework.NodeGroupImpl{
 			Key:         "tor:tor6;",
 			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor6;", nil)},
 		},
-		&framework.NodeGroupImpl{
-			Key:         "tor:tor7;",
-			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor7;", nil)},
-		},
-		&framework.NodeGroupImpl{
-			Key:         "tor:tor8;",
-			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor8;", nil)},
-		},
-		&framework.NodeGroupImpl{
-			Key:         "tor:tor9;",
-			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor9;", nil)},
-		},
+		// &framework.NodeGroupImpl{
+		// 	Key:         "tor:tor7;",
+		// 	NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor7;", nil)},
+		// },
+		// &framework.NodeGroupImpl{
+		// 	Key:         "tor:tor8;",
+		// 	NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor8;", nil)},
+		// },
+		// &framework.NodeGroupImpl{
+		// 	Key:         "tor:tor9;",
+		// 	NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor9;", nil)},
+		// },
 		&framework.NodeGroupImpl{
 			Key:         "miniPod:miniPodA1;",
 			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("tor:tor1;", nil), framework.NewNodeCircle("tor:tor2;", nil), framework.NewNodeCircle("tor:tor3;", nil)},
@@ -1403,7 +1713,9 @@ func TestGrouping(t *testing.T) {
 
 	pl.(framework.LocatingPlugin).Locating(context.Background(), queuedUnitInfo, framework.NewCycleState(), nodeGroup)
 
-	gotNodeGroupList, status := pl.(framework.GroupingPlugin).Grouping(context.Background(), queuedUnitInfo, framework.NewCycleState(), nodeGroup)
+	unitCycleState := framework.NewCycleState()
+	framework.SetEverScheduledState(false, unitCycleState)
+	gotNodeGroupList, status := pl.(framework.GroupingPlugin).Grouping(context.Background(), queuedUnitInfo, unitCycleState, nodeGroup)
 	if !status.IsSuccess() {
 		t.Fatalf("status: %v", status)
 	}
