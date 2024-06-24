@@ -113,13 +113,13 @@ func (i *JobLevelAffinity) findNodeGroups(
 	ctx context.Context,
 	unit framework.ScheduleUnit,
 	podLauncher podutil.PodLauncher,
-	originNodeGroup framework.NodeGroup,
+	originalNodeGroup framework.NodeGroup,
 	assignedNodes sets.String,
 ) ([]framework.NodeGroup, error) {
-	nodeCircles := originNodeGroup.GetNodeCircles()
+	nodeCircles := originalNodeGroup.GetNodeCircles()
 	if len(nodeCircles) == 0 {
 		klog.InfoS("No available node circles found in findNodeGroups", "unitKey", unit.GetKey())
-		return []framework.NodeGroup{originNodeGroup}, nil
+		return []framework.NodeGroup{originalNodeGroup}, nil
 	}
 	originalNodeCircle := nodeCircles[0]
 
@@ -129,7 +129,7 @@ func (i *JobLevelAffinity) findNodeGroups(
 	nodeCircleTree = append(nodeCircleTree, newNodeCircleElem(originalNodeCircle))
 
 	if required, err := unit.GetRequiredAffinity(); err == nil && len(required) != 0 {
-		nodeCircleTree, err = findNodeCirclesByRequireAffinity(ctx, podLauncher, unit, required, originalNodeCircle, assignedNodes, originalNodeCircle)
+		nodeCircleTree, err = findNodeCirclesByRequireAffinity(ctx, podLauncher, unit, required, originalNodeCircle, assignedNodes, originalNodeGroup)
 		if err != nil {
 			return nil, err
 		}
@@ -139,7 +139,7 @@ func (i *JobLevelAffinity) findNodeGroups(
 		startIndexOfNewElem := 0
 		nextStartIndex := len(nodeCircleTree)
 		for _, term := range preferred {
-			nodeCircleTree, err = findNodeGroupsByPreferAffinity(ctx, podLauncher, unit, term, nodeCircleTree, startIndexOfNewElem, assignedNodes, originalNodeCircle)
+			nodeCircleTree, err = findNodeGroupsByPreferAffinity(ctx, podLauncher, unit, term, nodeCircleTree, startIndexOfNewElem, assignedNodes, originalNodeGroup)
 			if err != nil {
 				return nil, err
 			}
@@ -156,13 +156,11 @@ func (i *JobLevelAffinity) findNodeGroups(
 		return nil, errors.Wrap(err, "failed to get node pools from tree")
 	}
 
-	if originPreferredNodes := originNodeGroup.GetPreferredNodes(); originPreferredNodes != nil {
+	if originPreferredNodes := originalNodeGroup.GetPreferredNodes(); originPreferredNodes != nil {
 		for _, nodeGroup := range nodeGroups {
 			nodeGroup.SetPreferredNodes(framework.FilterPreferredNodes(originPreferredNodes, func(ni framework.NodeInfo) bool {
-				for _, nodeCircle := range nodeGroup.GetNodeCircles() {
-					if n, err := nodeCircle.Get(ni.GetNodeName()); err == nil && n != nil {
-						return true
-					}
+				if n, err := nodeGroup.Get(ni.GetNodeName()); err == nil && n != nil {
+					return true
 				}
 				return false
 			}))

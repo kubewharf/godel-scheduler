@@ -50,25 +50,35 @@ func getNodeGroupsFromTree(nodeCircleTree []*nodeCircleElem) ([]framework.NodeGr
 	nodeGroups := make([]framework.NodeGroup, len(nodeCircleTree))
 	j := 0
 	for i := len(nodeCircleTree) - 1; i >= 0; i-- {
-		var ngs []framework.NodeCircle
+		var ncs []framework.NodeCircle
 		elem := nodeCircleTree[i]
+		if elem.nodeCircle == nil {
+			return nil, fmt.Errorf("nil node group in elem %v", i)
+		}
+
 		if len(elem.children) == 0 {
-			if elem.nodeCircle == nil {
-				return nil, fmt.Errorf("nil node group in elem %v", i)
-			}
-			ngs = append(ngs, elem.nodeCircle)
+			ncs = append(ncs, elem.nodeCircle)
 		} else {
+			childsNodeCount := 0
 			for k := len(elem.children) - 1; k >= 0; k-- {
-				child := elem.children[k]
-				if child >= len(nodeCircleTree) {
-					return nil, fmt.Errorf("unexpected child index %v in elem %v while length of tree is %v", child, i, len(nodeCircleTree))
+				childIndex := elem.children[k]
+				if childIndex >= len(nodeCircleTree) {
+					return nil, fmt.Errorf("unexpected child index %v in elem %v while length of tree is %v", childIndex, i, len(nodeCircleTree))
 				}
-				ngs = append(ngs, nodeCircleTree[child].bottomNodeGroupsInTree...)
+				childsNodeCount += nodeCircleTree[childIndex].nodeCircle.Len()
+			}
+			if childsNodeCount < elem.nodeCircle.Len() {
+				ncs = append(ncs, elem.nodeCircle)
+			} else {
+				for k := len(elem.children) - 1; k >= 0; k-- {
+					ncs = append(ncs, nodeCircleTree[elem.children[k]].bottomNodeGroupsInTree...)
+				}
 			}
 		}
-		elem.bottomNodeGroupsInTree = ngs
-		np := framework.NewNodeGroup(elem.nodeCircle.GetKey(), ngs)
-		nodeGroups[j] = np
+		elem.bottomNodeGroupsInTree = ncs
+
+		ng := framework.NewNodeGroup(elem.nodeCircle.GetKey(), nil, ncs)
+		nodeGroups[j] = ng
 		j++
 	}
 
@@ -83,7 +93,7 @@ func findNodeCirclesByRequireAffinity(
 	unitAffinityTerms []framework.UnitAffinityTerm,
 	nodeCircle framework.NodeCircle,
 	assignedNodes sets.String,
-	nodeLister framework.NodeInfoLister,
+	nodeGroup framework.NodeGroup,
 ) ([]*nodeCircleElem, error) {
 	requiredAffinityTerms := newNodeGroupAffinityTerms(unitAffinityTerms)
 
@@ -91,7 +101,7 @@ func findNodeCirclesByRequireAffinity(
 	if assignedNodes.Len() != 0 {
 		klog.V(4).InfoS("Unit has running pods on nodes", "unitKey", unit.GetKey(), "numNodes", len(assignedNodes))
 		// there are running pods in the unit, filter nodes matching the same affinity specs of these running pods
-		requiredAffinitySpecs, err := getRequiredAffinitySpecs(ctx, podLauncher, requiredAffinityTerms, assignedNodes, nodeLister)
+		requiredAffinitySpecs, err := getRequiredAffinitySpecs(ctx, podLauncher, requiredAffinityTerms, assignedNodes, nodeGroup)
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +146,7 @@ func buildNodeGroupsFromCandidates(sourceNodeCircle framework.NodeCircle, candid
 
 		topologyKey := candidates.getNodeTopology(nodeName)
 		if _, ok := listers[topologyKey]; !ok {
-			listers[topologyKey] = &framework.NodeInfoListerImpl{NodeInfoMap: make(map[string]framework.NodeInfo)}
+			listers[topologyKey] = &framework.NodeInfoListerImpl{}
 		}
 		listers[topologyKey].AddNodeInfo(node)
 	}
@@ -320,10 +330,10 @@ func findNodeGroupsByPreferAffinity(
 	nodeGroupTree []*nodeCircleElem,
 	startIndexOfNewElem int,
 	assignedNodes sets.String,
-	nodeLister framework.NodeInfoLister,
+	nodeGroup framework.NodeGroup,
 ) ([]*nodeCircleElem, error) {
 	preferAffinityTerms := newNodeGroupAffinityTerms([]framework.UnitAffinityTerm{unitAffinityTerm})
-	preferAffinitySpecs, err := getPreferAffinitySpecs(ctx, podLauncher, preferAffinityTerms, assignedNodes, nodeLister)
+	preferAffinitySpecs, err := getPreferAffinitySpecs(ctx, podLauncher, preferAffinityTerms, assignedNodes, nodeGroup)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +398,7 @@ func getPreferAffinitySpecs(
 	podLauncher podutil.PodLauncher,
 	preferAffinityTerms *nodeGroupAffinityTerms,
 	assigned sets.String,
-	nodeLister framework.NodeInfoLister,
+	nodeGroup framework.NodeGroup,
 ) (*nodeGroupAffinitySpecs, error) {
 	keys := sets.NewString()
 	var result *nodeGroupAffinitySpecs
@@ -402,7 +412,7 @@ func getPreferAffinitySpecs(
 	// find all node groups that can satisfy all preferred affinity requirements
 	parallelize.Until(parallelCtx, size, func(index int) {
 		nodeName := assignedNodes[index]
-		nodeInfo, err := nodeLister.Get(nodeName)
+		nodeInfo, err := nodeGroup.Get(nodeName)
 		if err != nil {
 			errCh.SendErrorWithCancel(err, cancel)
 			return

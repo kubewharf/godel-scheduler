@@ -240,7 +240,7 @@ func getRequiredAffinitySpecs(
 	podLauncher podutil.PodLauncher,
 	requiredAffinityTerms *nodeGroupAffinityTerms,
 	assigned sets.String,
-	nodeLister framework.NodeInfoLister,
+	nodeGroup framework.NodeGroup,
 ) (*nodeGroupAffinitySpecs, error) {
 	// one from all nodeInfos MUST match all required affinity requirements
 	var nodeGroupTopology *nodeGroupAffinitySpecs
@@ -255,7 +255,7 @@ func getRequiredAffinitySpecs(
 	defer cancel()
 	parallelize.Until(parallelCtx, len(nodes), func(index int) {
 		nodeName := nodes[index]
-		nodeInfo, err := nodeLister.Get(nodeName)
+		nodeInfo, err := nodeGroup.Get(nodeName)
 		if err != nil {
 			errCh.SendErrorWithCancel(err, cancel)
 			return

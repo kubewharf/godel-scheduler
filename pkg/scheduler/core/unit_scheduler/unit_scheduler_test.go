@@ -1107,7 +1107,7 @@ func TestScheduleUnitInNodeGroup_SinglePod(t *testing.T) {
 			unitInfo, _ := gs.constructSchedulingUnitInfo(context.Background(), queuedUnitInfo)
 			unitFramework := unitruntime.NewUnitFramework(gs, gs, gs.PluginRegistry, nil, unitInfo.QueuedUnitInfo)
 
-			lister := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
+			lister := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
 			for _, n := range tt.nodes {
 				lister.AddNodeInfo(snapshot.GetNodeInfo(n.Name))
 			}
@@ -2188,7 +2188,7 @@ func TestScheduleUnitInNodeGroup_PodGroup(t *testing.T) {
 			unitInfo, _ := gs.constructSchedulingUnitInfo(context.Background(), queuedUnitInfo)
 			unitFramework := unitruntime.NewUnitFramework(gs, gs, gs.PluginRegistry, nil, unitInfo.QueuedUnitInfo)
 
-			lister := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
+			lister := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
 			for _, n := range tt.nodes {
 				lister.AddNodeInfo(snapshot.GetNodeInfo(n.Name))
 			}

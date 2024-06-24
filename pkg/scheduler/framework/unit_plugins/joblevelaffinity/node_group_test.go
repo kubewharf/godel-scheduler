@@ -48,9 +48,9 @@ func TestSortNodeGroups(t *testing.T) {
 		Pod: &v1.Pod{},
 	})
 
-	lister1 := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
-	lister2 := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
-	lister3 := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
+	lister1 := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
+	lister2 := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
+	lister3 := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
 
 	lister1.InPartitionNodes = append(lister1.InPartitionNodes, &framework.NodeInfoImpl{
 		GuaranteedAllocatable: &framework.Resource{
@@ -110,22 +110,22 @@ func TestSortNodeGroups(t *testing.T) {
 		},
 	})
 
-	ng1 := framework.NewNodeCircle("ng1", lister1)
-	ng2 := framework.NewNodeCircle("ng2", lister2)
-	ng3 := framework.NewNodeCircle("ng3", lister3)
+	nc1 := framework.NewNodeCircle("nc1", lister1)
+	nc2 := framework.NewNodeCircle("nc2", lister2)
+	nc3 := framework.NewNodeCircle("nc3", lister3)
 
 	testCases := []struct {
-		name       string
-		nodeGroups []framework.NodeCircle
-		sortRules  []framework.SortRule
-		expected   []framework.NodeCircle
+		name        string
+		nodeCircles []framework.NodeCircle
+		sortRules   []framework.SortRule
+		expected    []framework.NodeCircle
 	}{
 		{
-			name:       "empty sortRule, sort by cpu capacity asc",
-			nodeGroups: []framework.NodeCircle{ng2, ng1, ng3},
-			// The default sortRule (cpu|capacity|ascending) will be added in the real scheduling process,
-			// but no sort rule will be added in this unit test. Thus, the nodeGroup order here is not changed.
-			expected: []framework.NodeCircle{ng2, ng1, ng3},
+			name:        "empty sortRule, sort by cpu capacity asc",
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			// The default sortRule (cpu|capacity|ascending) will be added in the real scehduling process,
+			// but no sort rule will be added in this unit test. Thus the nodeGroup order here is not changed.
+			expected: []framework.NodeCircle{nc2, nc1, nc3},
 		},
 		{
 			name: "sort by gpu capacity desc",
@@ -136,8 +136,8 @@ func TestSortNodeGroups(t *testing.T) {
 					Order:     framework.DescendingOrder,
 				},
 			},
-			nodeGroups: []framework.NodeCircle{ng2, ng1, ng3},
-			expected:   []framework.NodeCircle{ng3, ng2, ng1},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc3, nc2, nc1},
 		},
 		{
 			name: "sort by mem capacity asc, gpu capacity asc",
@@ -153,8 +153,8 @@ func TestSortNodeGroups(t *testing.T) {
 					Order:     framework.AscendingOrder,
 				},
 			},
-			nodeGroups: []framework.NodeCircle{ng2, ng1, ng3},
-			expected:   []framework.NodeCircle{ng1, ng2, ng3},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc1, nc2, nc3},
 		},
 		{
 			name: "sort by mem capacity desc, gpu capacity asc",
@@ -170,8 +170,8 @@ func TestSortNodeGroups(t *testing.T) {
 					Order:     framework.AscendingOrder,
 				},
 			},
-			nodeGroups: []framework.NodeCircle{ng2, ng1, ng3},
-			expected:   []framework.NodeCircle{ng2, ng3, ng1},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc2, nc3, nc1},
 		},
 		{
 			name: "sort by available gpu, desc",
@@ -182,8 +182,8 @@ func TestSortNodeGroups(t *testing.T) {
 					Order:     framework.DescendingOrder,
 				},
 			},
-			nodeGroups: []framework.NodeCircle{ng2, ng1, ng3},
-			expected:   []framework.NodeCircle{ng3, ng2, ng1},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc3, nc2, nc1},
 		},
 		{
 			name: "sort by available mem asc, available gpu asc",
@@ -199,8 +199,8 @@ func TestSortNodeGroups(t *testing.T) {
 					Order:     framework.AscendingOrder,
 				},
 			},
-			nodeGroups: []framework.NodeCircle{ng2, ng1, ng3},
-			expected:   []framework.NodeCircle{ng1, ng2, ng3},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc1, nc2, nc3},
 		},
 		{
 			name: "sort by available mem desc, available gpu asc",
@@ -216,18 +216,18 @@ func TestSortNodeGroups(t *testing.T) {
 					Order:     framework.AscendingOrder,
 				},
 			},
-			nodeGroups: []framework.NodeCircle{ng2, ng1, ng3},
-			expected:   []framework.NodeCircle{ng2, ng3, ng1},
+			nodeCircles: []framework.NodeCircle{nc2, nc1, nc3},
+			expected:    []framework.NodeCircle{nc2, nc3, nc1},
 		},
 	}
 
 	for i := range testCases {
 		tt := &testCases[i]
 		t.Run(tt.name, func(t *testing.T) {
-			sortNodeCircles(context.TODO(), unit, tt.nodeGroups, tt.sortRules)
-			for j := range tt.nodeGroups {
-				if tt.nodeGroups[j].GetKey() != tt.expected[j].GetKey() {
-					t.Errorf("expected %#v, got %#v", tt.expected[j].GetKey(), tt.nodeGroups[j].GetKey())
+			sortNodeCircles(context.TODO(), unit, tt.nodeCircles, tt.sortRules)
+			for j := range tt.nodeCircles {
+				if tt.nodeCircles[j].GetKey() != tt.expected[j].GetKey() {
+					t.Errorf("expected %#v, got %#v", tt.expected[j].GetKey(), tt.nodeCircles[j].GetKey())
 				}
 			}
 		})
@@ -265,6 +265,9 @@ func TestGetRequiredAffinitySpecs(t *testing.T) {
 	)
 
 	nodeLister := fake.NewNodeInfoLister(nodes)
+	nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, nil, []framework.NodeCircle{
+		framework.NewNodeCircle(framework.DefaultNodeCircleName, nodeLister),
+	})
 	for _, test := range []struct {
 		name          string
 		podLauncher   podutil.PodLauncher
@@ -307,7 +310,7 @@ func TestGetRequiredAffinitySpecs(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			affinitySpecs, err := getRequiredAffinitySpecs(context.TODO(), test.podLauncher, newNodeGroupAffinityTerms(test.affinityTerms), test.assignedNodes, nodeLister)
+			affinitySpecs, err := getRequiredAffinitySpecs(context.TODO(), test.podLauncher, newNodeGroupAffinityTerms(test.affinityTerms), test.assignedNodes, nodeGroup)
 			// compare groupList and expectedGroups
 			assert.Equal(t, test.expectedError, err != nil)
 			assert.Equal(t, test.expectedSpecs, affinitySpecs)
@@ -317,12 +320,11 @@ func TestGetRequiredAffinitySpecs(t *testing.T) {
 
 func addNodesToNodeGroup(sameNodeCircle framework.NodeCircle, nodes ...*v1.Node) {
 	impl := sameNodeCircle.(*framework.NodeCircleImpl)
-	lister := impl.NodeInfoLister.(*framework.NodeInfoListerImpl)
+	lister := impl.ClusterNodeInfoLister.(*framework.NodeInfoListerImpl)
 
 	for _, node := range nodes {
 		nodeInfo := framework.NewNodeInfo()
 		_ = nodeInfo.SetNode(node)
-		lister.NodeInfoMap[nodeInfo.GetNodeName()] = nodeInfo
 		lister.OutOfPartitionNodes = append(lister.OutOfPartitionNodes, nodeInfo)
 	}
 }
@@ -357,8 +359,11 @@ func TestGroupNodesByAffinitySpecs(t *testing.T) {
 	},
 	)
 	nodeLister := fake.NewNodeInfoLister(nodes)
-	nodeGroup := framework.NewNodeCircle("test-nodegroup", framework.NewNodeInfoLister())
-	addNodesToNodeGroup(nodeGroup, nodes...)
+	nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, nil, []framework.NodeCircle{
+		framework.NewNodeCircle(framework.DefaultNodeCircleName, nodeLister),
+	})
+	nodeCircle := framework.NewNodeCircle("test-nodeCircle", framework.NewClusterNodeInfoLister())
+	addNodesToNodeGroup(nodeCircle, nodes...)
 
 	podLauncher := podutil.Kubelet
 	assignedNodes := sets.NewString("node-1", "node-2")
@@ -368,9 +373,9 @@ func TestGroupNodesByAffinitySpecs(t *testing.T) {
 		},
 	}
 	ctx := context.TODO()
-	specs, err := getRequiredAffinitySpecs(ctx, podLauncher, newNodeGroupAffinityTerms(affinityTerms), assignedNodes, nodeLister)
+	specs, err := getRequiredAffinitySpecs(ctx, podLauncher, newNodeGroupAffinityTerms(affinityTerms), assignedNodes, nodeGroup)
 	assert.NoError(t, err)
-	groupList, err := groupNodesByAffinitySpecs(podLauncher, nodeGroup, assignedNodes, specs)
+	groupList, err := groupNodesByAffinitySpecs(podLauncher, nodeCircle, assignedNodes, specs)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(groupList))
 	actualNodeGroup := groupList[0]
@@ -413,29 +418,29 @@ func TestGroupNodesByAffinityTerms(t *testing.T) {
 		},
 	},
 	)
-	nodeGroup := framework.NewNodeCircle("", framework.NewNodeInfoLister())
+	nodeGroup := framework.NewNodeCircle("", framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup, nodes...)
-	topologyKey1 := "[topologyKey1:topologyVal1;]"
-	nodeGroup1 := framework.NewNodeCircle(topologyKey1, framework.NewNodeInfoLister())
+	topologyKey1 := "topologyKey1:topologyVal1;"
+	nodeGroup1 := framework.NewNodeCircle(topologyKey1, framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup1, nodes[:3]...)
-	topologyKey2 := "[topologyKey1:topologyVal2;]"
-	nodeGroup2 := framework.NewNodeCircle(topologyKey2, framework.NewNodeInfoLister())
+	topologyKey2 := "topologyKey1:topologyVal2;"
+	nodeGroup2 := framework.NewNodeCircle(topologyKey2, framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup2, nodes[3])
-	topologyKey3 := "[topologyKey1:topologyVal1;topologyKey2:topologyVal1;]"
-	nodeGroup3 := framework.NewNodeCircle(topologyKey3, framework.NewNodeInfoLister())
+	topologyKey3 := "topologyKey1:topologyVal1;topologyKey2:topologyVal1;"
+	nodeGroup3 := framework.NewNodeCircle(topologyKey3, framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup3, nodes[:2]...)
-	topologyKey4 := "[topologyKey1:topologyVal1;topologyKey2:topologyVal2;]"
-	nodeGroup4 := framework.NewNodeCircle(topologyKey4, framework.NewNodeInfoLister())
+	topologyKey4 := "topologyKey1:topologyVal1;topologyKey2:topologyVal2;"
+	nodeGroup4 := framework.NewNodeCircle(topologyKey4, framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup4, nodes[2])
-	topologyKey5 := "[topologyKey1:topologyVal2;topologyKey2:topologyVal1;]"
-	nodeGroup5 := framework.NewNodeCircle(topologyKey5, framework.NewNodeInfoLister())
+	topologyKey5 := "topologyKey1:topologyVal2;topologyKey2:topologyVal1;"
+	nodeGroup5 := framework.NewNodeCircle(topologyKey5, framework.NewClusterNodeInfoLister())
 	addNodesToNodeGroup(nodeGroup5, nodes[3])
 
 	for _, test := range []struct {
-		name           string
-		podLauncher    podutil.PodLauncher
-		affinityTerms  []framework.UnitAffinityTerm
-		expectedGroups map[string]framework.NodeCircle
+		name            string
+		podLauncher     podutil.PodLauncher
+		affinityTerms   []framework.UnitAffinityTerm
+		expectedCircles map[string]framework.NodeCircle
 	}{
 		{
 			name:        "group nodes by one matched topology key",
@@ -445,7 +450,7 @@ func TestGroupNodesByAffinityTerms(t *testing.T) {
 					TopologyKey: "topologyKey1",
 				},
 			},
-			expectedGroups: map[string]framework.NodeCircle{
+			expectedCircles: map[string]framework.NodeCircle{
 				topologyKey1: nodeGroup1,
 				topologyKey2: nodeGroup2,
 			},
@@ -461,7 +466,7 @@ func TestGroupNodesByAffinityTerms(t *testing.T) {
 					TopologyKey: "topologyKey2",
 				},
 			},
-			expectedGroups: map[string]framework.NodeCircle{
+			expectedCircles: map[string]framework.NodeCircle{
 				topologyKey3: nodeGroup3,
 				topologyKey4: nodeGroup4,
 				topologyKey5: nodeGroup5,
@@ -478,7 +483,7 @@ func TestGroupNodesByAffinityTerms(t *testing.T) {
 					TopologyKey: "topologyKey3",
 				},
 			},
-			expectedGroups: map[string]framework.NodeCircle{},
+			expectedCircles: map[string]framework.NodeCircle{},
 		},
 		{
 			name:        "group nodes by by unmatched topology keys",
@@ -488,19 +493,19 @@ func TestGroupNodesByAffinityTerms(t *testing.T) {
 					TopologyKey: "topologyKey3",
 				},
 			},
-			expectedGroups: map[string]framework.NodeCircle{},
+			expectedCircles: map[string]framework.NodeCircle{},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			groupList, err := groupNodesByAffinityTerms(context.TODO(), test.podLauncher, nodeGroup, newNodeGroupAffinityTerms(test.affinityTerms))
+			circleList, err := groupNodesByAffinityTerms(context.TODO(), test.podLauncher, nodeGroup, newNodeGroupAffinityTerms(test.affinityTerms))
 			assert.NoError(t, err)
-			// compare groupList and expectedGroups
-			assert.Equal(t, len(test.expectedGroups), len(groupList))
-			for _, ng := range groupList {
-				expectedNG, ok := test.expectedGroups[ng.GetKey()]
+			// compare circleList and expectedCircles
+			assert.Equal(t, len(test.expectedCircles), len(circleList))
+			for _, nc := range circleList {
+				expectedNC, ok := test.expectedCircles[nc.GetKey()]
 				assert.True(t, ok)
-				expected := expectedNG.List()
-				actual := ng.List()
+				expected := expectedNC.List()
+				actual := nc.List()
 				assert.Equal(t, len(expected), len(actual))
 				expectedSet := sets.NewString()
 				actualSet := sets.NewString()
@@ -546,6 +551,9 @@ func TestGetPreferAffinitySpecs(t *testing.T) {
 	},
 	)
 	nodeLister := fake.NewNodeInfoLister(nodes)
+	nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, nil, []framework.NodeCircle{
+		framework.NewNodeCircle(framework.DefaultNodeCircleName, nodeLister),
+	})
 
 	for _, test := range []struct {
 		name          string
@@ -589,7 +597,7 @@ func TestGetPreferAffinitySpecs(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			affinitySpecs, err := getPreferAffinitySpecs(context.TODO(), test.podLauncher, newNodeGroupAffinityTerms(test.affinityTerms), test.assignedNodes, nodeLister)
+			affinitySpecs, err := getPreferAffinitySpecs(context.TODO(), test.podLauncher, newNodeGroupAffinityTerms(test.affinityTerms), test.assignedNodes, nodeGroup)
 			// compare groupList and expectedGroups
 			assert.Equal(t, test.expectedError, err != nil)
 			if test.expectedSpecs == nil {
@@ -723,11 +731,12 @@ func TestLocating(t *testing.T) {
 	for _, tt := range tests {
 		cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
 			ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-			PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
-			EnableStore("PreemptionStore").
+			PodAssumedTTL(time.Second).Period(10*time.Second).StopCh(make(<-chan struct{})).
+			EnableStore("PreemptionStore", "QueueStore", "HostUniqueStore").
 			Obj())
-
-		nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, []framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, tt.nodeLister)})
+		nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, nil, []framework.NodeCircle{
+			framework.NewNodeCircle(framework.DefaultNodeCircleName, tt.nodeLister),
+		})
 
 		pl, err := New(nil, &fakehandle.MockUnitSchedulerHandle{Cache: cache})
 		if err != nil {
@@ -742,7 +751,7 @@ func TestLocating(t *testing.T) {
 		expectedNodes := tt.expected.InPartitionList()
 		nodesInOriginalNodeCircle := originalNodeCircle.GetNodeCircles()[0].OutOfPartitionList()
 		if len(expectedNodes) != len(nodesInOriginalNodeCircle) {
-			t.Fatalf("expect length of the original node group: %v, got: %v", len(expectedNodes), len(nodesInOriginalNodeCircle))
+			t.Fatalf("expect length of the original node circle: %v, got: %v", len(expectedNodes), len(nodesInOriginalNodeCircle))
 		}
 		for i, node := range expectedNodes {
 			if node.GetNodeName() != nodesInOriginalNodeCircle[i].GetNodeName() {
@@ -753,48 +762,54 @@ func TestLocating(t *testing.T) {
 	}
 }
 
+func makeNodeInfo(name string) framework.NodeInfo {
+	nodeinfo := framework.NewNodeInfo()
+	nodeinfo.SetNode(&v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}})
+	return nodeinfo
+}
+
 func TestGetNodeGroupsFromTree(t *testing.T) {
 	wrongTree := []*nodeCircleElem{
 		{
-			nodeCircle: framework.NewNodeCircle("ng0", nil),
+			nodeCircle: framework.NewNodeCircle("nc0", nil),
 			children:   []int{1, 2},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng1", nil),
+			nodeCircle: framework.NewNodeCircle("nc1", nil),
 			children:   []int{3, 4},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng2", nil),
+			nodeCircle: framework.NewNodeCircle("nc2", nil),
 			children:   []int{5, 7},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng3", nil),
+			nodeCircle: framework.NewNodeCircle("nc3", nil),
 			children:   []int{},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng4", nil),
+			nodeCircle: framework.NewNodeCircle("nc4", nil),
 			children:   []int{},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng5", nil),
+			nodeCircle: framework.NewNodeCircle("nc5", nil),
 			children:   []int{},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng6", nil),
+			nodeCircle: framework.NewNodeCircle("nc6", nil),
 			children:   []int{},
 		},
 	}
 	wrongTree2 := []*nodeCircleElem{
 		{
-			nodeCircle: framework.NewNodeCircle("ng0", nil),
+			nodeCircle: framework.NewNodeCircle("nc0", nil),
 			children:   []int{1, 2},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng1", nil),
+			nodeCircle: framework.NewNodeCircle("nc1", nil),
 			children:   []int{3, 4},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng2", nil),
+			nodeCircle: framework.NewNodeCircle("nc2", nil),
 			children:   []int{5, 7},
 		},
 		{
@@ -802,15 +817,15 @@ func TestGetNodeGroupsFromTree(t *testing.T) {
 			children:   []int{},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng4", nil),
+			nodeCircle: framework.NewNodeCircle("nc4", nil),
 			children:   []int{},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng5", nil),
+			nodeCircle: framework.NewNodeCircle("nc5", nil),
 			children:   []int{},
 		},
 		{
-			nodeCircle: framework.NewNodeCircle("ng6", nil),
+			nodeCircle: framework.NewNodeCircle("nc6", nil),
 			children:   []int{},
 		},
 	}
@@ -939,6 +954,47 @@ func TestGetNodeGroupsFromTree(t *testing.T) {
 		},
 	}
 
+	nodeInfo1 := makeNodeInfo("node1")
+	nodeInfo2 := makeNodeInfo("node2")
+	nodeInfo3 := makeNodeInfo("node3")
+	nodeInfoLister1 := framework.NodeInfoListerImpl{
+		InPartitionNodes: []framework.NodeInfo{nodeInfo1, nodeInfo2, nodeInfo3},
+	}
+	nodeInfoLister2 := framework.NodeInfoListerImpl{
+		InPartitionNodes: []framework.NodeInfo{nodeInfo2, nodeInfo3},
+	}
+	nodeInfoLister3 := framework.NodeInfoListerImpl{
+		InPartitionNodes: []framework.NodeInfo{nodeInfo3},
+	}
+	treeWithRunningPodsInSamePreferredDomain := []*nodeCircleElem{
+		{
+			nodeCircle: framework.NewNodeCircle("BigPodA", &nodeInfoLister1), // index 0
+			children:   []int{1},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("MiniPodA1", &nodeInfoLister2), // index 1
+			children:   []int{2},
+		},
+		{
+			nodeCircle: framework.NewNodeCircle("Tor1", &nodeInfoLister3), // index 2
+			children:   []int{},
+		},
+	}
+	nodeGroupsWithRunningPodsInSamePreferredDomain := []framework.NodeGroup{
+		&framework.NodeGroupImpl{
+			Key:         "Tor1",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("Tor1", &nodeInfoLister3)},
+		},
+		&framework.NodeGroupImpl{
+			Key:         "MiniPodA1",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("MiniPodA1", &nodeInfoLister2)},
+		},
+		&framework.NodeGroupImpl{
+			Key:         "BigPodA",
+			NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("BigPodA", &nodeInfoLister1)},
+		},
+	}
+
 	tests := []struct {
 		name               string
 		nodeGroupTree      []*nodeCircleElem
@@ -975,6 +1031,12 @@ func TestGetNodeGroupsFromTree(t *testing.T) {
 			expectedNodeGroups: oneRequiredAndTwoPreferredAffinityTermNodeGroups,
 			expectedError:      nil,
 		},
+		{
+			name:               "running pods in same preferred domain",
+			nodeGroupTree:      treeWithRunningPodsInSamePreferredDomain,
+			expectedNodeGroups: nodeGroupsWithRunningPodsInSamePreferredDomain,
+			expectedError:      nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -987,19 +1049,22 @@ func TestGetNodeGroupsFromTree(t *testing.T) {
 			}
 
 			if len(nodeGroups) != len(tt.expectedNodeGroups) {
-				t.Fatalf("expected length of node pools: %v, got %v", len(tt.expectedNodeGroups), len(nodeGroups))
+				t.Fatalf("expected length of node groups: %v, got %v", len(tt.expectedNodeGroups), len(nodeGroups))
 			}
-			for i, np := range tt.expectedNodeGroups {
-				if np.GetKey() != nodeGroups[i].GetKey() {
-					t.Fatalf("expected node pool name: %v, got: %v", np.GetKey(), nodeGroups[i].GetKey())
+			for i, ng := range tt.expectedNodeGroups {
+				if ng.GetKey() != nodeGroups[i].GetKey() {
+					t.Fatalf("expected node group name: %v, got: %v", ng.GetKey(), nodeGroups[i].GetKey())
 				}
-				expectedNodeGroups, nodeGroups := np.GetNodeCircles(), nodeGroups[i].GetNodeCircles()
-				if len(expectedNodeGroups) != len(nodeGroups) {
-					t.Fatalf("expected node group length: %v, got: %v", len(expectedNodeGroups), len(nodeGroups))
+				expectedNodeCircles, nodeCircles := ng.GetNodeCircles(), nodeGroups[i].GetNodeCircles()
+				if len(expectedNodeCircles) != len(nodeCircles) {
+					t.Fatalf("expected node circle length: %v, got: %v, node group: %v", len(expectedNodeCircles), len(nodeCircles), ng.GetKey())
 				}
-				for j, ng := range expectedNodeGroups {
-					if ng.GetKey() != nodeGroups[j].GetKey() {
-						t.Fatalf("expected node group name: %v in node pool %v, got: %v", ng.GetKey(), np.GetKey(), nodeGroups[j].GetKey())
+				for j, nc := range expectedNodeCircles {
+					if nc.GetKey() != nodeCircles[j].GetKey() {
+						t.Fatalf("expected node circle name: %v, got: %v, node group: %v", nc.GetKey(), nodeCircles[j].GetKey(), ng.GetKey())
+					}
+					if nc.Len() != nodeCircles[j].Len() {
+						t.Fatalf("expected length of nodes : %v, got : %v, node circle: %v, node group: %v", nc.Len(), nodeCircles[j].Len(), nc.GetKey(), ng.GetKey())
 					}
 				}
 			}
@@ -1332,7 +1397,9 @@ func TestGrouping(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 
-	nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, []framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, nodeLister)})
+	nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, nil, []framework.NodeCircle{
+		framework.NewNodeCircle(framework.DefaultNodeCircleName, nodeLister),
+	})
 
 	pl.(framework.LocatingPlugin).Locating(context.Background(), queuedUnitInfo, framework.NewCycleState(), nodeGroup)
 
@@ -1341,19 +1408,19 @@ func TestGrouping(t *testing.T) {
 		t.Fatalf("status: %v", status)
 	}
 	if len(gotNodeGroupList) != len(expectedNodeGroupList) {
-		t.Fatalf("expected length of node pools: %v, got %v", len(expectedNodeGroupList), len(gotNodeGroupList))
+		t.Fatalf("expected length of node groups: %v, got %v", len(expectedNodeGroupList), len(gotNodeGroupList))
 	}
-	for i, np := range expectedNodeGroupList {
-		if np.GetKey() != gotNodeGroupList[i].GetKey() {
-			t.Fatalf("index: %v, expected node pool name: %v, got: %v", i, np.GetKey(), gotNodeGroupList[i].GetKey())
+	for i, ng := range expectedNodeGroupList {
+		if ng.GetKey() != gotNodeGroupList[i].GetKey() {
+			t.Fatalf("index: %v, expected node group name: %v, got: %v", i, ng.GetKey(), gotNodeGroupList[i].GetKey())
 		}
-		expectedNodeGroups, nodeGroups := np.GetNodeCircles(), gotNodeGroupList[i].GetNodeCircles()
-		if len(expectedNodeGroups) != len(nodeGroups) {
-			t.Fatalf("expected node group length: %v, got: %v", len(expectedNodeGroups), len(nodeGroups))
+		expectedNodeCircles, nodeCircles := ng.GetNodeCircles(), gotNodeGroupList[i].GetNodeCircles()
+		if len(expectedNodeCircles) != len(nodeCircles) {
+			t.Fatalf("expected node circle length: %v, got: %v", len(expectedNodeCircles), len(nodeCircles))
 		}
-		for j, ng := range expectedNodeGroups {
-			if ng.GetKey() != nodeGroups[j].GetKey() {
-				t.Fatalf("index: %v, expected node group name: %v in node pool %v, got: %v", j, ng.GetKey(), np.GetKey(), nodeGroups[j].GetKey())
+		for j, nc := range expectedNodeCircles {
+			if nc.GetKey() != nodeCircles[j].GetKey() {
+				t.Fatalf("index: %v, expected node circle name: %v in node group %v, got: %v", j, nc.GetKey(), ng.GetKey(), nodeCircles[j].GetKey())
 			}
 		}
 	}
