@@ -25,19 +25,11 @@ import (
 	"strings"
 	"time"
 
-	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
-	crdclientset "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
-	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	v1 "k8s.io/api/core/v1"
 	policy "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/informers"
-	clientset "k8s.io/client-go/kubernetes"
-
-	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
-	"github.com/kubewharf/godel-scheduler/pkg/volume/scheduling"
 )
 
 // NodeScoreList declares a list of nodes and their scores.
@@ -623,53 +615,6 @@ type SchedulerPreemptionFramework interface {
 	RunCandidatesSortingPlugins(candidates []*Candidate, candidate *Candidate) []*Candidate
 }
 
-// SchedulerFrameworkHandle provides data and some tools that plugins can use in Scheduler. It is
-// passed to the plugin factories at the time of plugin initialization. Plugins
-// must store and use this handle to call framework functions.
-type SchedulerFrameworkHandle interface {
-	// SwitchType indicates the cluster binary code corresponding to the current workflow.
-	// It will be used to resolve BE/GT qos.
-	SwitchType() SwitchType
-	SubCluster() string
-	SchedulerName() string
-
-	// SnapshotSharedLister returns listers from the latest NodeInfo Snapshot. The snapshot
-	// is taken at the beginning of a scheduling cycle and remains unchanged until
-	// a pod finishes "Permit" point. There is no guarantee that the information
-	// remains unchanged in the binding phase of scheduling, so plugins in the binding
-	// cycle (pre-bind/bind/post-bind/un-reserve plugin) should not use it,
-	// otherwise a concurrent read/write error might occur, they should use scheduler
-	// cache instead.
-	SnapshotSharedLister() SharedLister
-
-	// ClientSet returns a kubernetes clientSet.
-	ClientSet() clientset.Interface
-	SharedInformerFactory() informers.SharedInformerFactory
-	CRDSharedInformerFactory() crdinformers.SharedInformerFactory
-	GetFrameworkForPod(*v1.Pod) (SchedulerFramework, error)
-
-	// Note: The function's underlying access is Snapshot, Snapshot operations are lock-free.
-	GetPodGroupInfo(podGroupName string) (*schedulingv1a1.PodGroup, error)
-	// Note: The function's underlying access is Snapshot, Snapshot operations are lock-free.
-	SetPotentialVictims(node string, potentialVictims []string)
-	// Note: The function's underlying access is Snapshot, Snapshot operations are lock-free.
-	GetPotentialVictims(node string) []string
-
-	// Note: The function's underlying access is Snapshot, Snapshot operations are lock-free.
-	GetPDBItemList() []PDBItem
-	// Note: The function's underlying access is Snapshot, Snapshot operations are lock-free.
-	GetPDBItemListForOwner(ownerType, ownerKey string) (bool, bool, []string)
-	// Note: The function's underlying access is Snapshot, Snapshot operations are lock-free.
-	GetOwnerLabels(ownerType, ownerKey string) map[string]string
-	GetLoadAwareNodeMetricInfo(nodeName string, resourceType podutil.PodResourceType) *LoadAwareNodeMetricInfo
-	GetLoadAwareNodeUsage(nodeName string, resourceType podutil.PodResourceType) *LoadAwareNodeUsage
-
-	GetPreemptionFrameworkForPod(*v1.Pod) SchedulerPreemptionFramework
-	GetPreemptionPolicy(deployName string) string
-	CachePreemptionPolicy(deployName string, policyName string)
-	CleanupPreemptionPolicyForPodOwner()
-}
-
 // BinderFramework manages the set of plugins in use by the scheduling framework.
 // Configured plugins are called at specified points in a scheduling context.
 type BinderFramework interface {
@@ -740,22 +685,6 @@ type BinderFramework interface {
 	RunClusterPrePreemptingPlugins(preemptor *v1.Pod, state, preemptionState *CycleState) *Status
 	RunVictimCheckingPlugins(preemptor, pod *v1.Pod, state, preemptionState *CycleState) *Status
 	RunPostVictimCheckingPlugins(preemptor, pod *v1.Pod, state, preemptionState *CycleState) *Status
-}
-
-// BinderFrameworkHandle provides data and some tools that plugins can use. It is
-// passed to the plugin factories at the time of plugin initialization. Plugins
-// must store and use this handle to call framework functions.
-type BinderFrameworkHandle interface {
-	// ClientSet returns a kubernetes clientSet.
-	ClientSet() clientset.Interface
-	CRDClientSet() crdclientset.Interface
-	SharedInformerFactory() informers.SharedInformerFactory
-	CRDSharedInformerFactory() crdinformers.SharedInformerFactory
-	GetFrameworkForPod(*v1.Pod) (BinderFramework, error)
-	VolumeBinder() scheduling.GodelVolumeBinder
-	GetPDBItemList() []PDBItem
-
-	GetNodeInfo(string) NodeInfo
 }
 
 // PluginsRunner abstracts operations to run some plugins.

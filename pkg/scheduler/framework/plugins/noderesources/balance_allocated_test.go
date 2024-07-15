@@ -411,7 +411,7 @@ func TestNodeResourcesBalancedAllocation(t *testing.T) {
 					info.GetTransientInfo().TransNodeInfo.RequestedVolumes = len(test.pod.Spec.Volumes)
 				}
 			}
-			fh, _ := testutil.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			fh, _ := testutil.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 			p, _ := NewBalancedAllocation(nil, fh)
 			cycleState := framework.NewCycleState()
 			framework.SetPodResourceTypeState(podutil.GuaranteedPod, cycleState)

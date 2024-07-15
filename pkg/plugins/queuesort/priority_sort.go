@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -46,6 +47,6 @@ func (pl *PrioritySort) Less(pInfo1, pInfo2 *framework.QueuedPodInfo) bool {
 }
 
 // New initializes a new plugin and returns it.
-func New(_ runtime.Object, _ framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &PrioritySort{}, nil
 }

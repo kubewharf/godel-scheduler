@@ -34,6 +34,7 @@ import (
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
+	pdbstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pdb_store"
 	schedulertesting "github.com/kubewharf/godel-scheduler/pkg/scheduler/testing"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
@@ -182,7 +183,7 @@ func TestPDBChecker(t *testing.T) {
 				}
 			}
 			schedulerCache.UpdateSnapshot(snapshot)
-			fh, err := schedulertesting.NewSchedulerFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, schedulerCache, snapshot, nil, nil, nil, nil)
+			fh, err := schedulertesting.NewPodFrameworkHandle(client, crdClient, informerFactory, crdInformerFactory, schedulerCache, snapshot, nil, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -190,7 +191,8 @@ func TestPDBChecker(t *testing.T) {
 			state := framework.NewCycleState()
 			preemptionState := framework.NewCycleState()
 			checker := &PDBChecker{
-				handle: fh,
+				handle:       fh,
+				pluginHandle: fh.FindStore(pdbstore.Name).(pdbstore.StoreHandle),
 			}
 			commonState := framework.NewCycleState()
 			checker.ClusterPrePreempting(nil, state, commonState)

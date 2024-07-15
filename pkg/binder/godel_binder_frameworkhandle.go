@@ -19,17 +19,19 @@ package binder
 import (
 	"time"
 
-	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
-	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
+	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
+	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/apis"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	binderframework "github.com/kubewharf/godel-scheduler/pkg/binder/framework"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/runtime"
+	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/volume/scheduling"
 )
@@ -59,7 +61,7 @@ func NewFrameworkHandle(
 	crdInformerFactory crdinformers.SharedInformerFactory,
 	options binderOptions,
 	binderCache godelcache.BinderCache, volumeBindingTimeoutSeconds int64, // TODO: cleanup
-) framework.BinderFrameworkHandle {
+) handle.BinderFrameworkHandle {
 	h := &frameworkHandleImpl{
 		client:             client,
 		crdClient:          crdClient,
@@ -126,10 +128,10 @@ func (h *frameworkHandleImpl) VolumeBinder() scheduling.GodelVolumeBinder {
 	return h.volumeBinder
 }
 
-func (h *frameworkHandleImpl) GetPDBItemList() []framework.PDBItem {
-	return h.binderCache.GetPDBItemList()
-}
-
 func (h *frameworkHandleImpl) GetNodeInfo(nodename string) framework.NodeInfo {
 	return h.binderCache.GetNodeInfo(nodename)
+}
+
+func (h *frameworkHandleImpl) FindStore(storeName commonstore.StoreName) commonstore.Store {
+	return h.binderCache.FindStore(storeName)
 }

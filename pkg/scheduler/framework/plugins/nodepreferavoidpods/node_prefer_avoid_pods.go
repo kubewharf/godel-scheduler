@@ -25,13 +25,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/util/helper"
 )
 
 // NodePreferAvoidPods is a plugin that priorities nodes according to the node annotation
 // "scheduler.alpha.kubernetes.io/preferAvoidPods".
 type NodePreferAvoidPods struct {
-	handle framework.SchedulerFrameworkHandle
+	handle handle.PodFrameworkHandle
 }
 
 var _ framework.ScorePlugin = &NodePreferAvoidPods{}
@@ -88,6 +89,6 @@ func (pl *NodePreferAvoidPods) ScoreExtensions() framework.ScoreExtensions {
 }
 
 // New initializes a new plugin and returns it.
-func New(_ runtime.Object, h framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &NodePreferAvoidPods{handle: h}, nil
 }

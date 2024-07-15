@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 const (
@@ -37,7 +38,7 @@ var (
 	_ framework.PreferNodeExtension = &Noop{}
 )
 
-func New(_ runtime.Object, _ framework.SchedulerUnitFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, _ handle.UnitFrameworkHandle) (framework.Plugin, error) {
 	return &Noop{}, nil
 }
 

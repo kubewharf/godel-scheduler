@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kubewharf/godel-scheduler/pkg/binder/apis/config"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/defaultbinder"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/defaultpreemption"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/nodeports"
@@ -33,7 +34,7 @@ import (
 )
 
 // PluginFactory is a function that builds a plugin.
-type PluginFactory = func(configuration runtime.Object, pfh framework.BinderFrameworkHandle) (framework.Plugin, error)
+type PluginFactory = func(configuration runtime.Object, pfh handle.BinderFrameworkHandle) (framework.Plugin, error)
 
 // Registry is a collection of all available plugins. The framework uses a
 // registry to enable and initialize configured plugins.
@@ -67,7 +68,7 @@ func NewInTreePreemptionRegistry() Registry {
 }
 
 // NewPluginsRegistry returns a registry instance having all plugins, where profile shows which plugins to use in default, registry indicates how to initialize each plugin
-func NewPluginsRegistry(registry Registry, pluginArgs map[string]*config.PluginConfig, fh framework.BinderFrameworkHandle) (framework.PluginMap, error) {
+func NewPluginsRegistry(registry Registry, pluginArgs map[string]*config.PluginConfig, fh handle.BinderFrameworkHandle) (framework.PluginMap, error) {
 	pluginMap := framework.PluginMap{}
 
 	var err error

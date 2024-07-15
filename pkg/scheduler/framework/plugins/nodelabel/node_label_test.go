@@ -261,7 +261,7 @@ func TestNodeLabelScore(t *testing.T) {
 			}
 			cache.UpdateSnapshot(snapshot)
 
-			fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+			fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 			p, err := New(&test.args, fh)
 			if err != nil {
 				t.Fatalf("Failed to create plugin: %+v", err)
@@ -309,7 +309,7 @@ func TestNodeLabelScoreWithoutNode(t *testing.T) {
 			Obj())
 
 		cache.UpdateSnapshot(snapshot)
-		fh, _ := st.NewSchedulerFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
+		fh, _ := st.NewPodFrameworkHandle(nil, nil, nil, nil, nil, snapshot, nil, nil, nil, nil)
 		p, err := New(&config.NodeLabelArgs{}, fh)
 		if err != nil {
 			t.Fatalf("Failed to create plugin: %+v", err)

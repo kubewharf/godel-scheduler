@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 // ErrReasonFake is a fake error message denotes the filter function errored.
@@ -44,7 +45,7 @@ func (pl *FalseFilterPlugin) Filter(_ context.Context, pod *v1.Pod, nodeInfo fra
 }
 
 // NewFalseFilterPlugin initializes a FalseFilterPlugin and returns it.
-func NewFalseFilterPlugin(_ runtime.Object, _ framework.SchedulerFrameworkHandle, _ framework.BinderFrameworkHandle) (framework.Plugin, error) {
+func NewFalseFilterPlugin(_ runtime.Object, _ handle.PodFrameworkHandle, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &FalseFilterPlugin{}, nil
 }
 
@@ -62,7 +63,7 @@ func (pl *TrueFilterPlugin) Filter(_ context.Context, pod *v1.Pod, nodeInfo fram
 }
 
 // NewTrueFilterPlugin initializes a TrueFilterPlugin and returns it.
-func NewTrueFilterPlugin(_ runtime.Object, _ framework.SchedulerFrameworkHandle, _ framework.BinderFrameworkHandle) (framework.Plugin, error) {
+func NewTrueFilterPlugin(_ runtime.Object, _ handle.PodFrameworkHandle, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &TrueFilterPlugin{}, nil
 }
 
@@ -118,7 +119,7 @@ func (pl *MatchFilterPlugin) Filter(_ context.Context, pod *v1.Pod, nodeInfo fra
 }
 
 // NewMatchFilterPlugin initializes a MatchFilterPlugin and returns it.
-func NewMatchFilterPlugin(_ runtime.Object, _ framework.SchedulerFrameworkHandle, _ framework.BinderFrameworkHandle) (framework.Plugin, error) {
+func NewMatchFilterPlugin(_ runtime.Object, _ handle.PodFrameworkHandle, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &MatchFilterPlugin{}, nil
 }
 

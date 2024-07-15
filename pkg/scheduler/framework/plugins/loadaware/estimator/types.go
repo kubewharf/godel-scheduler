@@ -21,10 +21,11 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
-type FactoryFn func(args *config.LoadAwareArgs, handle framework.SchedulerFrameworkHandle) (Estimator, error)
+type FactoryFn func(args *config.LoadAwareArgs, handle handle.PodFrameworkHandle) (Estimator, error)
 
 var Estimators = map[string]FactoryFn{
 	DefaultEstimatorName:    NewDefaultEstimator,
@@ -38,7 +39,7 @@ type Estimator interface {
 	EstimateNode(info framework.NodeInfo, resourceType podutil.PodResourceType) (*framework.Resource, error)
 }
 
-func NewEstimator(args *config.LoadAwareArgs, handle framework.SchedulerFrameworkHandle) (Estimator, error) {
+func NewEstimator(args *config.LoadAwareArgs, handle handle.PodFrameworkHandle) (Estimator, error) {
 	factoryFn := Estimators[args.Estimator]
 	if factoryFn == nil {
 		factoryFn = NewDefaultEstimator

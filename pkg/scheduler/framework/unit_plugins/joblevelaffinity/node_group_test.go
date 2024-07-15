@@ -729,7 +729,7 @@ func TestLocating(t *testing.T) {
 
 		nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, []framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, tt.nodeLister)})
 
-		pl, err := New(nil, &fakehandle.MockUnitSchedulerHandle{Cache: cache})
+		pl, err := New(nil, &fakehandle.MockUnitFrameworkHandle{Cache: cache})
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
@@ -1327,7 +1327,7 @@ func TestGrouping(t *testing.T) {
 		},
 	}
 
-	pl, err := New(nil, &fakehandle.MockUnitSchedulerHandle{Cache: cache})
+	pl, err := New(nil, &fakehandle.MockUnitFrameworkHandle{Cache: cache})
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 )
 
 // The two thresholds are used as bounds for the image score range. They correspond to a reasonable size range for
@@ -44,7 +45,7 @@ const (
 // ImageLocality is a score plugin that favors nodes that already have requested pod container's images.
 // This plugin now supports nodes having Node. If CNR will support this feature, we can do it later.
 type ImageLocality struct {
-	handle framework.SchedulerFrameworkHandle
+	handle handle.PodFrameworkHandle
 }
 
 var _ framework.ScorePlugin = &ImageLocality{}
@@ -77,7 +78,7 @@ func (pl *ImageLocality) ScoreExtensions() framework.ScoreExtensions {
 }
 
 // New initializes a new plugin and returns it.
-func New(_ runtime.Object, h framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &ImageLocality{handle: h}, nil
 }
 

@@ -28,7 +28,6 @@ type NodeInfoLister interface {
 // SharedLister groups scheduler-specific listers.
 type SharedLister interface {
 	NodeInfos() NodeInfoLister
-	GetPreemptorsByVictim(string, string) []string
 }
 
 // ClusterNodeInfoLister interface represents anything that can list/get NodeInfo objects from node name.

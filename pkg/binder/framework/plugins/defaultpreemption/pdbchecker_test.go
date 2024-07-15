@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/kubewharf/godel-scheduler/pkg/binder/cache"
+	pdbstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/pdb_store"
 	pt "github.com/kubewharf/godel-scheduler/pkg/binder/testing"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
@@ -85,7 +86,8 @@ func TestPDBChecker(t *testing.T) {
 
 			commonState := framework.NewCycleState()
 			checker := &PDBChecker{
-				handle: fh,
+				handle:       fh,
+				pluginHandle: fh.FindStore(pdbstore.Name).(pdbstore.StoreHandle),
 			}
 			if status := checker.ClusterPrePreempting(nil, nil, commonState); status != nil {
 				t.Errorf("failed to prepare preemption: %v", status)

@@ -24,11 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
 type AdaptiveCpuToMemRatio struct {
-	handle              framework.SchedulerFrameworkHandle
+	handle              handle.PodFrameworkHandle
 	resourceToWeightMap resourceToWeightMap
 }
 
@@ -43,7 +44,7 @@ func (pl *AdaptiveCpuToMemRatio) Name() string {
 }
 
 // NewAdaptiveCpuToMemRatio initializes a new plugin and returns it.
-func NewAdaptiveCpuToMemRatio(_ runtime.Object, h framework.SchedulerFrameworkHandle) (framework.Plugin, error) {
+func NewAdaptiveCpuToMemRatio(_ runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, error) {
 	return &AdaptiveCpuToMemRatio{
 		handle:              h,
 		resourceToWeightMap: defaultRequestedRatioResources,

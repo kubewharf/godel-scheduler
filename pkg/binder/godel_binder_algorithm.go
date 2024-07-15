@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util/tracing"
@@ -148,7 +149,7 @@ func CheckConflictPhase(
 }
 
 func runBindPhase(ctx context.Context,
-	handler framework.BinderFrameworkHandle,
+	handler handle.BinderFrameworkHandle,
 	rui *runningUnitInfo,
 ) *framework.Status {
 	// Run the Reserve method of reserve plugins.
@@ -192,7 +193,7 @@ func runBindPhase(ctx context.Context,
 
 func BindPhase(
 	ctx context.Context,
-	handler framework.BinderFrameworkHandle,
+	handler handle.BinderFrameworkHandle,
 	rui *runningUnitInfo,
 ) *framework.Status {
 	startTime := time.Now()

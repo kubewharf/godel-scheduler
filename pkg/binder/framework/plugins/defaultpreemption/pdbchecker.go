@@ -20,6 +20,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	pdbstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/pdb_store"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/preempting/pdbchecker"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -28,7 +30,8 @@ import (
 const PDBCheckerName string = "PDBChecker"
 
 type PDBChecker struct {
-	handle framework.BinderFrameworkHandle
+	handle       handle.BinderFrameworkHandle
+	pluginHandle pdbstore.StoreHandle
 }
 
 var (
@@ -37,10 +40,16 @@ var (
 	_ framework.PostVictimCheckingPlugin   = &PDBChecker{}
 )
 
-// New initializes a new plugin and returns it.
-func NewPDBChecker(_ runtime.Object, handle framework.BinderFrameworkHandle) (framework.Plugin, error) {
+// NewPDBChecker initializes a new PDBChecker plugin and returns it.
+func NewPDBChecker(_ runtime.Object, handle handle.BinderFrameworkHandle) (framework.Plugin, error) {
+	var pluginHandle pdbstore.StoreHandle
+	if store := handle.FindStore(pdbstore.Name); store != nil {
+		pluginHandle = store.(pdbstore.StoreHandle)
+	}
+
 	checker := &PDBChecker{
-		handle: handle,
+		handle:       handle,
+		pluginHandle: pluginHandle,
 	}
 	return checker, nil
 }
@@ -56,7 +65,7 @@ func (pdb *PDBChecker) ClusterPrePreempting(_ *v1.Pod, _, commonState *framework
 		return nil
 	}
 
-	pdbItems := pdb.handle.GetPDBItemList()
+	pdbItems := pdb.pluginHandle.GetPDBItemList()
 	pdbsAllowed := make([]int32, len(pdbItems))
 	for i, pdbItem := range pdbItems {
 		pdb := pdbItem.GetPDB()
