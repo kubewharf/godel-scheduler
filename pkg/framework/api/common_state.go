@@ -37,6 +37,7 @@ const (
 	MatchedPDBIndexesKey      = "MatchedPDBIndexes"
 	VictimCountOfDeployKey    = "VictimCountOfDeployKey"
 	IndexOfPDBKey             = "IndexOfPDBKey"
+	EverScheduledKey          = "EverScheduledKey"
 
 	// Error Message
 	NodePartitionTypeMissedErrorString = "failed to get NodePartitionType, supposed to be set in cycle state"
@@ -296,4 +297,21 @@ func GetAssignedNumas(state *CycleState) ([]int, error) {
 		}
 	}
 	return nil, fmt.Errorf("assigned numas state not found")
+}
+
+func SetEverScheduledState(everScheduled bool, state *CycleState) {
+	data := &stateData{data: everScheduled}
+	state.Write(EverScheduledKey, data)
+}
+
+func GetEverScheduledState(state *CycleState) (bool, error) {
+	if state == nil {
+		return false, fmt.Errorf("nil cycle state")
+	}
+	if data, err := state.Read(EverScheduledKey); err == nil {
+		if s, ok := data.(*stateData); ok {
+			return s.data.(bool), nil
+		}
+	}
+	return false, fmt.Errorf("everScheduled state not found")
 }

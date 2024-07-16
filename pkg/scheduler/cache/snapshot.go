@@ -63,9 +63,8 @@ func NewEmptySnapshot(handler commoncache.CacheHandler) *Snapshot {
 }
 
 func (s *Snapshot) MakeBasicNodeGroup() framework.NodeGroup {
-	nodeGroup := framework.NewNodeGroup(
-		framework.DefaultNodeGroupName,
-		[]framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, s)})
+	nodeCircle := framework.NewNodeCircle(framework.DefaultNodeCircleName, s)
+	nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, s, []framework.NodeCircle{nodeCircle})
 	nodeGroup.SetPreferredNodes(framework.NewPreferredNodes())
 	return nodeGroup
 }
@@ -116,21 +115,8 @@ func (s *Snapshot) OutOfPartitionList() []framework.NodeInfo {
 	return s.nodeSlices.outOfPartitionNodeSlice.Nodes()
 }
 
-// HavePodsWithAffinityList returns the list of nodes with at least one pod with inter-pod affinity
-//
-// Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
-// are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
-func (s *Snapshot) HavePodsWithAffinityList() []framework.NodeInfo {
-	return s.nodeSlices.havePodsWithAffinityNodeSlice.Nodes()
-}
-
-// HavePodsWithRequiredAntiAffinityList returns the list of nodes with at least one pod with
-// required inter-pod anti-affinity
-//
-// Note: Snapshot operations are lock-free. Our premise for removing lock: even if read operations
-// are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
-func (s *Snapshot) HavePodsWithRequiredAntiAffinityList() []framework.NodeInfo {
-	return s.nodeSlices.havePodsWithRequiredAntiAffinityNodeSlice.Nodes()
+func (s *Snapshot) Len() int {
+	return len(s.nodeSlices.inPartitionNodeSlice.Nodes()) + len(s.nodeSlices.outOfPartitionNodeSlice.Nodes())
 }
 
 // Get returns the NodeInfo of the given node name.
@@ -169,18 +155,14 @@ func (s *Snapshot) FindStore(storeName commonstore.StoreName) commonstore.Store 
 // -------------------------------------- node slice for snapshot --------------------------------------
 
 type nodeSlices struct {
-	inPartitionNodeSlice                      framework.NodeHashSlice
-	outOfPartitionNodeSlice                   framework.NodeHashSlice
-	havePodsWithAffinityNodeSlice             framework.NodeHashSlice
-	havePodsWithRequiredAntiAffinityNodeSlice framework.NodeHashSlice
+	inPartitionNodeSlice    framework.NodeHashSlice
+	outOfPartitionNodeSlice framework.NodeHashSlice
 }
 
 func newNodeSlices() *nodeSlices {
 	return &nodeSlices{
-		inPartitionNodeSlice:                      framework.NewNodeHashSlice(),
-		outOfPartitionNodeSlice:                   framework.NewNodeHashSlice(),
-		havePodsWithAffinityNodeSlice:             framework.NewNodeHashSlice(),
-		havePodsWithRequiredAntiAffinityNodeSlice: framework.NewNodeHashSlice(),
+		inPartitionNodeSlice:    framework.NewNodeHashSlice(),
+		outOfPartitionNodeSlice: framework.NewNodeHashSlice(),
 	}
 }
 
@@ -202,11 +184,5 @@ func (s *nodeSlices) update(n framework.NodeInfo, isAdd bool) {
 		op(s.inPartitionNodeSlice, n, isAdd)
 	} else {
 		op(s.outOfPartitionNodeSlice, n, isAdd)
-	}
-	if len(n.GetPodsWithAffinity()) > 0 {
-		op(s.havePodsWithAffinityNodeSlice, n, isAdd)
-	}
-	if len(n.GetPodsWithRequiredAntiAffinity()) > 0 {
-		op(s.havePodsWithRequiredAntiAffinityNodeSlice, n, isAdd)
 	}
 }

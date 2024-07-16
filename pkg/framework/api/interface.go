@@ -790,7 +790,7 @@ type ScheduleUnit interface {
 	GetAffinityNodeSelector() (*v1.NodeSelector, error)
 	// GetSortRulesForAffinity return the rules that indicate how the nodeGroups are sorted.
 	// The rule's index in slice is the sort sequence.
-	GetSortRulesForAffinity() ([]SortRule, error)
+	GetSortRulesForAffinity() []SortRule
 	// IsDebugModeOn checks whether the debug mode is set to on
 	IsDebugModeOn() bool
 	// SetEnqueuedTimeStamp set the timestamp when the unit is added to pending queue

@@ -261,7 +261,6 @@ type PodInfoMaintainer struct {
 	// All pods that cannot pass the filter functions will never be preempted.
 	podFilters []podFilterFunc
 
-	podsWithAffinity             PodInfoSlice
 	podsWithRequiredAntiAffinity PodInfoSlice
 }
 
@@ -271,7 +270,6 @@ func NewPodInfoMaintainer(pods ...*PodInfo) *PodInfoMaintainer {
 		gtPodsMayBePreempted: splay.NewSplay(),
 		neverBePreempted:     make(map[string]*PodInfo),
 
-		podsWithAffinity:             NewPodInfoSlice(),
 		podsWithRequiredAntiAffinity: NewPodInfoSlice(),
 
 		prioritiesForBEPodsMayBePreempted: map[int64]int{},
@@ -311,9 +309,6 @@ func (m *PodInfoMaintainer) GetPods() []*PodInfo {
 }
 
 func (m *PodInfoMaintainer) AddPodInfo(p *PodInfo) {
-	if podsWithAffinity(p.Pod) {
-		m.podsWithAffinity.Add(p)
-	}
 	if podsWithRequiredAntiAffinity(p.Pod) {
 		m.podsWithRequiredAntiAffinity.Add(p)
 	}
@@ -334,9 +329,6 @@ func (m *PodInfoMaintainer) AddPodInfo(p *PodInfo) {
 }
 
 func (m *PodInfoMaintainer) RemovePodInfo(p *PodInfo) {
-	if podsWithAffinity(p.Pod) {
-		m.podsWithAffinity.Del(p)
-	}
 	if podsWithRequiredAntiAffinity(p.Pod) {
 		m.podsWithRequiredAntiAffinity.Del(p)
 	}
@@ -409,10 +401,6 @@ func (m *PodInfoMaintainer) GetMaintainableInfoByPartition(partitionInfo *PodPar
 	return PodMaintainableInfo{}
 }
 
-func (m *PodInfoMaintainer) GetPodsWithAffinity() []*PodInfo {
-	return m.podsWithAffinity.Pods()
-}
-
 func (m *PodInfoMaintainer) GetPodsWithRequiredAntiAffinity() []*PodInfo {
 	return m.podsWithRequiredAntiAffinity.Pods()
 }
@@ -447,7 +435,6 @@ func (m *PodInfoMaintainer) Clone() *PodInfoMaintainer {
 		neverBePreempted[k] = v
 	}
 	clone.neverBePreempted = neverBePreempted
-	clone.podsWithAffinity = m.podsWithAffinity.Clone()
 	clone.podsWithRequiredAntiAffinity = m.podsWithRequiredAntiAffinity.Clone()
 	return clone
 }
@@ -492,10 +479,9 @@ func (m *PodInfoMaintainer) Equal(o *PodInfoMaintainer) bool {
 			}
 		}
 	}
-	// 3. Check the `podsWithAffinity` and `podsWithRequiredAntiAffinity`.
+	// 3. Check the `podsWithRequiredAntiAffinity`.
 	{
-		if !m.podsWithAffinity.Equal(o.podsWithAffinity) ||
-			!m.podsWithRequiredAntiAffinity.Equal(o.podsWithRequiredAntiAffinity) {
+		if !m.podsWithRequiredAntiAffinity.Equal(o.podsWithRequiredAntiAffinity) {
 			return false
 		}
 	}
@@ -611,11 +597,6 @@ func (hs *PodInfoSliceImpl) Equal(pis PodInfoSlice) bool {
 		}
 	}
 	return true
-}
-
-func podsWithAffinity(p *v1.Pod) bool {
-	affinity := p.Spec.Affinity
-	return affinity != nil && (affinity.PodAffinity != nil || affinity.PodAntiAffinity != nil)
 }
 
 func podsWithRequiredAntiAffinity(p *v1.Pod) bool {

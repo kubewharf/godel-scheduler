@@ -38,17 +38,15 @@ var defaultSortRule = framework.SortRule{
 	Order:     framework.AscendingOrder,
 }
 
-func getSortRules(unit framework.ScheduleUnit) ([]framework.SortRule, error) {
-	sortRules, err := unit.GetSortRulesForAffinity()
-	if err != nil {
-		return nil, err
-	}
+func getSortRules(unit framework.ScheduleUnit) []framework.SortRule {
+	sortRules := unit.GetSortRulesForAffinity()
 
 	// If there is no sort rules, we add default rule.
 	if len(sortRules) == 0 {
 		sortRules = []framework.SortRule{defaultSortRule}
 	}
-	return sortRules, nil
+
+	return sortRules
 }
 
 // ------------------------------------------------------------------------------------------
@@ -240,7 +238,7 @@ func getRequiredAffinitySpecs(
 	podLauncher podutil.PodLauncher,
 	requiredAffinityTerms *nodeGroupAffinityTerms,
 	assigned sets.String,
-	nodeLister framework.NodeInfoLister,
+	nodeGroup framework.NodeGroup,
 ) (*nodeGroupAffinitySpecs, error) {
 	// one from all nodeInfos MUST match all required affinity requirements
 	var nodeGroupTopology *nodeGroupAffinitySpecs
@@ -255,7 +253,7 @@ func getRequiredAffinitySpecs(
 	defer cancel()
 	parallelize.Until(parallelCtx, len(nodes), func(index int) {
 		nodeName := nodes[index]
-		nodeInfo, err := nodeLister.Get(nodeName)
+		nodeInfo, err := nodeGroup.Get(nodeName)
 		if err != nil {
 			errCh.SendErrorWithCancel(err, cancel)
 			return

@@ -279,10 +279,10 @@ func (p *PodGroupUnit) GetAffinityNodeSelector() (*v1.NodeSelector, error) {
 	return podGroupAffinity.NodeSelector, nil
 }
 
-func (p *PodGroupUnit) GetSortRulesForAffinity() ([]SortRule, error) {
+func (p *PodGroupUnit) GetSortRulesForAffinity() []SortRule {
 	if p.podGroup.Spec.Affinity == nil ||
 		p.podGroup.Spec.Affinity.PodGroupAffinity == nil {
-		return nil, nil
+		return nil
 	}
 	var rules []SortRule
 	for _, r := range p.podGroup.Spec.Affinity.PodGroupAffinity.SortRules {
@@ -299,7 +299,7 @@ func (p *PodGroupUnit) GetSortRulesForAffinity() ([]SortRule, error) {
 			Order:     SortOrder(r.Order),
 		})
 	}
-	return rules, nil
+	return rules
 }
 
 func (p *PodGroupUnit) IsDebugModeOn() bool {
@@ -541,8 +541,8 @@ func (s *SinglePodUnit) GetPreferredAffinity() ([]UnitAffinityTerm, error) {
 	return nil, nil
 }
 
-func (s *SinglePodUnit) GetSortRulesForAffinity() ([]SortRule, error) {
-	return nil, nil
+func (s *SinglePodUnit) GetSortRulesForAffinity() []SortRule {
+	return nil
 }
 
 func (s *SinglePodUnit) IsDebugModeOn() bool {

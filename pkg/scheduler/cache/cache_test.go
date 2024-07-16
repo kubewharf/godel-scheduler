@@ -1827,11 +1827,6 @@ func TestSchedulerCache_UpdateSnapshot(t *testing.T) {
 				t.Errorf("Not all the nodes were visited by following the NodeInfo linked list. Expected to see %v nodes, saw %v.", cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), i)
 			}
 
-			// Check number of nodes with pods with affinity
-			if snapshot.nodeSlices.havePodsWithAffinityNodeSlice.Len() != test.expectedHavePodsWithAffinity {
-				t.Errorf("unexpected number of HavePodsWithAffinity nodes. Expected: %v, got: %v", test.expectedHavePodsWithAffinity, snapshot.nodeSlices.havePodsWithAffinityNodeSlice.Len())
-			}
-
 			// Always update the snapshot at the end of operations and compare it.
 			if err := cache.UpdateSnapshot(snapshot); err != nil {
 				t.Error(err)
@@ -1861,14 +1856,10 @@ func compareCacheWithNodeInfoSnapshot(cache *schedulerCache, snapshot *Snapshot)
 	}
 
 	expectedNodeInfoList := make([]framework.NodeInfo, 0, cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
-	expectedHavePodsWithAffinityNodeInfoList := make([]framework.NodeInfo, 0, cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
 	if cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.ConditionRange(func(nodeName string, _ generationstore.StoredObj) bool {
 		if obj := snapshot.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Get(nodeName); obj != nil {
 			n := obj
 			expectedNodeInfoList = append(expectedNodeInfoList, n)
-			if len(n.GetPodsWithAffinity()) > 0 {
-				expectedHavePodsWithAffinityNodeInfoList = append(expectedHavePodsWithAffinityNodeInfoList, n)
-			}
 			return true
 		}
 		return false
@@ -1885,18 +1876,6 @@ func compareCacheWithNodeInfoSnapshot(cache *schedulerCache, snapshot *Snapshot)
 			}
 		}
 	*/
-
-	for _, expected := range expectedHavePodsWithAffinityNodeInfoList {
-		find := false
-		for _, got := range snapshot.nodeSlices.havePodsWithAffinityNodeSlice.Nodes() {
-			if got == expected {
-				find = true
-			}
-		}
-		if !find {
-			return fmt.Errorf("can not find node in snapshot %v", expected.GetNodeName())
-		}
-	}
 
 	return nil
 }
