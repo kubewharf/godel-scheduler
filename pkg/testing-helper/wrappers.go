@@ -726,6 +726,11 @@ func (pg *PodGroupWrapper) ProrityClassName(n string) *PodGroupWrapper {
 	return pg
 }
 
+func (pg *PodGroupWrapper) Phase(n schedulingv1a1.PodGroupPhase) *PodGroupWrapper {
+	pg.Status.Phase = n
+	return pg
+}
+
 // ReplicaSetWrapper wraps a ReplicaSet inside.
 type ReplicaSetWrapper struct {
 	appsv1.ReplicaSet

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -155,6 +156,101 @@ func (gs *podScheduler) ScheduleInSpecificNodeGroup(
 	usr *framework.UnitSchedulingRequest,
 	cachedStatusMap framework.NodeToStatusMap,
 ) (result core.PodScheduleResult, err error) {
+	if framework.GetPodSchedulingStageInCycleState(state, framework.ScheduleInPreferredNodes) {
+		if result, err = gs.ScheduleInPreferredNodes(ctx, f, unitState, commonPreemptionState, state, pod, nodeGroup, usr, cachedStatusMap); err == nil {
+			return
+		}
+	} else {
+		klog.InfoS("Skip ScheduleInPreferredNodes scheduling stage for pod", "pod", podutil.GetPodKey(pod))
+	}
+	if framework.GetPodSchedulingStageInCycleState(state, framework.ScheduleInNodeCircles) {
+		if result, err = gs.ScheduleInNodeCircles(ctx, f, unitState, commonPreemptionState, state, pod, nodeGroup, usr, cachedStatusMap); err == nil {
+			return
+		}
+	} else {
+		klog.InfoS("Skip ScheduleInNodeCircles scheduling stage for pod", "pod", podutil.GetPodKey(pod))
+	}
+	return result, err
+}
+
+func (gs *podScheduler) ScheduleInPreferredNodes(
+	ctx context.Context, f framework.SchedulerFramework,
+	unitState, commonPreemptionState, state *framework.CycleState, pod *v1.Pod,
+	nodeGroup framework.NodeGroup,
+	usr *framework.UnitSchedulingRequest,
+	cachedStatusMap framework.NodeToStatusMap,
+) (result core.PodScheduleResult, err error) {
+	if len(nodeGroup.GetPreferredNodes().List()) == 0 {
+		return core.PodScheduleResult{}, fmt.Errorf("can not schedule in empty preferred nodes")
+	}
+
+	// Prepare information.
+	podTrace, _ := framework.GetPodTrace(state)
+	scheduleTraceContext := podTrace.GetTraceContext(tracing.SchedulerSchedulePodSpan)
+
+	// Run "prefilter" plugins.
+	s := f.RunPreFilterPlugins(ctx, state, pod)
+	if !s.IsSuccess() {
+		return core.PodScheduleResult{}, fmt.Errorf("RunPreFilterPlugins faied, error: %+v", s.AsError())
+	}
+
+	preferredNodes := nodeGroup.GetPreferredNodes()
+	preferredNodesCount := len(preferredNodes.List())
+	for i, nodeInfo := range preferredNodes.List() {
+		nodeName := nodeInfo.GetNodeName()
+		hooks := preferredNodes.Get(nodeName)
+		nodeInfoToUse, stateToUse, preferStatus := nodeInfo, state, &framework.Status{}
+
+		scheduleTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Started to check preferred node, nodeName: %s, preferredNodeIndex: %d, totalPreferredNodes: %d", nodeName, i, preferredNodesCount)))
+		if nodeInfoToUse, stateToUse, preferStatus = hooks.PrePreferNode(ctx, unitState, stateToUse, pod, nodeInfoToUse); !preferStatus.IsSuccess() {
+			msg := "Failed to run PrePreferNode on node and skip this node"
+			statusErr := preferStatus.AsError()
+
+			klog.V(4).InfoS(msg, "pod", podutil.GetPodKey(pod), "nodeName", nodeName, "err", statusErr)
+			scheduleTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("msg: %v, nodeName: %v, err: %v", msg, nodeName, statusErr)))
+			continue
+		}
+
+		fit, status, _, _ := runtime.PodPassesFiltersOnNode(ctx, f, stateToUse, pod, nodeInfoToUse)
+
+		// ATTENTION: status.IsSuccess() == true if and only if fit == true
+		if preferStatus = hooks.PostPreferNode(ctx, unitState, state, pod, nodeInfo, status); !preferStatus.IsSuccess() {
+			msg := "Failed to run PostPreferNode on node and skip this node"
+			statusErr := preferStatus.AsError()
+
+			klog.V(4).InfoS(msg, "pod", podutil.GetPodKey(pod), "nodeName", nodeName, "err", statusErr)
+			scheduleTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("msg: %s, nodeName: %s, err: %v", msg, nodeName, statusErr)))
+			continue
+		}
+
+		if fit {
+			// ATTENTION: cleanup nodeToStatus
+			delete(cachedStatusMap, nodeName)
+
+			klog.V(4).InfoS("Succeed to schedule in preferred nodes", "pod", podutil.GetPodKey(pod), "nodeName", nodeName, "preferredNodeIndex", i, "totalPreferredNodes", preferredNodesCount)
+			scheduleTraceContext.WithFields(tracing.WithMessageField("Succeed to find feasible preferred node"))
+			return core.PodScheduleResult{
+				NumberOfEvaluatedNodes: i + 1,
+				NumberOfFeasibleNodes:  1,
+				SuggestedHost:          nodeName,
+				// TODO: revisit this. Left the FilteredNodesStatuses to be nil for preferred nodes.
+				FilteredNodesStatuses: nil,
+			}, nil
+		}
+	}
+
+	klog.V(4).InfoS("Can not schedule in preferred nodes", "pod", podutil.GetPodKey(pod), "totalPreferredNodes", preferredNodesCount)
+	scheduleTraceContext.WithFields(tracing.WithMessageField("Can not schedule in preferred nodes"))
+	return core.PodScheduleResult{}, fmt.Errorf("can not schedule in non-empty preferred nodes")
+}
+
+func (gs *podScheduler) ScheduleInNodeCircles(
+	ctx context.Context, f framework.SchedulerFramework,
+	unitState, commonPreemptionState, state *framework.CycleState, pod *v1.Pod,
+	nodeGroup framework.NodeGroup,
+	usr *framework.UnitSchedulingRequest,
+	cachedStatusMap framework.NodeToStatusMap,
+) (result core.PodScheduleResult, err error) {
 	defer func() {
 		// remove used cached node from statusMap
 		if err != nil && len(result.SuggestedHost) > 0 {
@@ -162,116 +258,49 @@ func (gs *podScheduler) ScheduleInSpecificNodeGroup(
 		}
 	}()
 
-	podTrace, _ := framework.GetPodTrace(state)
-
 	trace := utiltrace.New("Scheduling", utiltrace.Field{Key: "namespace", Value: pod.Namespace}, utiltrace.Field{Key: "name", Value: pod.Name})
 	defer trace.LogIfLong(100 * time.Millisecond)
 
-	if err := podPassesBasicChecks(pod, gs.pvcLister); err != nil {
-		return core.PodScheduleResult{}, err
-	}
-	trace.Step("Basic checks done")
-
-	// Preferred nodes
-	{
-		// Run "prefilter" plugins.
-		s := f.RunPreFilterPlugins(ctx, state, pod)
-		if !s.IsSuccess() {
-			return core.PodScheduleResult{}, fmt.Errorf("RunPreFilterPlugins faied, error: %+v", s.AsError())
-		}
-
-		preferredNodes := nodeGroup.GetPreferredNodes()
-		if l := len(preferredNodes.List()); l > 0 {
-			preferTraceContext := podTrace.NewTraceContext(tracing.SchedulerSchedulePodSpan, tracing.SchedulerCheckPreferredNodesSpan)
-			for i, nodeInfo := range preferredNodes.List() {
-				nodeName := nodeInfo.GetNodeName()
-				hooks := preferredNodes.Get(nodeName)
-				nodeInfoToUse, stateToUse, preferStatus := nodeInfo, state, &framework.Status{}
-
-				if nodeInfoToUse, stateToUse, preferStatus = hooks.PrePreferNode(ctx, unitState, stateToUse, pod, nodeInfoToUse); !preferStatus.IsSuccess() {
-					msg := "Failed to run PrePreferNode on node and skip this node"
-					statusErr := preferStatus.AsError()
-
-					klog.V(4).InfoS(msg, "pod", klog.KObj(pod), "nodeName", nodeName, "err", statusErr)
-					preferTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("msg: %v, nodeName: %v, err: %v", msg, nodeName, statusErr)))
-					continue
-				}
-
-				fit, status, _, _ := runtime.PodPassesFiltersOnNode(ctx, f, stateToUse, pod, nodeInfoToUse)
-
-				// ATTENTION: status.IsSuccess() == true if and only if fit == true
-				if preferStatus = hooks.PostPreferNode(ctx, unitState, state, pod, nodeInfo, status); !preferStatus.IsSuccess() {
-					msg := "Failed to run PostPreferNode on node and skip this node"
-					statusErr := preferStatus.AsError()
-
-					klog.V(4).InfoS(msg, "pod", klog.KObj(pod), "nodeName", nodeName, "err", statusErr)
-					preferTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("msg: %v, nodeName: %v, err: %v", msg, nodeName, statusErr)))
-					continue
-				}
-
-				if fit {
-					preferTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("evaluate %d preferred nodes and select %v in scheduling", i+1, nodeName)))
-					preferTraceContext.WithTags(tracing.WithResultTag(tracing.ResultSuccess))
-					tracing.AsyncFinishTraceContext(preferTraceContext, time.Now())
-					return core.PodScheduleResult{
-						NumberOfEvaluatedNodes: i + 1,
-						NumberOfFeasibleNodes:  1,
-						SuggestedHost:          nodeName,
-						// TODO: revisit this. Left the FilteredNodesStatuses to be nil for preferred nodes.
-						FilteredNodesStatuses: nil,
-					}, nil
-				}
-			}
-			preferTraceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
-			preferTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("evaluate %d preferred nodes and find 0 feasible node in scheduling", l)))
-			tracing.AsyncFinishTraceContext(preferTraceContext, time.Now())
-		}
-	}
+	podTrace, _ := framework.GetPodTrace(state)
+	schedulePodTraceContext := podTrace.GetTraceContext(tracing.SchedulerSchedulePodSpan)
 
 	podOwner := podutil.GetPodOwner(pod)
 	{
 		// TODO: revisit this.
 		// Keep the position of the PodOwnerCache unchanged.
 		if len(podOwner) > 0 {
-			cacheNodesTraceContext := podTrace.NewTraceContext(tracing.SchedulerSchedulePodSpan, tracing.SchedulerGetCachedNodesSpan)
-			cacheNodesTraceContext.WithFields(tracing.WithPodOwnerField(podOwner))
-
 			result, err = gs.GetCachedNodesAndSchedule(ctx, f, state, pod, podOwner, nodeGroup.GetKey())
-			defer tracing.AsyncFinishTraceContext(cacheNodesTraceContext, time.Now())
-
 			if err == nil {
-				cacheNodesTraceContext.WithTags(tracing.WithResultTag(tracing.ResultSuccess))
-
-				klog.V(4).InfoS("Pod was scheduled based on cached nodes [cache hit]", "pod", klog.KObj(pod))
+				klog.V(4).InfoS("Pod can be scheduled based on cached nodes [cache hit]", "pod", podutil.GetPodKey(pod), "node", result.SuggestedHost)
+				schedulePodTraceContext.WithFields(tracing.WithMessageField("Pod can be scheduled based on cached nodes [cache hit]"))
+				schedulePodTraceContext.WithTags(tracing.WithHitCacheTag(tracing.ResultSuccess))
 				return result, nil
-			} else {
-				cacheNodesTraceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
-				cacheNodesTraceContext.WithFields(tracing.WithErrorField(err))
-
-				klog.V(4).InfoS("Fell back to normal scheduling process as cached nodes were empty or not available any more [cache miss]", "pod", klog.KObj(pod), "err", err)
 			}
+
+			klog.V(4).InfoS("Fallback to normal scheduling process as cached nodes were empty or not available any more [cache miss]", "pod", podutil.GetPodKey(pod), "err", err)
+			schedulePodTraceContext.WithFields(tracing.WithMessageField("Fell back to normal scheduling process as cached nodes were empty or not available any more [cache miss]"))
+			schedulePodTraceContext.WithTags(tracing.WithHitCacheTag(tracing.ResultFailure))
 		}
 	}
 
 	scheduleInSpecificNodeCircle := func(nodeCircle framework.NodeCircle) (result core.PodScheduleResult, err error) {
 		startPredicateEvalTime := time.Now()
-		predicateTraceContext := podTrace.NewTraceContext(tracing.SchedulerSchedulePodSpan, tracing.SchedulerFilterSpan)
-		predicateTraceContext.WithFields(tracing.WithNodeCircleKey(nodeCircle.GetKey()))
-
 		feasibleNodes, filteredNodesStatuses, err := gs.findNodesThatFitPod(ctx, f, state, pod, nodeCircle, usr, cachedStatusMap)
-		defer tracing.AsyncFinishTraceContext(predicateTraceContext, time.Now())
-		predicateTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("evaluate %d nodes, find %d feasible nodes", len(feasibleNodes)+len(filteredNodesStatuses), len(feasibleNodes))))
+
+		message := "evaluate " + strconv.Itoa(len(feasibleNodes)+len(filteredNodesStatuses)) + " nodes, find " + strconv.Itoa(len(feasibleNodes)) + " feasible nodes"
+		klog.V(4).InfoS(message, "pod", podutil.GetPodKey(pod), "nodeCircle", nodeCircle.GetKey())
+
 		if err != nil {
-			predicateTraceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
-			predicateTraceContext.WithFields(tracing.WithErrorField(err))
 			return result, err
 		}
+
 		trace.Step("Computing predicates done")
+		// TODO(lintong.jiang): LOG - revisit the log verbosity
+		klog.V(4).InfoS("Dumped predicate cost", "cost", helper.SinceInSeconds(startPredicateEvalTime), "pod", podutil.GetPodKey(pod))
 
 		if len(feasibleNodes) == 0 {
-			predicateTraceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
-
 			nodes := nodeCircle.List()
+			schedulePodTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Can not find feasible node in node circle, evaluatedNodes: %d, cost: %v", len(nodes), helper.SinceInSeconds(startPredicateEvalTime))))
 			// In the case where no node can pass through the filter, in addition to returning a fit error, a result must also be set.
 			// TODO: Cleanup the FitError related logic.
 			result.FilteredNodesStatuses = filteredNodesStatuses
@@ -282,95 +311,66 @@ func (gs *podScheduler) ScheduleInSpecificNodeGroup(
 			}
 		}
 
-		predicateTraceContext.WithTags(tracing.WithResultTag(tracing.ResultSuccess))
-		// TODO(lintong.jiang): LOG - revisit the log verbosity
-		klog.V(4).InfoS(fmt.Sprintf("Dumped predicate cost: %v", helper.SinceInSeconds(startPredicateEvalTime)), "pod", klog.KObj(pod))
-
-		startPriorityEvalTime := time.Now()
 		// When only one node after predicate, just use it.
 		if len(feasibleNodes) == 1 {
+			evaluatedNodes := 1 + len(filteredNodesStatuses)
+			suggestedHost := feasibleNodes[0].GetNodeName()
+			schedulePodTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Succeed to find one feasible node in node circle, nodeName: %s, evaluatedNodes: %d, cost: %v", suggestedHost, evaluatedNodes, helper.SinceInSeconds(startPredicateEvalTime))))
+
 			return core.PodScheduleResult{
-				SuggestedHost:          feasibleNodes[0].GetNodeName(),
-				NumberOfEvaluatedNodes: 1 + len(filteredNodesStatuses),
+				SuggestedHost:          suggestedHost,
+				NumberOfEvaluatedNodes: evaluatedNodes,
 				NumberOfFeasibleNodes:  1,
 				FilteredNodesStatuses:  filteredNodesStatuses,
 			}, nil
 		}
 
-		prioritizeTraceContext := podTrace.NewTraceContext(tracing.SchedulerSchedulePodSpan, tracing.SchedulerPrioritizeSpan)
-		priorityList, err := gs.prioritizeNodes(ctx, f, state, pod, feasibleNodes)
-		defer tracing.AsyncFinishTraceContext(prioritizeTraceContext, time.Now())
+		schedulePodTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Succeed to find one feasible node in node circle, feasibleNodesCount: %d, cost: %v", len(feasibleNodes), helper.SinceInSeconds(startPredicateEvalTime))))
 
+		startPriorityEvalTime := time.Now()
+		nodeScoreList, err := gs.prioritizeNodes(ctx, f, state, pod, feasibleNodes)
 		if err != nil {
-			prioritizeTraceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
-			predicateTraceContext.WithFields(tracing.WithErrorField(err))
 			return result, err
 		}
 
 		// TODO(lintong.jiang): LOG - revisit the log verbosity
-		klog.V(4).InfoS(fmt.Sprintf("Dumped priority cost: %v", helper.SinceInSeconds(startPriorityEvalTime)), "pod", klog.KObj(pod))
+		klog.V(4).InfoS("Dumped priority cost", "cost", helper.SinceInSeconds(startPriorityEvalTime), "pod", podutil.GetPodKey(pod))
 
-		selectedNode, err := gs.selectHostAndCacheResults(priorityList, pod, podOwner, nodeCircle.GetKey(), usr)
+		selectedNode, err := gs.selectHostAndCacheResults(nodeScoreList, pod, podOwner, nodeCircle.GetKey(), usr)
 		trace.Step("Prioritizing done")
 		if err != nil {
-			prioritizeTraceContext.WithTags(tracing.WithResultTag(tracing.ResultFailure))
-			predicateTraceContext.WithFields(tracing.WithErrorField(err))
 			return result, err
 		}
 
-		prioritizeTraceContext.WithTags(tracing.WithResultTag(tracing.ResultSuccess))
 		// TODO: we use disablePreemption field to control whether to use prepare node plugins, but they are too scattered and need to be concentrated
 		return core.PodScheduleResult{
 			SuggestedHost:          selectedNode,
 			NumberOfEvaluatedNodes: len(feasibleNodes) + len(filteredNodesStatuses),
-			NumberOfFeasibleNodes:  len(feasibleNodes),
-			FilteredNodesStatuses:  filteredNodesStatuses,
+
+			NumberOfFeasibleNodes: len(feasibleNodes),
+			FilteredNodesStatuses: filteredNodesStatuses,
 		}, nil
 	}
 
 	nodeCircles := nodeGroup.GetNodeCircles()
-	for _, nodeCircle := range nodeCircles {
+	nodeCirclesCount := len(nodeCircles)
+	for i, nodeCircle := range nodeCircles {
+		schedulePodTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Started to schedule pod in this nodeCircle, nodeCircleKey: %s, nodeCircleIndex: %d, totalNodeCircles: %d", nodeCircle.GetKey(), i, nodeCirclesCount)))
 		result, err = scheduleInSpecificNodeCircle(nodeCircle)
+
 		// Update NodeToStatusMap by template.
 		cachedStatusMap.Update(result.FilteredNodesStatuses)
 		if len(result.SuggestedHost) > 0 {
 			break // should return
 		}
+
+		schedulePodTraceContext.WithFields(tracing.WithMessageField(fmt.Sprintf("Failed to schedule pod in this nodeCircle, err: %v", err)))
 	}
 	return result, err
 }
 
 func (gs *podScheduler) Close() {
 	gs.metricsRecorder.Close()
-}
-
-func podPassesBasicChecks(pod *v1.Pod, pvcLister corelisters.PersistentVolumeClaimLister) error {
-	// Check PVCs used by the pod
-	namespace := pod.Namespace
-	manifest := &(pod.Spec)
-	for i := range manifest.Volumes {
-		volume := &manifest.Volumes[i]
-		var pvcName string
-		switch {
-		case volume.PersistentVolumeClaim != nil:
-			pvcName = volume.PersistentVolumeClaim.ClaimName
-		default:
-			// Volume is not using a PVC, ignore
-			continue
-		}
-		pvc, err := pvcLister.PersistentVolumeClaims(namespace).Get(pvcName)
-		if err != nil {
-			// The error has already enough context ("persistentvolumeclaim "myclaim" not found")
-			return err
-		}
-
-		if pvc.DeletionTimestamp != nil {
-			return fmt.Errorf("persistentvolumeclaim %q is being deleted", pvc.Name)
-		}
-
-	}
-
-	return nil
 }
 
 // Filters the nodes to find the ones that fit the pod based on the framework

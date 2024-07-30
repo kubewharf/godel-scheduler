@@ -727,7 +727,7 @@ func TestLocating(t *testing.T) {
 			EnableStore("PreemptionStore").
 			Obj())
 
-		nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, []framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, tt.nodeLister)})
+		nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, nil, []framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, tt.nodeLister)})
 
 		pl, err := New(nil, &fakehandle.MockUnitFrameworkHandle{Cache: cache})
 		if err != nil {
@@ -1332,7 +1332,7 @@ func TestGrouping(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 
-	nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, []framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, nodeLister)})
+	nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, nil, []framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, nodeLister)})
 
 	pl.(framework.LocatingPlugin).Locating(context.Background(), queuedUnitInfo, framework.NewCycleState(), nodeGroup)
 
@@ -1357,4 +1357,203 @@ func TestGrouping(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestFindNodeGroups(t *testing.T) {
+	nodes := []*v1.Node{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "node1",
+				Labels: map[string]string{"miniPod": "miniPod1", "tor": "tor1"},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "node2",
+				Labels: map[string]string{"miniPod": "miniPod1", "tor": "tor2"},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "node3",
+				Labels: map[string]string{"miniPod": "miniPod2", "tor": "tor3"},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "node4",
+				Labels: map[string]string{"miniPod": "miniPod2", "tor": "tor4"},
+			},
+		},
+	}
+	nodeLister := fake.NewNodeInfoLister(nodes)
+	originalNodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, nil, []framework.NodeCircle{
+		framework.NewNodeCircle(framework.DefaultNodeCircleName, nodeLister),
+	})
+
+	pg := &v1alpha1.PodGroup{
+		Spec: v1alpha1.PodGroupSpec{
+			MinMember: 1,
+			Affinity: &v1alpha1.Affinity{
+				PodGroupAffinity: &v1alpha1.PodGroupAffinity{
+					Preferred: []v1alpha1.PodGroupAffinityTerm{
+						{
+							TopologyKey: "miniPod",
+						},
+						{
+							TopologyKey: "tor",
+						},
+					},
+				},
+			},
+		},
+	}
+	queuedUnitInfo := &framework.QueuedUnitInfo{
+		ScheduleUnit: framework.NewPodGroupUnit(pg, 100),
+	}
+	queuedPodInfo := &framework.QueuedPodInfo{
+		Pod: &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "testpod",
+				Annotations: map[string]string{
+					podutil.PodLauncherAnnotationKey:     string(podutil.Kubelet),
+					podutil.PodResourceTypeAnnotationKey: string(podutil.GuaranteedPod),
+				},
+			},
+		},
+	}
+	queuedUnitInfo.AddPod(queuedPodInfo)
+
+	for _, test := range []struct {
+		name               string
+		assignedNodes      []string
+		preferredNodes     []string
+		expectedNodeGroups []framework.NodeGroup
+	}{
+		{
+			name:           "stop dividing topology domains before preferred nodes split - 1",
+			assignedNodes:  nil,
+			preferredNodes: []string{"node1", "node2"},
+			expectedNodeGroups: []framework.NodeGroup{
+				&framework.NodeGroupImpl{
+					Key:         "miniPod:miniPod1;",
+					NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("miniPod:miniPod1;", nodeLister)},
+				},
+				&framework.NodeGroupImpl{
+					Key:         "",
+					NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("miniPod:miniPod1;", nodeLister)},
+				},
+			},
+		},
+		{
+			name:           "stop dividing topology domains before preferred nodes split - 2",
+			assignedNodes:  nil,
+			preferredNodes: []string{"node1", "node3"},
+			expectedNodeGroups: []framework.NodeGroup{
+				&framework.NodeGroupImpl{
+					Key:         "",
+					NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("", nodeLister)},
+				},
+			},
+		},
+		{
+			name:           "stop dividing topology domains before assigned nodes split - 1",
+			assignedNodes:  []string{"node3", "node4"},
+			preferredNodes: nil,
+			expectedNodeGroups: []framework.NodeGroup{
+				&framework.NodeGroupImpl{
+					Key:         "miniPod:miniPod2;",
+					NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("miniPod:miniPod2;", nodeLister)},
+				},
+				&framework.NodeGroupImpl{
+					Key:         "",
+					NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("miniPod:miniPod2;", nodeLister)},
+				},
+			},
+		},
+		{
+			name:           "stop dividing topology domains before assigned nodes split - 2",
+			assignedNodes:  []string{"node1", "node3"},
+			preferredNodes: nil,
+			expectedNodeGroups: []framework.NodeGroup{
+				&framework.NodeGroupImpl{
+					Key:         "",
+					NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("", nodeLister)},
+				},
+			},
+		},
+		{
+			name:           "stop dividing topology domains before the split of assigned nodes and preferred nodes - 1",
+			assignedNodes:  []string{"node1"},
+			preferredNodes: []string{"node2"},
+			expectedNodeGroups: []framework.NodeGroup{
+				&framework.NodeGroupImpl{
+					Key:         "miniPod:miniPod1;",
+					NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("miniPod:miniPod1;", nodeLister)},
+				},
+				&framework.NodeGroupImpl{
+					Key:         "",
+					NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("miniPod:miniPod1;", nodeLister)},
+				},
+			},
+		},
+		{
+			name:           "stop dividing topology domains before the split of assigned nodes and preferred nodes - 2",
+			assignedNodes:  []string{"node1"},
+			preferredNodes: []string{"node3"},
+			expectedNodeGroups: []framework.NodeGroup{
+				&framework.NodeGroupImpl{
+					Key:         "",
+					NodeCircles: []framework.NodeCircle{framework.NewNodeCircle("", nodeLister)},
+				},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+				Period(10 * time.Second).StopCh(make(<-chan struct{})).Obj())
+			pl, err := New(nil, &fakehandle.MockUnitFrameworkHandle{Cache: cache})
+			if err != nil {
+				t.Fatalf("err: %v", err)
+			}
+
+			assignedNodes := sets.String{}
+			assignedNodes.Insert(test.assignedNodes...)
+			originalNodeGroup.SetPreferredNodes(framework.NewPreferredNodes())
+			for _, n := range test.preferredNodes {
+				nodeInfo, _ := originalNodeGroup.Get(n)
+				originalNodeGroup.GetPreferredNodes().Add(nodeInfo)
+			}
+
+			gotNodeGroups, err := pl.(*JobLevelAffinity).findNodeGroups(context.Background(), queuedUnitInfo, podutil.Kubelet, originalNodeGroup, assignedNodes)
+			if err != nil {
+				t.Fatalf("findNodeGroups failed, err: %v", err)
+			}
+			if err := checkNodeGroupsEquality(test.expectedNodeGroups, gotNodeGroups); err != nil {
+				t.Fatalf("node groups not equal: %v", err)
+			}
+		})
+	}
+}
+
+func checkNodeGroupsEquality(expected, got []framework.NodeGroup) error {
+	if len(got) != len(expected) {
+		return fmt.Errorf("expected length of node groups: %v, got %v", len(expected), len(got))
+	}
+	for i, ng := range expected {
+		if ng.GetKey() != got[i].GetKey() {
+			return fmt.Errorf("index: %v, expected node group name: %v, got: %v", i, ng.GetKey(), got[i].GetKey())
+		}
+		expectedNodeCircles, nodeCircles := ng.GetNodeCircles(), got[i].GetNodeCircles()
+		if len(expectedNodeCircles) != len(nodeCircles) {
+			return fmt.Errorf("expected node circle length: %v, got: %v", len(expectedNodeCircles), len(nodeCircles))
+		}
+		for j, nc := range expectedNodeCircles {
+			if nc.GetKey() != nodeCircles[j].GetKey() {
+				return fmt.Errorf("index: %v, expected node circle name: %v in node group %v, got: %v", j, nc.GetKey(), ng.GetKey(), nodeCircles[j].GetKey())
+			}
+		}
+	}
+	return nil
 }

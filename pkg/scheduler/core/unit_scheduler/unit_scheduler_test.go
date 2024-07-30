@@ -35,12 +35,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
 
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	"github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	schedulingconfig "github.com/kubewharf/godel-scheduler/pkg/framework/api/config"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
@@ -2242,6 +2244,3016 @@ func TestScheduleUnitInNodeGroup_PodGroup(t *testing.T) {
 					t.Errorf("index %d all errs: %v", i, errs)
 				}
 			}
+		})
+	}
+}
+
+func TestScheduleUnit_Rescheduling(t *testing.T) {
+	type result struct {
+		unitResult *core.UnitResult
+		anns       []map[string]string
+		nodes      []map[string]string
+	}
+	tests := []struct {
+		name              string
+		podGroup          *v1alpha1.PodGroup
+		movement          *v1alpha1.Movement
+		existingPods      []*v1.Pod
+		pendingPods       []*v1.Pod
+		nodesInNodeCircle []*v1.Node
+		nodesInPreferred  []*v1.Node
+		expectedResults   []result
+	}{
+		// case 1
+		{
+			name:     "ever scheduled, suggestion 2, terminating 2, coming 2, movement & pod not timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").Node("n2").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{},
+						FailedPods:     []string{"default/foo1", "default/foo2"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 0, coming 2, movement & pod not timeout, all available",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n1",
+							"default/foo2": "n2",
+						},
+						{
+							"default/foo1": "n2",
+							"default/foo2": "n1",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 0, coming 2, movement & pod not timeout, 1 available",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").Node("n1").Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n2",
+							"default/foo2": "n3",
+						},
+						{
+							"default/foo1": "n3",
+							"default/foo2": "n2",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 2, coming 2, movement timeout, pod not timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-3 * time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").Node("n2").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+							"default/foo2": "n3",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 2, coming 2, movement not timeout, pod timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").Node("n2").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-3*time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-3*time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+							"default/foo2": "n3",
+						},
+					},
+				},
+			},
+		},
+		// case 2
+		{
+			name:     "ever scheduled, suggestion 2, terminating 2, coming 1, movement & pod not timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").Node("n2").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 0, coming 1, movement & pod not timeout, all available",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n1",
+						},
+						{
+							"default/foo1": "n2",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 0, coming 1, movement & pod not timeout, 1 available",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").Node("n1").Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n2",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 2, coming 1, movement timeout, pod not timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-3 * time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").Node("n2").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 2, coming 1, movement not timeout, pod timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").Node("n2").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-3*time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+						},
+					},
+				},
+			},
+		},
+		// case 3
+		{
+			name:     "ever scheduled, suggestion 2, terminating 2, coming 3, movement & pod not timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").Node("n2").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo3").UID("foo3").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+						FailedPods:     []string{"default/foo2", "default/foo3"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "",
+							"default/foo3": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+							"default/foo2": "",
+							"default/foo3": "",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo2"},
+						FailedPods:     []string{"default/foo1", "default/foo3"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "",
+							"default/foo3": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "n3",
+							"default/foo3": "",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo3"},
+						FailedPods:     []string{"default/foo1", "default/foo2"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "",
+							"default/foo3": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "",
+							"default/foo3": "n3",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 2, coming 3, movement timeout, pod not timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-3 * time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").Node("n2").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo3").UID("foo3").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2", "default/foo3"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+							"default/foo2": "n3",
+							"default/foo3": "n3",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 2, coming 3, movement not timeout, pod timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p2").UID("p2").Node("n2").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-3*time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-3*time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo3").UID("foo3").
+					SetCreationTimestampAt(time.Now().Add(-3*time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2", "default/foo3"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "",
+							"default/foo3": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+							"default/foo2": "n3",
+							"default/foo3": "n3",
+						},
+					},
+				},
+			},
+		},
+		// case 4
+		{
+			name:     "ever scheduled, suggestion 2, terminating 1, coming 2, movement & pod not timeout, all available",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+						FailedPods:     []string{"default/foo2"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n2",
+							"default/foo2": "",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo2"},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "n2",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 1, coming 2, movement & pod not timeout, 1 available(terminating)",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").Node("n2").Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+						FailedPods:     []string{"default/foo2"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+							"default/foo2": "",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo2"},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "n3",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 1, coming 2, movement & pod not timeout, 1 available(non-terminating)",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").Node("n1").Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+						FailedPods:     []string{"default/foo2"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n2",
+							"default/foo2": "",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo2"},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "n2",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 0, coming 1, 1 available(terminating)",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").Node("n2").Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n1",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 1, coming 2, movement & pod not timeout, 1 available(non-terminating)",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1, ActualPods: []*v1alpha1.TaskInfo{{Name: "foo2", Namespace: "default", UID: "foo2", Node: "n2"}}},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").Node("n1").Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 1, terminating 1, coming 1, movement timeout, pod not timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-3 * time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1, ActualPods: []*v1alpha1.TaskInfo{{Name: "foo2", Namespace: "default", UID: "foo2", Node: "n2"}}},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 1, terminating 1, coming 1, movement not timeout, pod timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1, ActualPods: []*v1alpha1.TaskInfo{{Name: "foo2", Namespace: "default", UID: "foo2", Node: "n2"}}},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-3*time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+						},
+					},
+				},
+			},
+		},
+		// case 5
+		{
+			name:     "ever scheduled, suggestion 2, terminating 1, coming 1, movement & pod not timeout, all available",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n2",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 1, coming 1, movement & pod not timeout, 1 available(terminating)",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").Node("n2").Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 1, coming 1, movement & pod not timeout, 1 available(non-terminating)",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").Node("n1").Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n2",
+						},
+					},
+				},
+			},
+		},
+		// case 6
+		{
+			name:     "ever scheduled, suggestion 2, terminating 1, coming 3, movement & pod not timeout, all available",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo3").UID("foo3").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2"},
+						FailedPods:     []string{"default/foo3"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "",
+							"default/foo3": "",
+						},
+						{
+							"default/foo1": "",
+							"default/foo2": "m",
+							"default/foo3": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n2",
+							"default/foo2": "n3",
+							"default/foo3": "",
+						},
+						{
+							"default/foo1": "n3",
+							"default/foo2": "n2",
+							"default/foo3": "",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo3"},
+						FailedPods:     []string{"default/foo2"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "",
+							"default/foo3": "",
+						},
+						{
+							"default/foo1": "",
+							"default/foo2": "",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n2",
+							"default/foo2": "",
+							"default/foo3": "n3",
+						},
+						{
+							"default/foo1": "n3",
+							"default/foo2": "",
+							"default/foo3": "n2",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo2", "default/foo3"},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo3": "m",
+							"default/foo2": "",
+						},
+						{
+							"default/foo1": "",
+							"default/foo3": "",
+							"default/foo2": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo3": "n2",
+							"default/foo2": "n3",
+						},
+						{
+							"default/foo1": "",
+							"default/foo3": "n3",
+							"default/foo2": "n2",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 1, coming 3, movement & pod not timeout, 1 available(terminating)",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").Node("n2").Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo3").UID("foo3").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "10"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2"},
+						FailedPods:     []string{"default/foo3"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+							"default/foo2": "n3",
+							"default/foo3": "",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo3"},
+						FailedPods:     []string{"default/foo2"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n3",
+							"default/foo2": "",
+							"default/foo3": "n3",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo2", "default/foo3"},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo3": "m",
+							"default/foo2": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo3": "n3",
+							"default/foo2": "n3",
+						},
+						{
+							"default/foo1": "",
+							"default/foo3": "n3",
+							"default/foo2": "n3",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, terminating 1, coming 3, movement & pod not timeout, 1 available(non-terminating)",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p3").UID("p3").Node("n1").Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo3").UID("foo3").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "10"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2"},
+						FailedPods:     []string{"default/foo3"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "",
+							"default/foo3": "",
+						},
+						{
+							"default/foo1": "",
+							"default/foo2": "m",
+							"default/foo3": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n2",
+							"default/foo2": "n3",
+							"default/foo3": "",
+						},
+						{
+							"default/foo1": "n3",
+							"default/foo2": "n2",
+							"default/foo3": "",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo3"},
+						FailedPods:     []string{"default/foo2"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "",
+							"default/foo3": "",
+						},
+						{
+							"default/foo1": "",
+							"default/foo2": "",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "n2",
+							"default/foo2": "",
+							"default/foo3": "n3",
+						},
+						{
+							"default/foo1": "n3",
+							"default/foo2": "",
+							"default/foo3": "n2",
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo2", "default/foo3"},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo3": "",
+							"default/foo2": "m",
+						},
+						{
+							"default/foo1": "",
+							"default/foo3": "m",
+							"default/foo2": "",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo3": "n3",
+							"default/foo2": "n2",
+						},
+						{
+							"default/foo1": "",
+							"default/foo3": "n2",
+							"default/foo2": "n3",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 2, owner 2, terminating 1, coming 2, movement & pod not timeout",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs1", UID: "rs1"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+							},
+						},
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs2", UID: "rs2"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n2", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs1", UID: "rs1"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs2", UID: "rs2"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo2"},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "m",
+						},
+					},
+					nodes: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "n2",
+						},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		run := func(disablePreemption bool) {
+			t.Run(tt.name, func(t *testing.T) {
+				utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.SupportRescheduling): true})
+
+				schedulerName := "godel-scheduler"
+				stop := make(chan struct{})
+				defer close(stop)
+
+				client := clientsetfake.NewSimpleClientset()
+				informerFactory := informers.NewSharedInformerFactory(client, 0)
+				broadcaster := cmdutil.NewEventBroadcasterAdapter(client)
+				crdClient := godelclientfake.NewSimpleClientset()
+				crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, 0)
+
+				informerFactory.Start(stop)
+				informerFactory.WaitForCacheSync(stop)
+
+				sCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+					ComponentName("godel-scheduler").SchedulerType(schedulerName).SubCluster(framework.DefaultSubCluster).
+					PodAssumedTTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+					EnableStore("PreemptionStore").
+					Obj())
+				snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
+					SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
+					PodLister(informerFactory.Core().V1().Pods().Lister()).
+					EnableStore("PreemptionStore").
+					Obj())
+
+				queue := schedulingqueue.NewSchedulingQueue(sCache, nil, nil, nil, false)
+
+				for _, n := range tt.nodesInPreferred {
+					sCache.AddNode(n)
+				}
+				for _, n := range tt.nodesInNodeCircle {
+					sCache.AddNode(n)
+				}
+				for _, p := range tt.existingPods {
+					sCache.AddPod(p)
+				}
+				sCache.AddMovement(tt.movement)
+				sCache.UpdateSnapshot(snapshot)
+
+				basePlugins := framework.PluginCollectionSet{
+					string(podutil.Kubelet): &framework.PluginCollection{
+						Filters: []*framework.PluginSpec{
+							framework.NewPluginSpec(noderesources.FitName),
+						},
+					},
+				}
+				globalClock := clock.RealClock{}
+				podScheduler := podscheduler.NewPodScheduler(
+					schedulerName,
+					framework.DisableScheduleSwitch,
+					"",
+					client,
+					crdClient,
+					informerFactory,
+					crdInformerFactory,
+					snapshot,
+					globalClock,
+					disablePreemption,
+					config.CandidateSelectPolicyBest,
+					[]string{config.BetterPreemptionPolicyAscending},
+					100,
+					100,
+					basePlugins,
+					nil,
+					nil,
+				)
+
+				gs := &unitScheduler{
+					schedulerName:     testSchedulerName,
+					switchType:        framework.SwitchType(1),
+					subCluster:        "",
+					disablePreemption: disablePreemption,
+
+					client:    nil,
+					crdClient: nil,
+
+					podLister: testing_helper.NewFakePodLister(nil),
+					pgLister:  testing_helper.NewFakePodGroupLister(nil),
+
+					Cache:      sCache,
+					Snapshot:   snapshot,
+					Queue:      queue,
+					Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, ""),
+					Scheduler:  podScheduler,
+
+					PluginRegistry: nil, // TODO:
+
+					Recorder:                   broadcaster.NewRecorder(testSchedulerName),
+					MaxWaitingDeletionDuration: config.DefaultMaxWaitingDeletionDuration * time.Second,
+				}
+				gs.PluginRegistry = schedulerframework.NewUnitPluginsRegistry(schedulerframework.NewUnitInTreeRegistry(), nil, gs)
+
+				unit := framework.NewPodGroupUnit(tt.podGroup, 100)
+				for _, p := range tt.pendingPods {
+					unit.AddPod(&framework.QueuedPodInfo{Pod: p, OwnerReferenceKey: podutil.GetPodTemplateKey(p)})
+				}
+				queuedUnitInfo := &framework.QueuedUnitInfo{
+					UnitKey:            unit.GetKey(),
+					ScheduleUnit:       unit,
+					QueuePriorityScore: float64(unit.GetPriority()),
+				}
+				unitInfo, _ := gs.constructSchedulingUnitInfo(context.Background(), queuedUnitInfo)
+				unitFramework := unitruntime.NewUnitFramework(gs, gs, gs.PluginRegistry, nil, unitInfo.QueuedUnitInfo)
+				nodeGroup := snapshot.MakeBasicNodeGroup()
+				nodeGroup, _ = unitFramework.RunLocatingPlugins(context.Background(), unit, unitInfo.UnitCycleState, nodeGroup)
+
+				lister := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
+				for _, n := range tt.nodesInNodeCircle {
+					lister.AddNodeInfo(snapshot.GetNodeInfo(n.Name))
+				}
+				nodeCircle := framework.NewNodeCircle("", lister)
+				nodeGroup.SetNodeCircles([]framework.NodeCircle{nodeCircle})
+
+				unitResult := gs.scheduleUnitInNodeGroup(context.Background(), unitInfo, unitFramework, nodeGroup)
+				gotAnns := map[string]string{}
+				for podKey, runningUnitInfo := range unitInfo.DispatchedPods {
+					gotAnns[podKey] = podutil.GetMovementNameFromPod(runningUnitInfo.ClonedPod)
+				}
+				gotNodes := map[string]string{}
+				for podKey, runningUnitInfo := range unitInfo.DispatchedPods {
+					gotNodes[podKey] = runningUnitInfo.NodeToPlace
+				}
+				for _, expectedResult := range tt.expectedResults {
+					equal := func() bool {
+						if !reflect.DeepEqual(sets.NewString(expectedResult.unitResult.SuccessfulPods...), sets.NewString(unitResult.SuccessfulPods...)) {
+							return false
+						}
+						if !reflect.DeepEqual(sets.NewString(expectedResult.unitResult.FailedPods...), sets.NewString(unitResult.FailedPods...)) {
+							return false
+						}
+
+						equal := false
+						for _, expectedAnns := range expectedResult.anns {
+							if reflect.DeepEqual(expectedAnns, gotAnns) {
+								equal = true
+								break
+							}
+						}
+						if !equal {
+							return false
+						}
+
+						equal = false
+						for _, expectedNodes := range expectedResult.nodes {
+							if reflect.DeepEqual(expectedNodes, gotNodes) {
+								equal = true
+								break
+							}
+						}
+						return equal
+					}
+					if equal() {
+						return
+					}
+				}
+				t.Errorf("got unexpected result: %#v, %#v, %#v", unitResult, gotAnns, gotNodes)
+			})
+		}
+		run(true)
+		run(false)
+	}
+}
+
+func TestScheduleUnit_ReschedulingWithPreemption(t *testing.T) {
+	type nominatedNode struct {
+		nodeName    string
+		victimCount int
+	}
+	type result struct {
+		unitResult *core.UnitResult
+		anns       []map[string]string
+		nodes      []map[string]nominatedNode
+	}
+	tests := []struct {
+		name              string
+		podGroup          *v1alpha1.PodGroup
+		movement          *v1alpha1.Movement
+		existingPods      []*v1.Pod
+		pendingPods       []*v1.Pod
+		nodesInNodeCircle []*v1.Node
+		nodesInPreferred  []*v1.Node
+		expectedResults   []result
+	}{
+		{
+			name:     "ever scheduled, suggestion 3, terminating 1, coming 3, movement & pod not timeout, 2 available(1 terminating, 1 non-terminating), preempt in prefer nodes",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+						{Namespace: "default", Name: "p3", UID: "p3", Node: "n3"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+								{Node: "n3", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p4").UID("p4").Node("n2").PriorityClassName("pc").Priority(10).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).
+					Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p5").UID("p5").Node("n4").PriorityClassName("pc").Priority(10).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).
+					Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo3").UID("foo3").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n4").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2"},
+						FailedPods:     []string{"default/foo3"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "",
+						},
+						// perhaps pod scheduled failed in scheduling stage, add annotation, but other pods preempt before it
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]nominatedNode{
+						{
+							"default/foo1": {"n3", 0},
+							"default/foo2": {"n2", 1},
+							"default/foo3": {"", 0},
+						},
+						{
+							"default/foo1": {"n2", 1},
+							"default/foo2": {"n3", 0},
+							"default/foo3": {"", 0},
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo3"},
+						FailedPods:     []string{"default/foo2"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "",
+							"default/foo3": "m",
+						},
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]nominatedNode{
+						{
+							"default/foo1": {"n3", 0},
+							"default/foo2": {"", 0},
+							"default/foo3": {"n2", 1},
+						},
+						{
+							"default/foo1": {"n2", 1},
+							"default/foo2": {"", 0},
+							"default/foo3": {"n3", 0},
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo2", "default/foo3"},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo3": "m",
+							"default/foo2": "m",
+						},
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]nominatedNode{
+						{
+							"default/foo1": {"", 0},
+							"default/foo2": {"n3", 0},
+							"default/foo3": {"n2", 1},
+						},
+						{
+							"default/foo1": {"", 0},
+							"default/foo2": {"n2", 1},
+							"default/foo3": {"n3", 0},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 3, terminating 1, coming 3, movement & pod not timeout, 2 available(1 terminating, 1 non-terminating), preempt in node circle nodes",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+						{Namespace: "default", Name: "p3", UID: "p3", Node: "n3"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+								{Node: "n3", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p4").UID("p4").Node("n2").PriorityClassName("pc").Priority(30).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).
+					Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p5").UID("p5").Node("n4").PriorityClassName("pc").Priority(10).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).
+					Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo3").UID("foo3").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n4").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2"},
+						FailedPods:     []string{"default/foo3"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "",
+						},
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]nominatedNode{
+						{
+							"default/foo1": {"n3", 0},
+							"default/foo2": {"n4", 1},
+							"default/foo3": {"", 0},
+						},
+						{
+							"default/foo1": {"n4", 1},
+							"default/foo2": {"n3", 0},
+							"default/foo3": {"", 0},
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo3"},
+						FailedPods:     []string{"default/foo2"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "",
+							"default/foo3": "m",
+						},
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]nominatedNode{
+						{
+							"default/foo1": {"n3", 0},
+							"default/foo2": {"", 0},
+							"default/foo3": {"n4", 1},
+						},
+						{
+							"default/foo1": {"n4", 1},
+							"default/foo2": {"", 0},
+							"default/foo3": {"n3", 0},
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo2", "default/foo3"},
+						FailedPods:     []string{"default/foo1"},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo3": "m",
+							"default/foo2": "m",
+						},
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]nominatedNode{
+						{
+							"default/foo1": {"", 0},
+							"default/foo2": {"n3", 0},
+							"default/foo3": {"n4", 1},
+						},
+						{
+							"default/foo1": {"", 0},
+							"default/foo2": {"n4", 1},
+							"default/foo3": {"n3", 0},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 3, terminating 1, coming 3, movement timeout, pod not timeout, 2 available(1 terminating, 1 non-terminating), 1 preempt in prefer nodes, 1 preempt in node circle nodes",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-3 * time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+						{Namespace: "default", Name: "p3", UID: "p3", Node: "n3"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+								{Node: "n3", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p4").UID("p4").Node("n2").PriorityClassName("pc").Priority(10).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).
+					Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p5").UID("p5").Node("n4").PriorityClassName("pc").Priority(10).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).
+					Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo3").UID("foo3").
+					SetCreationTimestampAt(time.Now().Add(-time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n4").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2", "default/foo3"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]nominatedNode{
+						{
+							"default/foo1": {"n3", 0},
+							"default/foo2": {"n2", 1},
+							"default/foo3": {"n4", 1},
+						},
+						{
+							"default/foo1": {"n3", 0},
+							"default/foo2": {"n4", 1},
+							"default/foo3": {"n2", 1},
+						},
+						{
+							"default/foo1": {"n2", 1},
+							"default/foo2": {"n3", 0},
+							"default/foo3": {"n4", 1},
+						},
+						{
+							"default/foo1": {"n2", 1},
+							"default/foo2": {"n4", 1},
+							"default/foo3": {"n3", 0},
+						},
+						{
+							"default/foo1": {"n4", 1},
+							"default/foo2": {"n3", 0},
+							"default/foo3": {"n2", 1},
+						},
+						{
+							"default/foo1": {"n4", 1},
+							"default/foo2": {"n2", 1},
+							"default/foo3": {"n3", 0},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "ever scheduled, suggestion 3, terminating 1, coming 3, movement not timeout, pod timeout, 2 available(1 terminating, 1 non-terminating), 1 preempt in prefer nodes, 1 preempt in node circle nodes",
+			podGroup: testing_helper.MakePodGroup().Namespace("default").Name("pg").MinMember(3).Phase(v1alpha1.PodGroupScheduled).Obj(),
+			movement: &v1alpha1.Movement{
+				ObjectMeta: metav1.ObjectMeta{Name: "m", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute))},
+				Spec: v1alpha1.MovementSpec{
+					DeletedTasks: []*v1alpha1.TaskInfo{
+						{Namespace: "default", Name: "p1", UID: "p1", Node: "n1"},
+						{Namespace: "default", Name: "p2", UID: "p2", Node: "n2"},
+						{Namespace: "default", Name: "p3", UID: "p3", Node: "n3"},
+					},
+					Creator: "c",
+				},
+				Status: v1alpha1.MovementStatus{
+					Owners: []*v1alpha1.Owner{
+						{
+							Owner: &v1alpha1.OwnerInfo{Type: podutil.ReplicaSetKind, Namespace: "default", Name: "rs", UID: "rs"},
+							RecommendedNodes: []*v1alpha1.RecommendedNode{
+								{Node: "n1", DesiredPodCount: 1},
+								{Node: "n2", DesiredPodCount: 1},
+								{Node: "n3", DesiredPodCount: 1},
+							},
+						},
+					},
+				},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("p1").UID("p1").Node("n1").
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p4").UID("p4").Node("n2").PriorityClassName("pc").Priority(10).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).
+					Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+				testing_helper.MakePod().Namespace("default").Name("p5").UID("p5").Node("n4").PriorityClassName("pc").Priority(10).
+					Annotation(util.CanBePreemptedAnnotationKey, util.CanBePreempted).
+					Req(map[v1.ResourceName]string{"cpu": "1"}).Obj(),
+			},
+			pendingPods: []*v1.Pod{
+				testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").
+					SetCreationTimestampAt(time.Now().Add(-3*time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").
+					SetCreationTimestampAt(time.Now().Add(-3*time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+				testing_helper.MakePod().Namespace("default").Name("foo3").UID("foo3").
+					SetCreationTimestampAt(time.Now().Add(-3*time.Minute)).
+					Req(map[v1.ResourceName]string{"cpu": "5"}).PriorityClassName("pc").Priority(20).
+					ControllerRef(metav1.OwnerReference{Kind: podutil.ReplicaSetKind, Name: "rs", UID: "rs"}).
+					Annotation(podutil.PodGroupNameAnnotationKey, "pg").Obj(),
+			},
+			nodesInNodeCircle: []*v1.Node{
+				testing_helper.MakeNode().Name("n4").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			nodesInPreferred: []*v1.Node{
+				testing_helper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+				testing_helper.MakeNode().Name("n3").Capacity(map[v1.ResourceName]string{"cpu": "5"}).Obj(),
+			},
+			expectedResults: []result{
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2", "default/foo3"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "",
+						},
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]nominatedNode{
+						{
+							"default/foo1": {"n3", 0},
+							"default/foo2": {"n2", 1},
+							"default/foo3": {"n4", 1},
+						},
+						{
+							"default/foo1": {"n2", 1},
+							"default/foo2": {"n3", 0},
+							"default/foo3": {"n4", 1},
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2", "default/foo3"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "m",
+							"default/foo2": "",
+							"default/foo3": "m",
+						},
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]nominatedNode{
+						{
+							"default/foo1": {"n3", 0},
+							"default/foo2": {"n4", 1},
+							"default/foo3": {"n2", 1},
+						},
+						{
+							"default/foo1": {"n2", 1},
+							"default/foo2": {"n4", 1},
+							"default/foo3": {"n3", 0},
+						},
+					},
+				},
+				{
+					unitResult: &core.UnitResult{
+						SuccessfulPods: []string{"default/foo1", "default/foo2", "default/foo3"},
+						FailedPods:     []string{},
+					},
+					anns: []map[string]string{
+						{
+							"default/foo1": "",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+						{
+							"default/foo1": "m",
+							"default/foo2": "m",
+							"default/foo3": "m",
+						},
+					},
+					nodes: []map[string]nominatedNode{
+						{
+							"default/foo1": {"n4", 1},
+							"default/foo2": {"n3", 0},
+							"default/foo3": {"n2", 1},
+						},
+						{
+							"default/foo1": {"n4", 1},
+							"default/foo2": {"n2", 1},
+							"default/foo3": {"n3", 0},
+						},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.SupportRescheduling): true})
+
+			schedulerName := "godel-scheduler"
+			stop := make(chan struct{})
+			defer close(stop)
+
+			client := clientsetfake.NewSimpleClientset()
+			informerFactory := informers.NewSharedInformerFactory(client, 0)
+			broadcaster := cmdutil.NewEventBroadcasterAdapter(client)
+			crdClient := godelclientfake.NewSimpleClientset()
+			crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, 0)
+
+			podInformer := informerFactory.Core().V1().Pods().Informer()
+			pcInformer := informerFactory.Scheduling().V1().PriorityClasses().Informer()
+			informerFactory.Start(stop)
+			informerFactory.WaitForCacheSync(stop)
+			for _, p := range tt.pendingPods {
+				podInformer.GetIndexer().Add(p)
+			}
+			for _, p := range tt.existingPods {
+				podInformer.GetIndexer().Add(p)
+			}
+
+			pc := testing_helper.MakePriorityClass().Name("pc").Obj()
+			pcInformer.GetIndexer().Add(pc)
+
+			sCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+				ComponentName("godel-scheduler").SchedulerType(schedulerName).SubCluster(framework.DefaultSubCluster).
+				PodAssumedTTL(30 * time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+				EnableStore("PreemptionStore").
+				Obj())
+			snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
+				SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
+				PodLister(informerFactory.Core().V1().Pods().Lister()).
+				EnableStore("PreemptionStore").
+				Obj())
+
+			queue := schedulingqueue.NewSchedulingQueue(sCache, nil, nil, nil, false)
+
+			for _, n := range tt.nodesInPreferred {
+				sCache.AddNode(n)
+			}
+			for _, n := range tt.nodesInNodeCircle {
+				sCache.AddNode(n)
+			}
+			for _, p := range tt.existingPods {
+				sCache.AddPod(p)
+			}
+			sCache.AddMovement(tt.movement)
+			sCache.UpdateSnapshot(snapshot)
+
+			basePlugins := framework.PluginCollectionSet{
+				string(podutil.Kubelet): &framework.PluginCollection{
+					Filters: []*framework.PluginSpec{
+						framework.NewPluginSpec(noderesources.FitName),
+					},
+					Searchings: []*framework.VictimSearchingPluginCollectionSpec{
+						{
+							RejectNotSureVal: true,
+							Plugins: []*framework.PluginSpec{
+								{
+									Name: priorityvaluechecker.PriorityValueCheckerName,
+								},
+							},
+						},
+					},
+				},
+			}
+			globalClock := clock.RealClock{}
+			podScheduler := podscheduler.NewPodScheduler(
+				schedulerName,
+				framework.DisableScheduleSwitch,
+				"",
+				client,
+				crdClient,
+				informerFactory,
+				crdInformerFactory,
+				snapshot,
+				globalClock,
+				false,
+				config.CandidateSelectPolicyBest,
+				[]string{config.BetterPreemptionPolicyAscending},
+				100,
+				100,
+				basePlugins,
+				nil,
+				nil,
+			)
+
+			gs := &unitScheduler{
+				schedulerName:     testSchedulerName,
+				switchType:        framework.SwitchType(1),
+				subCluster:        "",
+				disablePreemption: false,
+
+				client:    nil,
+				crdClient: nil,
+
+				podLister: testing_helper.NewFakePodLister(nil),
+				pgLister:  testing_helper.NewFakePodGroupLister(nil),
+
+				Cache:      sCache,
+				Snapshot:   snapshot,
+				Queue:      queue,
+				Reconciler: reconciler.NewFailedTaskReconciler(nil, nil, sCache, ""),
+				Scheduler:  podScheduler,
+
+				PluginRegistry: nil, // TODO:
+
+				Recorder:                   broadcaster.NewRecorder(testSchedulerName),
+				MaxWaitingDeletionDuration: config.DefaultMaxWaitingDeletionDuration * time.Second,
+			}
+			gs.PluginRegistry = schedulerframework.NewUnitPluginsRegistry(schedulerframework.NewUnitInTreeRegistry(), nil, gs)
+
+			unit := framework.NewPodGroupUnit(tt.podGroup, 100)
+			for _, p := range tt.pendingPods {
+				unit.AddPod(&framework.QueuedPodInfo{Pod: p, OwnerReferenceKey: podutil.GetPodTemplateKey(p)})
+			}
+			queuedUnitInfo := &framework.QueuedUnitInfo{
+				UnitKey:            unit.GetKey(),
+				ScheduleUnit:       unit,
+				QueuePriorityScore: float64(unit.GetPriority()),
+			}
+			unitInfo, _ := gs.constructSchedulingUnitInfo(context.Background(), queuedUnitInfo)
+			unitFramework := unitruntime.NewUnitFramework(gs, gs, gs.PluginRegistry, nil, unitInfo.QueuedUnitInfo)
+			nodeGroup := snapshot.MakeBasicNodeGroup()
+			nodeGroup, _ = unitFramework.RunLocatingPlugins(context.Background(), unit, unitInfo.UnitCycleState, nodeGroup)
+
+			lister := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
+			for _, n := range tt.nodesInNodeCircle {
+				lister.AddNodeInfo(snapshot.GetNodeInfo(n.Name))
+			}
+			nodeCircle := framework.NewNodeCircle("", lister)
+			nodeGroup.SetNodeCircles([]framework.NodeCircle{nodeCircle})
+
+			unitResult := gs.scheduleUnitInNodeGroup(context.Background(), unitInfo, unitFramework, nodeGroup)
+			gotAnns := map[string]string{}
+			for podKey, runningUnitInfo := range unitInfo.DispatchedPods {
+				gotAnns[podKey] = podutil.GetMovementNameFromPod(runningUnitInfo.ClonedPod)
+			}
+			gotNodes := map[string]nominatedNode{}
+			for podKey, runningUnitInfo := range unitInfo.DispatchedPods {
+				victimCount := 0
+				if runningUnitInfo.Victims != nil {
+					victimCount = len(runningUnitInfo.Victims.Pods)
+				}
+				gotNodes[podKey] = nominatedNode{runningUnitInfo.NodeToPlace, victimCount}
+			}
+			for _, expectedResult := range tt.expectedResults {
+				equal := func() bool {
+					if !reflect.DeepEqual(sets.NewString(expectedResult.unitResult.SuccessfulPods...), sets.NewString(unitResult.SuccessfulPods...)) {
+						return false
+					}
+					if !reflect.DeepEqual(sets.NewString(expectedResult.unitResult.FailedPods...), sets.NewString(unitResult.FailedPods...)) {
+						return false
+					}
+
+					equal := false
+					for _, expectedAnns := range expectedResult.anns {
+						if reflect.DeepEqual(expectedAnns, gotAnns) {
+							equal = true
+							break
+						}
+					}
+					if !equal {
+						return false
+					}
+
+					equal = false
+					for _, expectedNodes := range expectedResult.nodes {
+						if reflect.DeepEqual(expectedNodes, gotNodes) {
+							equal = true
+							break
+						}
+					}
+					return equal
+				}
+				if equal() {
+					return
+				}
+			}
+			t.Errorf("got unexpected result: %#v, %#v, %#v", unitResult, gotAnns, gotNodes)
 		})
 	}
 }

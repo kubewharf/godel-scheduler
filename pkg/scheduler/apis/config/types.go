@@ -124,6 +124,8 @@ const (
 
 	// DefaultAttemptImpactFactorOnPriority is the default attempt factors used by godel sort
 	DefaultAttemptImpactFactorOnPriority = 10.0
+
+	DefaultMaxWaitingDeletionDuration = 120
 )
 
 var DefaultBindAddress = net.JoinHostPort(DefaultGodelSchedulerAddress, strconv.Itoa(DefaultInsecureSchedulerPort))
@@ -220,6 +222,9 @@ type GodelSchedulerProfile struct {
 
 	// BetterSelectPolicies
 	BetterSelectPolicies *StringSlice
+
+	// max attempts waiting for deletion completed
+	MaxWaitingDeletionDuration int64
 
 	// BlockQueue indicates whether a BlockQueue is required.
 	BlockQueue *bool

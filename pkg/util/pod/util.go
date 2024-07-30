@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -617,12 +618,48 @@ func GetRSFromPod(pod *v1.Pod) (string, error) {
 	return "", fmt.Errorf("can not find RS info from Pod: %s/%s OwnerReferences", pod.Namespace, pod.Name)
 }
 
-func GetPodOwner(pod *v1.Pod) string {
+func GetPodOwnerInfoKey(pod *v1.Pod) string {
 	podOwnerInfo := GetPodOwnerInfo(pod)
 	if podOwnerInfo == nil {
 		return ""
 	}
 	return GetOwnerInfoKey(podOwnerInfo)
+}
+
+func GetPodTemplateKey(pod *v1.Pod) string {
+	if podOwnerInfo := GetPodOwnerInfo(pod); podOwnerInfo != nil {
+		return GetOwnerInfoKey(podOwnerInfo)
+	}
+	// By default, use Pod key directly.
+	return GeneratePodKey(pod)
+}
+
+// TODO: Convergence related function calls.
+// GetPodOwner will consider PodGroup as well.
+func GetPodOwner(pod *v1.Pod) string {
+	podOwnerInfo := GetPodOwnerInfo(pod)
+	if podOwnerInfo != nil {
+		return GetOwnerInfoKey(podOwnerInfo)
+	}
+	podOwnerInfo = GetPodGroupOwnerInfo(pod)
+	if podOwnerInfo != nil {
+		return GetOwnerInfoKey(podOwnerInfo)
+	}
+	return ""
+}
+
+func GetPodGroupOwnerInfo(pod *v1.Pod) *schedulingv1a1.OwnerInfo {
+	// get pod group
+	// TODO: figure out how to distinguish different roles in one pod group
+	podGroupName, ok := pod.Annotations[PodGroupNameAnnotationKey]
+	if ok && len(podGroupName) > 0 {
+		return &schedulingv1a1.OwnerInfo{
+			Type:      PodGroupKind,
+			Name:      podGroupName,
+			Namespace: pod.Namespace,
+		}
+	}
+	return nil
 }
 
 const PodKeySeperator string = "/"
@@ -784,49 +821,35 @@ const (
 	RequestClassKind     = "RequestClass"
 	PodGroupKind         = "PodGroup"
 	DaemonSetKind        = "DaemonSet"
+	RequestTemplateKind  = "RequestTemplate"
 
 	KeySeperator string = "/"
 )
 
-type OwnerInfo struct {
-	// Owner type, e.g. ReplicaSet/StatefulSet...
-	Type string `json:"type"`
-
-	// Owner name
-	Name string `json:"name"`
-
-	// Owner namespace
-	Namespace string `json:"namespace"`
-
-	// Owner uid
-	UID types.UID `json:"uid"`
-}
-
-func GetPodOwnerInfo(pod *v1.Pod) *OwnerInfo {
+func GetPodOwnerInfo(pod *v1.Pod) *schedulingv1a1.OwnerInfo {
 	// try to get replicaset/statefulset from pod owner reference
 	ownerRef, err := getOwnerReferenceFromPod(pod)
 	if err == nil {
-		return &OwnerInfo{
+		return &schedulingv1a1.OwnerInfo{
 			Type:      ownerRef.Kind,
 			Namespace: pod.Namespace,
 			Name:      ownerRef.Name,
 			UID:       ownerRef.UID,
 		}
 	}
-	// get pod group
-	// TODO: figure out how to distinguish different roles in one pod group
-	podGroupName, ok := pod.Annotations[PodGroupNameAnnotationKey]
-	if ok && len(podGroupName) > 0 {
-		return &OwnerInfo{
-			Type:      PodGroupKind,
-			Name:      podGroupName,
+	// get pod request template
+	requestTemplate, ok := pod.Annotations[PodRequestTemplateAnnotationKey]
+	if ok && len(requestTemplate) > 0 {
+		return &schedulingv1a1.OwnerInfo{
+			Type:      RequestTemplateKind,
+			Name:      requestTemplate,
 			Namespace: pod.Namespace,
 		}
 	}
 	return nil
 }
 
-func GetOwnerInfoKey(ownerInfo *OwnerInfo) string {
+func GetOwnerInfoKey(ownerInfo *schedulingv1a1.OwnerInfo) string {
 	return ownerInfo.Type + KeySeperator + ownerInfo.Namespace + KeySeperator + ownerInfo.Name + KeySeperator + string(ownerInfo.UID)
 }
 
@@ -850,6 +873,10 @@ func PodHasDaemonSetOwnerReference(pod *v1.Pod) bool {
 		}
 	}
 	return false
+}
+
+func GetMovementNameFromPod(pod *v1.Pod) string {
+	return pod.Annotations[MovementNameKey]
 }
 
 func IsSharedCores(pod *v1.Pod) bool {

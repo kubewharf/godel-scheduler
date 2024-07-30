@@ -211,6 +211,7 @@ func (s *SchedulingUnitInfo) Reset() {
 		keys.Insert(podutil.GetPodKey(p.QueuedPodInfo.Pod))
 	}
 	s.NotScheduledPodKeysByTemplate = notScheduledPodKeysByTemplate
+	framework.SetNotScheduledPodKeysByTemplate(notScheduledPodKeysByTemplate, s.UnitCycleState)
 	s.ScheduledIndex = 0
 
 	s.NodeToStatusMapByTemplate = make(framework.NodeToStatusMapByTemplate, len(notScheduledPodKeysByTemplate))

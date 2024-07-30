@@ -65,8 +65,8 @@ func NewEmptySnapshot(handler commoncache.CacheHandler) *Snapshot {
 func (s *Snapshot) MakeBasicNodeGroup() framework.NodeGroup {
 	nodeGroup := framework.NewNodeGroup(
 		framework.DefaultNodeGroupName,
+		s,
 		[]framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, s)})
-	nodeGroup.SetPreferredNodes(framework.NewPreferredNodes())
 	return nodeGroup
 }
 

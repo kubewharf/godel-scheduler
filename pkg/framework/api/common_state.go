@@ -21,6 +21,7 @@ import (
 
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/pkg/util/tracing"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (
@@ -51,6 +52,10 @@ const (
 	PodPropertyKey = "PodProperty"
 
 	AssignedNumasKey = "AssignedNumas"
+
+	PodSchedulingStageStateKey = "PodSchedulingStageState"
+
+	NotScheduledPodKeysByTemplateKey = "NotScheduledPodKeysByTemplate"
 )
 
 // stateData contains single property to use in CycleState, use interface{} to do type casting
@@ -296,4 +301,24 @@ func GetAssignedNumas(state *CycleState) ([]int, error) {
 		}
 	}
 	return nil, fmt.Errorf("assigned numas state not found")
+}
+
+func SetNotScheduledPodKeysByTemplate(notScheduledPodKeysByTemplate map[string]sets.String, unitState *CycleState) error {
+	data := &stateData{
+		data: notScheduledPodKeysByTemplate,
+	}
+	unitState.Write(NotScheduledPodKeysByTemplateKey, data)
+	return nil
+}
+
+func GetNotScheduledPodKeysCountByTemplate(unitState *CycleState, ownerName string) (int, error) {
+	if data, err := unitState.Read(NotScheduledPodKeysByTemplateKey); err == nil {
+		if s, ok := data.(*stateData); ok {
+			if value, ok := s.data.(map[string]sets.String); ok {
+				return value[ownerName].Len(), nil
+			}
+			return 0, fmt.Errorf(UnsupportedError, NotScheduledPodKeysByTemplateKey)
+		}
+	}
+	return 0, fmt.Errorf(MissedError, NotScheduledPodKeysByTemplateKey)
 }

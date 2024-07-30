@@ -18,6 +18,8 @@ package api
 
 import (
 	"context"
+
+	v1 "k8s.io/api/core/v1"
 )
 
 // UnitSchedulingRequest contains necessary info used for making better scheduling decisions
@@ -31,6 +33,7 @@ type UnitSchedulingRequest struct {
 type LocatingPlugin interface {
 	Plugin
 	Locating(context.Context, ScheduleUnit, *CycleState, NodeGroup) (NodeGroup, *Status)
+	PreparePreferNode(context.Context, *CycleState, *CycleState, *v1.Pod) *Status
 }
 
 type GroupingPlugin interface {

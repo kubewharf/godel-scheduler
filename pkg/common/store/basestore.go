@@ -83,7 +83,10 @@ func (i *BaseStoreImpl) AddOwner(ownerType, key string, labels map[string]string
 func (i *BaseStoreImpl) UpdateOwner(ownerType, key string, oldLabels, newLabels map[string]string) error {
 	return nil
 }
-func (i *BaseStoreImpl) DeleteOwner(ownerType, key string) error { return nil }
+func (i *BaseStoreImpl) DeleteOwner(ownerType, key string) error                { return nil }
+func (i *BaseStoreImpl) AddMovement(movement *schedulingv1a1.Movement) error    { return nil }
+func (i *BaseStoreImpl) UpdateMovement(_, _ *schedulingv1a1.Movement) error     { return nil }
+func (i *BaseStoreImpl) DeleteMovement(movement *schedulingv1a1.Movement) error { return nil }
 
 func (i *BaseStoreImpl) AssumePod(podInfo *framework.CachePodInfo) error { return nil }
 func (i *BaseStoreImpl) ForgetPod(podInfo *framework.CachePodInfo) error { return nil }

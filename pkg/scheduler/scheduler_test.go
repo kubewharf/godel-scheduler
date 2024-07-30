@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -40,10 +41,13 @@ import (
 	"github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
 	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
+	"github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
+	movementstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/movement_store"
 	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
+	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	cmdutil "github.com/kubewharf/godel-scheduler/pkg/util/cmd"
 	"github.com/kubewharf/godel-scheduler/pkg/util/node"
@@ -645,6 +649,128 @@ func TestScheduleUnit_Preemption(t *testing.T) {
 	dataSet.ScheduleFunc()(context.Background())
 	isAssumed, _ = cache.IsAssumedPod(testPodSuccess)
 	assert.Equal(t, true, isAssumed)
+}
+
+func extractMovement(infos map[string][]*framework.MovementDetailOnNode) map[string]string {
+	ret := make(map[string]string)
+	for k, vs := range infos {
+		for _, v := range vs {
+			ret[k] = v.MovementName
+		}
+	}
+	return ret
+}
+
+func TestScheduleByRescheduling(t *testing.T) {
+	utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.SupportRescheduling): true})
+
+	// test Waiting condition
+	client := clientsetfake.NewSimpleClientset()
+	crdClient := godelclientfake.NewSimpleClientset()
+	katalystClient := katalystclientfake.NewSimpleClientset()
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, 0)
+	katalystInformerFactory := katalystinformers.NewSharedInformerFactory(katalystClient, 0)
+
+	eventBroadcaster := events.NewBroadcaster(&events.EventSinkImpl{Interface: client.EventsV1()})
+	eventRecorder := eventBroadcaster.NewRecorder(scheme.Scheme, testSchedulerName)
+
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	sched, err := New(
+		testSchedulerName,
+		&testSchedulerSysName,
+		client,
+		crdClient,
+		informerFactory,
+		crdInformerFactory,
+		katalystInformerFactory,
+		stopCh,
+		eventRecorder,
+	)
+	if err != nil {
+		t.Errorf("failed to new scheduler: %v", err)
+	}
+	dataSet := sched.ScheduleSwitch.Get(framework.SwitchType(1))
+
+	movement := &v1alpha1.Movement{
+		ObjectMeta: metav1.ObjectMeta{Name: "movement", CreationTimestamp: metav1.NewTime(time.Now())},
+		Spec: v1alpha1.MovementSpec{
+			DeletedTasks: []*v1alpha1.TaskInfo{
+				{Namespace: "p1", Name: "p1", UID: "p1"},
+			},
+		},
+		Status: v1alpha1.MovementStatus{
+			Owners: []*v1alpha1.Owner{
+				{
+					Owner: &v1alpha1.OwnerInfo{Type: "ReplicaSet", Namespace: "default", Name: "rs", UID: "rs"},
+					RecommendedNodes: []*v1alpha1.RecommendedNode{
+						{
+							Node:            "n1",
+							DesiredPodCount: 1,
+						},
+					},
+				},
+			},
+		},
+	}
+	sched.commonCache.AddMovement(movement)
+
+	terminatingPod := testing_helper.MakePod().Namespace("p1").Name("p1").UID("p1").Node("n1").Terminating().Obj()
+	sched.commonCache.AddPod(terminatingPod)
+
+	n1 := testing_helper.MakeNode().Name("n1").Obj()
+	n2 := testing_helper.MakeNode().Name("n2").Obj()
+	sched.commonCache.AddNode(n1)
+	sched.commonCache.AddNode(n2)
+	sched.commonCache.UpdateSnapshot(dataSet.Snapshot())
+
+	queue := dataSet.SchedulingQueue()
+
+	{
+		pod := testing_helper.MakePod().Namespace("default").Name("foo1").UID("foo1").SetCreationTimestampAt(time.Now()).
+			ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs", UID: "rs"}).Obj()
+		queue.Add(pod)
+		dataSet.ScheduleFunc()(context.Background())
+
+		gotSuggestedInfo := extractMovement(dataSet.Snapshot().FindStore(movementstore.Name).(movementstore.StoreHandle).GetSuggestedMovementAndNodes("ReplicaSet/default/rs/rs"))
+		expectedSuggestedInfo := map[string]string{"n1": "movement"}
+		if !reflect.DeepEqual(expectedSuggestedInfo, gotSuggestedInfo) {
+			t.Errorf("expected suggestion info: %v, but got: %v", expectedSuggestedInfo, gotSuggestedInfo)
+		}
+	}
+
+	// test schedule success
+	sched.commonCache.DeleteMovement(movement)
+	movement = &v1alpha1.Movement{
+		ObjectMeta: metav1.ObjectMeta{Name: "movement"},
+		Status: v1alpha1.MovementStatus{
+			Owners: []*v1alpha1.Owner{
+				{
+					Owner: &v1alpha1.OwnerInfo{Type: "ReplicaSet", Namespace: "default", Name: "rs", UID: "rs"},
+					RecommendedNodes: []*v1alpha1.RecommendedNode{
+						{
+							Node:            "n1",
+							DesiredPodCount: 1,
+						},
+					},
+				},
+			},
+		},
+	}
+	sched.commonCache.AddMovement(movement)
+
+	{
+		pod := testing_helper.MakePod().Namespace("default").Name("foo2").UID("foo2").SetCreationTimestampAt(time.Now()).
+			ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs", UID: "rs"}).Obj()
+		queue.Add(pod)
+		dataSet.ScheduleFunc()(context.Background())
+
+		gotSuggestedInfo := dataSet.Snapshot().FindStore(movementstore.Name).(movementstore.StoreHandle).GetSuggestedMovementAndNodes("ReplicaSet/default/rs/rs")
+		if len(gotSuggestedInfo) > 0 {
+			t.Errorf("expected nil suggestion info, but got: %v", gotSuggestedInfo)
+		}
+	}
 }
 
 func TestScheduleUnit_RemoveVictims(t *testing.T) {

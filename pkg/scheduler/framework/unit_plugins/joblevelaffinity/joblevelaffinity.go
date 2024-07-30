@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -79,6 +80,10 @@ func (i *JobLevelAffinity) Locating(ctx context.Context, unit framework.Schedule
 	}), nil
 }
 
+func (i *JobLevelAffinity) PreparePreferNode(ctx context.Context, unitCycleState, state *framework.CycleState, pod *v1.Pod) *framework.Status {
+	return nil
+}
+
 func (i *JobLevelAffinity) Grouping(ctx context.Context, unit framework.ScheduleUnit, unitCycleState *framework.CycleState, nodeGroup framework.NodeGroup) ([]framework.NodeGroup, *framework.Status) {
 	if unit.Type() == framework.SinglePodUnitType {
 		return []framework.NodeGroup{nodeGroup}, nil
@@ -134,6 +139,10 @@ func (i *JobLevelAffinity) findNodeGroups(
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	for _, n := range originNodeGroup.GetPreferredNodes().List() {
+		assignedNodes.Insert(n.GetNodeName())
 	}
 
 	if preferred, err := unit.GetPreferredAffinity(); err == nil && len(preferred) != 0 {

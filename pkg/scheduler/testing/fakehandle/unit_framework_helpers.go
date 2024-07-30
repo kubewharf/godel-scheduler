@@ -17,6 +17,8 @@ limitations under the License.
 package fakehandle
 
 import (
+	"time"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/events"
 
@@ -85,4 +87,8 @@ func (mfh *MockUnitFrameworkHandle) FindStore(storeName commonstore.StoreName) c
 
 func (gs *MockUnitFrameworkHandle) IsAssumedPod(pod *v1.Pod) (bool, error) {
 	return gs.Cache.IsAssumedPod(pod)
+}
+
+func (gs *MockUnitFrameworkHandle) GetMaxWaitingDeletionDuration() time.Duration {
+	return 10 * time.Second
 }
