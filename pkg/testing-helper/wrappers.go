@@ -30,9 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
-	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
-	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -157,36 +154,6 @@ func MakePod() *PodWrapper {
 			},
 		},
 	}}
-}
-
-func WithNode(node *v1.Node) framework.NodeInfo {
-	nodeInfo := framework.NewNodeInfo()
-	nodeInfo.SetNode(node)
-	return nodeInfo
-}
-
-func MakeSnapShot(existingPods []*v1.Pod, nodes []*v1.Node) *godelcache.Snapshot {
-	cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
-		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
-		PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
-		EnableStore("PreemptionStore").
-		Obj())
-	snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
-		SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
-		EnableStore("PreemptionStore").
-		Obj())
-
-	for _, pod := range existingPods {
-		pod.UID = types.UID(pod.Name)
-		cache.AddPod(pod)
-	}
-	for _, node := range nodes {
-		cache.AddNode(node)
-	}
-
-	cache.UpdateSnapshot(snapshot)
-
-	return snapshot
 }
 
 // Obj returns the inner Pod.

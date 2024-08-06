@@ -12,7 +12,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	st "github.com/kubewharf/godel-scheduler/pkg/scheduler/testing"
-	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
+	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -568,7 +568,7 @@ func TestPreferredAffinity(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			state := framework.NewCycleState()
-			snapshot := testing_helper.MakeSnapShot(test.pods, test.nodes)
+			snapshot := framework_helper.MakeSnapShot(test.pods, test.nodes)
 
 			p := &InterPodAffinity{
 				args: config.InterPodAffinityArgs{
@@ -579,7 +579,7 @@ func TestPreferredAffinity(t *testing.T) {
 
 			nodeInfos := make([]framework.NodeInfo, len(test.nodes))
 			for index, node := range test.nodes {
-				nodeInfos[index] = testing_helper.WithNode(node)
+				nodeInfos[index] = framework_helper.WithNode(node)
 			}
 
 			status := p.PreScore(context.Background(), state, test.pod, nodeInfos)
@@ -713,7 +713,7 @@ func TestPreferredAffinityWithHardPodAffinitySymmetricWeight(t *testing.T) {
 
 			nodeInfos := make([]framework.NodeInfo, len(test.nodes))
 			for index, node := range test.nodes {
-				nodeInfos[index] = testing_helper.WithNode(node)
+				nodeInfos[index] = framework_helper.WithNode(node)
 			}
 
 			status := p.(framework.PreScorePlugin).PreScore(context.Background(), state, test.pod, nodeInfos)

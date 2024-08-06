@@ -25,6 +25,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
+	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -515,7 +516,7 @@ func TestPreFilterState(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			informerFactory := informers.NewSharedInformerFactory(fake.NewSimpleClientset(tt.objs...), 0)
-			snapshot := testing_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
 
 			pl := PodTopologySpread{
 				sharedLister: snapshot,
@@ -828,7 +829,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := testing_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
 
 			pl := PodTopologySpread{
 				sharedLister: snapshot,
@@ -1034,7 +1035,7 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := testing_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
 
 			pl := PodTopologySpread{
 				sharedLister: snapshot,
@@ -1111,7 +1112,7 @@ func BenchmarkFilter(b *testing.B) {
 		var state *framework.CycleState
 		b.Run(tt.name, func(b *testing.B) {
 			existingPods, allNodes, _ := testing_helper.MakeNodesAndPodsForEvenPodsSpread(tt.pod.Labels, tt.existingPodsNum, tt.allNodesNum, tt.filteredNodesNum)
-			snapshot := testing_helper.MakeSnapShot(existingPods, allNodes)
+			snapshot := framework_helper.MakeSnapShot(existingPods, allNodes)
 
 			pl := PodTopologySpread{
 				sharedLister: snapshot,
@@ -1417,7 +1418,7 @@ func TestSingleConstraint(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := testing_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
 
 			p := &PodTopologySpread{sharedLister: snapshot}
 			state := framework.NewCycleState()
@@ -1644,7 +1645,7 @@ func TestMultipleConstraints(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := testing_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
 
 			p := &PodTopologySpread{sharedLister: snapshot}
 			state := framework.NewCycleState()

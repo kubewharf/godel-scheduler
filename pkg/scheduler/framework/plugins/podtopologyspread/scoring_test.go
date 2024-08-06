@@ -24,6 +24,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
+	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -190,7 +191,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			informerFactory := informers.NewSharedInformerFactory(fake.NewSimpleClientset(tt.objs...), 0)
-			snapshot := testing_helper.MakeSnapShot(nil, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(nil, tt.nodes)
 
 			pl := PodTopologySpread{
 				sharedLister: snapshot,
@@ -204,7 +205,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 			cs := framework.NewCycleState()
 			nodeInfos := make([]framework.NodeInfo, len(tt.nodes))
 			for index, node := range tt.nodes {
-				nodeInfos[index] = testing_helper.WithNode(node)
+				nodeInfos[index] = framework_helper.WithNode(node)
 			}
 
 			if s := pl.PreScore(context.Background(), cs, tt.pod, nodeInfos); !s.IsSuccess() {
@@ -642,13 +643,13 @@ func TestPodTopologySpreadScore(t *testing.T) {
 			allNodes = append(allNodes, tt.failedNodes...)
 			state := framework.NewCycleState()
 
-			snapshot := testing_helper.MakeSnapShot(tt.existingPods, allNodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, allNodes)
 
 			p := &PodTopologySpread{sharedLister: snapshot}
 
 			nodeInfos := make([]framework.NodeInfo, len(tt.nodes))
 			for index, node := range tt.nodes {
-				nodeInfos[index] = testing_helper.WithNode(node)
+				nodeInfos[index] = framework_helper.WithNode(node)
 			}
 
 			status := p.PreScore(context.Background(), state, tt.pod, nodeInfos)
@@ -718,13 +719,13 @@ func BenchmarkTestPodTopologySpreadScore(b *testing.B) {
 		b.Run(tt.name, func(b *testing.B) {
 			existingPods, allNodes, filteredNodes := testing_helper.MakeNodesAndPodsForEvenPodsSpread(tt.pod.Labels, tt.existingPodsNum, tt.allNodesNum, tt.filteredNodesNum)
 			state := framework.NewCycleState()
-			snapshot := testing_helper.MakeSnapShot(existingPods, allNodes)
+			snapshot := framework_helper.MakeSnapShot(existingPods, allNodes)
 
 			p := &PodTopologySpread{sharedLister: snapshot}
 
 			nodeInfos := make([]framework.NodeInfo, len(filteredNodes))
 			for index, node := range filteredNodes {
-				nodeInfos[index] = testing_helper.WithNode(node)
+				nodeInfos[index] = framework_helper.WithNode(node)
 			}
 			status := p.PreScore(context.Background(), state, tt.pod, nodeInfos)
 			if !status.IsSuccess() {
@@ -782,7 +783,7 @@ func BenchmarkTestDefaultEvenPodsSpreadPriority(b *testing.B) {
 			pod := testing_helper.MakePod().Name("p").Label("foo", "").Obj()
 			existingPods, allNodes, filteredNodes := testing_helper.MakeNodesAndPodsForEvenPodsSpread(pod.Labels, tt.existingPodsNum, tt.allNodesNum, tt.allNodesNum)
 			state := framework.NewCycleState()
-			snapshot := testing_helper.MakeSnapShot(existingPods, allNodes)
+			snapshot := framework_helper.MakeSnapShot(existingPods, allNodes)
 
 			p := &PodTopologySpread{
 				sharedLister: snapshot,
@@ -806,7 +807,7 @@ func BenchmarkTestDefaultEvenPodsSpreadPriority(b *testing.B) {
 
 			nodeInfos := make([]framework.NodeInfo, len(filteredNodes))
 			for index, node := range filteredNodes {
-				nodeInfos[index] = testing_helper.WithNode(node)
+				nodeInfos[index] = framework_helper.WithNode(node)
 			}
 
 			for i := 0; i < b.N; i++ {

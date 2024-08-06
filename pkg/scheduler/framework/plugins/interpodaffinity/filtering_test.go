@@ -24,7 +24,7 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
-	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
+	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -852,7 +852,7 @@ func TestRequiredAffinitySingleNode(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			snapshot := testing_helper.MakeSnapShot(test.pods, []*v1.Node{test.node})
+			snapshot := framework_helper.MakeSnapShot(test.pods, []*v1.Node{test.node})
 
 			p := &InterPodAffinity{
 				sharedLister: snapshot,
@@ -1740,7 +1740,7 @@ func TestRequiredAffinityMultipleNodes(t *testing.T) {
 
 	for indexTest, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			snapshot := testing_helper.MakeSnapShot(test.pods, test.nodes)
+			snapshot := framework_helper.MakeSnapShot(test.pods, test.nodes)
 
 			for indexNode, node := range test.nodes {
 				p := &InterPodAffinity{
@@ -2032,7 +2032,7 @@ func TestPreFilterStateAddRemovePod(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// getMeta creates predicate meta data given the list of pods.
 			getState := func(pods []*v1.Pod) (*InterPodAffinity, *framework.CycleState, *preFilterState, *godelcache.Snapshot) {
-				snapshot := testing_helper.MakeSnapShot(pods, test.nodes)
+				snapshot := framework_helper.MakeSnapShot(pods, test.nodes)
 
 				p := &InterPodAffinity{
 					sharedLister: snapshot,
@@ -2318,7 +2318,7 @@ func TestGetTPMapMatchingIncomingAffinityAntiAffinity(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := testing_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
 
 			l := snapshot.NodeInfos().List()
 			gotAffinityPodsMap, gotAntiAffinityPodsMap := getTPMapMatchingIncomingAffinityAntiAffinity(framework.NewPodInfo(tt.pod), l)
