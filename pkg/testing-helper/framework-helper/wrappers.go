@@ -17,11 +17,16 @@ limitations under the License.
 package framework_helper
 
 import (
+	"time"
+
 	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 )
 
 type NodeInfoWrapper struct {
@@ -85,4 +90,34 @@ func (n *NodeInfoWrapper) CNRCapacity(resources map[v1.ResourceName]string) *Nod
 	cnr.Status.Resources.Capacity, cnr.Status.Resources.Allocatable = &res, &res
 	n.SetCNR(cnr)
 	return n
+}
+
+func WithNode(node *v1.Node) framework.NodeInfo {
+	nodeInfo := framework.NewNodeInfo()
+	nodeInfo.SetNode(node)
+	return nodeInfo
+}
+
+func MakeSnapShot(existingPods []*v1.Pod, nodes []*v1.Node) *godelcache.Snapshot {
+	cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
+		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
+		PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
+		EnableStore("PreemptionStore").
+		Obj())
+	snapshot := godelcache.NewEmptySnapshot(commoncache.MakeCacheHandlerWrapper().
+		SubCluster(framework.DefaultSubCluster).SwitchType(framework.DefaultSubClusterSwitchType).
+		EnableStore("PreemptionStore").
+		Obj())
+
+	for _, pod := range existingPods {
+		pod.UID = types.UID(pod.Name)
+		cache.AddPod(pod)
+	}
+	for _, node := range nodes {
+		cache.AddNode(node)
+	}
+
+	cache.UpdateSnapshot(snapshot)
+
+	return snapshot
 }
