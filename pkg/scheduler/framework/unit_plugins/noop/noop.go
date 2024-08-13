@@ -50,6 +50,10 @@ func (i *Noop) Locating(ctx context.Context, unit framework.ScheduleUnit, unitCy
 	return nodeGroup, nil
 }
 
+func (i *Noop) PreparePreferNode(ctx context.Context, unitCycleState, state *framework.CycleState, pod *v1.Pod) *framework.Status {
+	return nil
+}
+
 func (i *Noop) Grouping(ctx context.Context, unit framework.ScheduleUnit, unitCycleState *framework.CycleState, nodeGroup framework.NodeGroup) ([]framework.NodeGroup, *framework.Status) {
 	return []framework.NodeGroup{nodeGroup}, nil
 }

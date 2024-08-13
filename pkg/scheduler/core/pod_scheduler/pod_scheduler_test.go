@@ -28,10 +28,13 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/pointer"
 
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	"github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/isolatedcache"
@@ -281,15 +284,15 @@ func newBasePlugins() framework.PluginCollectionSet {
 	return basePlugins
 }
 
-func TestScheduleInSpecificNodeCircle(t *testing.T) {
+func TestScheduleInSpecificNodeGroup(t *testing.T) {
 	tests := []struct {
-		name           string
-		pod            *v1.Pod
-		terminatingPod *v1.Pod
-		cachedPod      *v1.Pod
-		nodes          []*v1.Node
-		expectedResult core.PodScheduleResult
-		expectedErr    string
+		name                  string
+		pod                   *v1.Pod
+		cachedPod             *v1.Pod
+		nodes                 []*v1.Node
+		schedulingStagesState *int
+		expectedResult        core.PodScheduleResult
+		expectedErr           string
 	}{
 		{
 			name: "schedule success, using cache",
@@ -325,10 +328,58 @@ func TestScheduleInSpecificNodeCircle(t *testing.T) {
 			},
 			expectedErr: "",
 		},
+		{
+			name: "schedule fail, skip ScheduleInPreferredNodes and ScheduleInNodeCircles",
+			pod: testinghelper.MakePod().Namespace("default").Name("foo").UID("foo").
+				ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs", UID: "rs"}).
+				Req(map[v1.ResourceName]string{v1.ResourceCPU: "1"}).Obj(),
+			cachedPod: testinghelper.MakePod().Namespace("default").Name("foo1").UID("foo1").Node("n2").
+				ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs", UID: "rs"}).Obj(),
+			nodes: []*v1.Node{
+				testinghelper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{v1.ResourceCPU: "900m"}).Obj(),
+				testinghelper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{v1.ResourceCPU: "1"}).Obj(),
+			},
+			schedulingStagesState: pointer.Int(int(framework.SchedulingStagesState(0b1100))),
+			expectedResult:        core.PodScheduleResult{},
+			expectedErr:           "",
+		},
+		{
+			name: "schedule fail, only skip ScheduleInPreferredNodes",
+			pod: testinghelper.MakePod().Namespace("default").Name("foo").UID("foo").
+				ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs", UID: "rs"}).
+				Req(map[v1.ResourceName]string{v1.ResourceCPU: "1"}).Obj(),
+			nodes: []*v1.Node{
+				testinghelper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{v1.ResourceCPU: "900m"}).Obj(),
+				testinghelper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{v1.ResourceCPU: "1"}).Obj(),
+			},
+			schedulingStagesState: pointer.Int(int(framework.SchedulingStagesState(0b1110))),
+			expectedResult: core.PodScheduleResult{
+				NumberOfEvaluatedNodes: 2,
+				NumberOfFeasibleNodes:  1,
+				SuggestedHost:          "n2",
+			},
+			expectedErr: "",
+		},
+		{
+			name: "schedule fail, only skip ScheduleInNodeCircles",
+			pod: testinghelper.MakePod().Namespace("default").Name("foo").UID("foo").
+				ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs", UID: "rs"}).
+				Req(map[v1.ResourceName]string{v1.ResourceCPU: "1"}).Obj(),
+			cachedPod: testinghelper.MakePod().Namespace("default").Name("foo1").UID("foo1").Node("n2").
+				ControllerRef(metav1.OwnerReference{Kind: "ReplicaSet", Name: "rs", UID: "rs"}).Obj(),
+			nodes: []*v1.Node{
+				testinghelper.MakeNode().Name("n1").Capacity(map[v1.ResourceName]string{v1.ResourceCPU: "900m"}).Obj(),
+				testinghelper.MakeNode().Name("n2").Capacity(map[v1.ResourceName]string{v1.ResourceCPU: "1"}).Obj(),
+			},
+			schedulingStagesState: pointer.Int(int(framework.SchedulingStagesState(0b1101))),
+			expectedResult:        core.PodScheduleResult{},
+			expectedErr:           "can not schedule in empty preferred nodes",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.SupportRescheduling): true})
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			schedulerCache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
@@ -344,9 +395,6 @@ func TestScheduleInSpecificNodeCircle(t *testing.T) {
 			isolationCache := isolatedcache.NewIsolatedCache()
 			for _, node := range tt.nodes {
 				schedulerCache.AddNode(node)
-			}
-			if tt.terminatingPod != nil {
-				schedulerCache.AddPod(tt.terminatingPod)
 			}
 			if tt.cachedPod != nil {
 				isolationCache.CacheNodeForPodOwner(podutil.GetPodOwner(tt.cachedPod), tt.cachedPod.Spec.NodeName, "[]")
@@ -377,7 +425,9 @@ func TestScheduleInSpecificNodeCircle(t *testing.T) {
 			state := framework.NewCycleState()
 			framework.SetPodResourceTypeState(podutil.GuaranteedPod, state)
 			framework.SetPodTrace(&tracing.NoopSchedulingTrace{}, state)
-
+			if tt.schedulingStagesState != nil {
+				constructCycleStateSkipSpecificStage(state, framework.SchedulingStagesState(*tt.schedulingStagesState))
+			}
 			gotResult, gotErr := gs.ScheduleInSpecificNodeGroup(context.Background(), f, framework.NewCycleState(), framework.NewCycleState(), state, tt.pod, nodeGroup, &framework.UnitSchedulingRequest{EverScheduled: false, AllMember: 1}, make(framework.NodeToStatusMap))
 			gotResult.FilteredNodesStatuses = nil
 			if !reflect.DeepEqual(tt.expectedResult, gotResult) {

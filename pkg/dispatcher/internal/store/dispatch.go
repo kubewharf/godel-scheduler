@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	unitutil "github.com/kubewharf/godel-scheduler/pkg/util/unit"
@@ -255,4 +256,127 @@ func (dq *dispatchInfo) GetMostIdleSchedulerAndAddPodInAdvance(pod *v1.Pod) stri
 		dq.addPod(pod, result)
 	}
 	return result
+}
+
+type OwnerInfo interface {
+	AddDispatchedUnboundPod(pod *v1.Pod, schedulerName string)
+	SetDispatchedUnboundPod(pod *v1.Pod, schedulerName string) string
+	DeleteDispatchedUnboundPod(pod *v1.Pod)
+	SelectSchedulerAndSetDispatchedUnboundPod(pod *v1.Pod) string
+}
+
+type ownerInfo struct {
+	// key is owner name
+	ownerToUnboundPods map[string]*ownerPodsInfo
+	// key is pod key, value is owner name
+	podToOwner map[string]string
+	lock       sync.RWMutex
+}
+
+type ownerPodsInfo struct {
+	schedulerName string
+	unBoundPods   sets.String
+}
+
+func NewOwnerInfo() *ownerInfo {
+	return &ownerInfo{
+		ownerToUnboundPods: map[string]*ownerPodsInfo{},
+		podToOwner:         map[string]string{},
+	}
+}
+
+func newOwnerPodsInfo() *ownerPodsInfo {
+	return &ownerPodsInfo{
+		unBoundPods: sets.NewString(),
+	}
+}
+
+func (oInfo *ownerInfo) AddDispatchedUnboundPod(pod *v1.Pod, schedulerName string) {
+	if schedulerName == "" {
+		return
+	}
+	podKey := podutil.GeneratePodKey(pod)
+	podOwner := podutil.GetPodOwnerInfoKey(pod)
+	if podOwner == "" {
+		return
+	}
+
+	oInfo.lock.Lock()
+	defer oInfo.lock.Unlock()
+	oInfo.addPod(podOwner, podKey, schedulerName)
+}
+
+func (oInfo *ownerInfo) SetDispatchedUnboundPod(pod *v1.Pod, schedulerName string) string {
+	if schedulerName == "" {
+		return schedulerName
+	}
+	podKey := podutil.GeneratePodKey(pod)
+	podOwner := podutil.GetPodOwnerInfoKey(pod)
+	if podOwner == "" {
+		return schedulerName
+	}
+	oInfo.lock.Lock()
+	defer oInfo.lock.Unlock()
+	existingScheduler := oInfo.getOwnerScheduler(podOwner)
+	if existingScheduler != "" && existingScheduler != schedulerName {
+		klog.InfoS("WARN: Scheduler was ever assigned to pod, so could not set the newly selected scheduler to that owner", "schedulerName", existingScheduler, "pod", klog.KObj(pod), "podKey", podutil.GeneratePodKey(pod), "NewSchedulerName", schedulerName)
+		schedulerName = existingScheduler
+	}
+	oInfo.addPod(podOwner, podKey, schedulerName)
+	return schedulerName
+}
+
+func (oInfo *ownerInfo) addPod(podOwner, podKey, schedulerName string) {
+	if oInfo.ownerToUnboundPods == nil {
+		oInfo.ownerToUnboundPods[podOwner] = newOwnerPodsInfo()
+	}
+	ownerPodsInfo, ok := oInfo.ownerToUnboundPods[podOwner]
+	if !ok || ownerPodsInfo == nil {
+		oInfo.ownerToUnboundPods[podOwner] = newOwnerPodsInfo()
+		ownerPodsInfo = oInfo.ownerToUnboundPods[podOwner]
+	}
+	ownerPodsInfo.unBoundPods.Insert(podKey)
+	ownerPodsInfo.schedulerName = schedulerName
+
+	oInfo.podToOwner[podKey] = podOwner
+}
+
+func (oInfo *ownerInfo) DeleteDispatchedUnboundPod(pod *v1.Pod) {
+	oInfo.lock.Lock()
+	defer oInfo.lock.Unlock()
+
+	podKey := podutil.GeneratePodKey(pod)
+	podOwner := oInfo.podToOwner[podKey]
+	ownerPodsInfo := oInfo.ownerToUnboundPods[podOwner]
+	if ownerPodsInfo != nil {
+		ownerPodsInfo.unBoundPods.Delete(podKey)
+		if ownerPodsInfo.unBoundPods.Len() == 0 {
+			delete(oInfo.ownerToUnboundPods, podOwner)
+		}
+	}
+
+	delete(oInfo.podToOwner, podKey)
+}
+
+func (oInfo *ownerInfo) SelectSchedulerAndSetDispatchedUnboundPod(pod *v1.Pod) string {
+	podKey := podutil.GeneratePodKey(pod)
+	podOwner := podutil.GetPodOwnerInfoKey(pod)
+	if podOwner == "" {
+		return ""
+	}
+	oInfo.lock.Lock()
+	defer oInfo.lock.Unlock()
+	schedulerName := oInfo.getOwnerScheduler(podOwner)
+	if schedulerName != "" {
+		oInfo.addPod(podOwner, podKey, schedulerName)
+	}
+	return schedulerName
+}
+
+func (oInfo *ownerInfo) getOwnerScheduler(podOwner string) string {
+	ownerPodsInfo := oInfo.ownerToUnboundPods[podOwner]
+	if ownerPodsInfo != nil {
+		return ownerPodsInfo.schedulerName
+	}
+	return ""
 }

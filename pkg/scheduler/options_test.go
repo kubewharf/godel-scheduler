@@ -198,6 +198,8 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 		expectedProfile := &subClusterConfig{
 			PercentageOfNodesToScore: 0,
 
+			MaxWaitingDeletionDuration: 120,
+
 			UseBlockQueue:                 false,
 			UnitInitialBackoffSeconds:     1,
 			UnitMaxBackoffSeconds:         100,
@@ -229,6 +231,8 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 		subClusterProfile := newSubClusterConfigFromDefaultConfig(getSubClusterProfile(cfg.ComponentConfig, name), defaultProfile)
 		expectedProfile := &subClusterConfig{
 			PercentageOfNodesToScore: 0,
+
+			MaxWaitingDeletionDuration: 120,
 
 			UseBlockQueue:                 false,
 			UnitInitialBackoffSeconds:     1,
@@ -262,6 +266,8 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 		expectedProfile := &subClusterConfig{
 			PercentageOfNodesToScore: 0,
 
+			MaxWaitingDeletionDuration: 120,
+
 			UseBlockQueue:                 true,
 			UnitInitialBackoffSeconds:     1,
 			UnitMaxBackoffSeconds:         100,
@@ -292,6 +298,8 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 		expectedProfile := &subClusterConfig{
 			PercentageOfNodesToScore:          20,
 			IncreasedPercentageOfNodesToScore: 40,
+
+			MaxWaitingDeletionDuration: 120,
 
 			UseBlockQueue:                 false,
 			UnitInitialBackoffSeconds:     2,
@@ -383,6 +391,8 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 		expectedProfile := &subClusterConfig{
 			PercentageOfNodesToScore: 0,
 
+			MaxWaitingDeletionDuration: 300,
+
 			UseBlockQueue:                 false,
 			UnitInitialBackoffSeconds:     1,
 			UnitMaxBackoffSeconds:         100,
@@ -407,6 +417,8 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 	{
 		expectedProfile := &subClusterConfig{
 			PercentageOfNodesToScore: 0,
+
+			MaxWaitingDeletionDuration: 120,
 
 			UseBlockQueue:                 false,
 			UnitInitialBackoffSeconds:     1,

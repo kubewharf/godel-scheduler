@@ -18,6 +18,10 @@ limitations under the License.
 
 package v1alpha1
 
+// MovementListerExpansion allows custom methods to be added to
+// MovementLister.
+type MovementListerExpansion interface{}
+
 // PodGroupListerExpansion allows custom methods to be added to
 // PodGroupLister.
 type PodGroupListerExpansion interface{}

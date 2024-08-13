@@ -24,6 +24,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
@@ -139,4 +140,31 @@ func inValidUnit(unitInfo *framework.QueuedUnitInfo) bool {
 	}
 
 	return len(pods) == 0
+}
+
+func podPassesBasicChecks(pod *v1.Pod, pvcLister corelisters.PersistentVolumeClaimLister) error {
+	// Check PVCs used by the pod
+	manifest := &(pod.Spec)
+	for i := range manifest.Volumes {
+		volume := &manifest.Volumes[i]
+		var pvcName string
+		switch {
+		case volume.PersistentVolumeClaim != nil:
+			pvcName = volume.PersistentVolumeClaim.ClaimName
+		default:
+			// Volume is not using a PVC, ignore
+			continue
+		}
+		pvc, err := pvcLister.PersistentVolumeClaims(pod.Namespace).Get(pvcName)
+		if err != nil {
+			// The error has already enough context ("persistentvolumeclaim "myclaim" not found")
+			return err
+		}
+
+		if pvc.DeletionTimestamp != nil {
+			return fmt.Errorf("persistentvolumeclaim %q is being deleted", pvc.Name)
+		}
+	}
+
+	return nil
 }

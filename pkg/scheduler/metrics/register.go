@@ -57,6 +57,7 @@ var metricsList = []metrics.Registerable{
 	ClusterPodRequested,
 	NodeCounter,
 
+	podsUseMovement,
 	podEvaluatedNodes,
 	podFeasibleNodes,
 

@@ -110,4 +110,8 @@ type ClusterEventsHandler interface {
 	AddOwner(ownerType, key string, labels map[string]string) error
 	UpdateOwner(ownerType, key string, oldLabels, newLabels map[string]string) error
 	DeleteOwner(ownerType, key string) error
+
+	AddMovement(movement *schedulingv1a1.Movement) error
+	UpdateMovement(oldMovement, newMovement *schedulingv1a1.Movement) error
+	DeleteMovement(movement *schedulingv1a1.Movement) error
 }

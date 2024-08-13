@@ -24,6 +24,8 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
+	// Movements returns a MovementInformer.
+	Movements() MovementInformer
 	// PodGroups returns a PodGroupInformer.
 	PodGroups() PodGroupInformer
 	// Schedulers returns a SchedulerInformer.
@@ -39,6 +41,11 @@ type version struct {
 // New returns a new Interface.
 func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakListOptions internalinterfaces.TweakListOptionsFunc) Interface {
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
+}
+
+// Movements returns a MovementInformer.
+func (v *version) Movements() MovementInformer {
+	return &movementInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // PodGroups returns a PodGroupInformer.

@@ -220,6 +220,7 @@ func TestLoadFileV1beta1(t *testing.T) {
 			AttemptImpactFactorOnPriority: &FLOAT64_3,
 			UnitInitialBackoffSeconds:     &INT64_1,
 			UnitMaxBackoffSeconds:         &INT64_100,
+			MaxWaitingDeletionDuration:    120,
 		}
 
 		profile := cfg.ComponentConfig.DefaultProfile
@@ -231,8 +232,9 @@ func TestLoadFileV1beta1(t *testing.T) {
 	// SubClusterProfiles: subCluster 1
 	{
 		expectedProfile := &schedulerconfig.GodelSchedulerProfile{
-			SubClusterName:    "subCluster 1",
-			DisablePreemption: &TRUE,
+			SubClusterName:             "subCluster 1",
+			DisablePreemption:          &TRUE,
+			MaxWaitingDeletionDuration: 300,
 			UnitQueueSortPlugin: &schedulerconfig.Plugin{
 				Name: "FCFS",
 			},

@@ -30,6 +30,7 @@ import (
 
 	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
+	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	crdclientset "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -437,6 +438,10 @@ func EqualMap(m1, m2 map[string]string) bool {
 	return true
 }
 
+func GetMovementName(movement *schedulingv1a1.Movement) string {
+	return movement.Name
+}
+
 func ParallelizeUntil(stop *bool, workers int, pieces int, doWorkPiece func(piece int)) {
 	chunk := (pieces + workers - 1) / workers
 	wg := sync.WaitGroup{}
@@ -487,16 +492,4 @@ func RemoveLabels(labels1, labels2 map[string]string) map[string]string {
 		}
 	}
 	return labels
-}
-
-// TODO: revisit this rule.
-func GetOwnerReferenceKey(pod *v1.Pod) string {
-	for _, or := range pod.OwnerReferences {
-		return getOwnerReferenceKey(or, pod.Namespace)
-	}
-	return ""
-}
-
-func getOwnerReferenceKey(or metav1.OwnerReference, namespace string) string {
-	return or.Kind + "/" + namespace + "/" + or.Name + "/" + string(or.UID)
 }

@@ -71,6 +71,7 @@ type unitScheduler struct {
 	crdClient godelclient.Interface
 
 	podLister corelisters.PodLister
+	pvcLister corelisters.PersistentVolumeClaimLister
 	pgLister  v1alpha1.PodGroupLister
 
 	Cache      cache.SchedulerCache
@@ -89,6 +90,9 @@ type unitScheduler struct {
 	MetricsRecorder         *runtime.MetricsRecorder
 	Clock                   clock.Clock
 	LatestScheduleTimestamp time.Time
+
+	// Misc...
+	MaxWaitingDeletionDuration time.Duration
 }
 
 var (
@@ -108,6 +112,7 @@ func NewUnitScheduler(
 	crdClient godelclient.Interface,
 	// listers...
 	podLister corelisters.PodLister,
+	pvcLister corelisters.PersistentVolumeClaimLister,
 	pgLister v1alpha1.PodGroupLister,
 	// components...
 	cache cache.SchedulerCache,
@@ -117,6 +122,8 @@ func NewUnitScheduler(
 	podScheduler core.PodScheduler,
 	clock clock.Clock,
 	recorder events.EventRecorder,
+	// misc...
+	maxWaitingDeletionDuration time.Duration,
 ) core.UnitScheduler {
 	gs := &unitScheduler{
 		schedulerName:     schedulerName,
@@ -128,6 +135,7 @@ func NewUnitScheduler(
 		crdClient: crdClient,
 
 		podLister: podLister,
+		pvcLister: pvcLister,
 		pgLister:  pgLister,
 
 		Cache:      cache,
@@ -142,6 +150,8 @@ func NewUnitScheduler(
 		MetricsRecorder:         runtime.NewMetricsRecorder(1000, time.Second, switchType, subCluster, schedulerName),
 		Clock:                   clock,
 		LatestScheduleTimestamp: clock.Now(),
+
+		MaxWaitingDeletionDuration: maxWaitingDeletionDuration,
 	}
 
 	gs.PluginRegistry = schedulerframework.NewUnitPluginsRegistry(schedulerframework.NewUnitInTreeRegistry(), nil, gs)
@@ -162,6 +172,10 @@ func (gs *unitScheduler) EventRecorder() events.EventRecorder {
 
 func (gs *unitScheduler) BootstrapSchedulePod(ctx context.Context, pod *v1.Pod, podTrace tracing.SchedulingTrace, nodeGroup string) (string, framework.SchedulerFramework, framework.SchedulerPreemptionFramework, *framework.CycleState, error) {
 	godelScheduler, switchType, subCluster := gs.Scheduler, gs.switchType, gs.subCluster
+
+	if err := podPassesBasicChecks(pod, gs.pvcLister); err != nil {
+		return "", nil, nil, nil, err
+	}
 
 	fwk, err := godelScheduler.GetFrameworkForPod(pod)
 	if err != nil {
@@ -849,4 +863,8 @@ func (gs *unitScheduler) skipPodSchedule(pod *v1.Pod) bool {
 	// Since we got the Pod from informer cache, it's ok to call `podutil.AssumedPod` or `podutil.BoundPod` here.
 	return isCached || podutil.AssumedPod(pod) || podutil.BoundPod(pod)
 
+}
+
+func (gs *unitScheduler) GetMaxWaitingDeletionDuration() time.Duration {
+	return gs.MaxWaitingDeletionDuration
 }

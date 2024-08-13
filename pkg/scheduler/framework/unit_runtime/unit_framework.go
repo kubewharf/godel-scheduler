@@ -118,6 +118,17 @@ func (f *UnitFramework) RunLocatingPlugins(ctx context.Context, unit framework.S
 	return nodeGroup, nil
 }
 
+func (f *UnitFramework) RunPreparePreferNodesPlugins(ctx context.Context, unitCycleState, state *framework.CycleState, pod *v1.Pod) *framework.Status {
+	// Run all Locating Plugins.
+	for _, pl := range f.locatingPlugins {
+		status := pl.PreparePreferNode(ctx, unitCycleState, state, pod)
+		if !status.IsSuccess() {
+			return status
+		}
+	}
+	return nil
+}
+
 func (f *UnitFramework) RunGroupingPlugin(ctx context.Context, unit framework.ScheduleUnit, unitCycleState *framework.CycleState, nodeGroup framework.NodeGroup) ([]framework.NodeGroup, *framework.Status) {
 	var nodeGroups []framework.NodeGroup
 	switch {
@@ -394,6 +405,9 @@ func (f *UnitFramework) scheduleOneUnitInstance(ctx context.Context, scheduledIn
 		scheduleTraceContext.WithFields(tracing.WithMessageField("Failed to initialize pod"), tracing.WithErrorField(err))
 		return false, err
 	}
+	if status := f.RunPreparePreferNodesPlugins(ctx, unitCycleState, state, clonedPod); !status.IsSuccess() {
+		return false, status.AsError()
+	}
 
 	scheduleTraceContext.WithFields(tracing.WithPlugins(fwk.ListPlugins())...)
 	schedulingCycleCtx, cancel := context.WithCancel(ctx)
@@ -505,6 +519,9 @@ func (f *UnitFramework) preemptOneUnitInstance(ctx context.Context, scheduledInd
 		preemptionTraceContext.WithFields(tracing.WithMessageField("Failed to initialize pod"), tracing.WithErrorField(err))
 		return false, err
 	}
+	if status := f.RunPreparePreferNodesPlugins(ctx, unitCycleState, state, clonedPod); !status.IsSuccess() {
+		return false, status.AsError()
+	}
 
 	preemptionTraceContext.WithFields(tracing.WithPlugins(pfwk.ListPlugins())...)
 	preemptionCycleCtx, cancel := context.WithCancel(ctx)
@@ -523,7 +540,7 @@ func (f *UnitFramework) preemptOneUnitInstance(ctx context.Context, scheduledInd
 	if err != nil || preemptionResult.NominatedNode == nil {
 		klog.ErrorS(err, "Failed to run preemption", "switchType", switchType, "subCluster", subCluster, "podKey", podKey, "nodeGroup", nodeGroup.GetKey())
 		preemptionTraceContext.WithFields(tracing.WithReasonField(fmt.Sprintf("Failed to run preemption")), tracing.WithErrorField(err))
-		errMessage := fmt.Sprintf("Fail to preempt for this pod in node group: %v, err: %v", nodeGroup.GetKey(), err.Error())
+		errMessage := fmt.Sprintf("Fail to preempt for this pod in node group: %v, err: %v", nodeGroup.GetKey(), err)
 		f.schedulerHooks.EventRecorder().Eventf(clonedPod, nil, v1.EventTypeWarning, "FailToPreempt", core.ReturnAction, helper.TruncateMessage(errMessage))
 		return false, err
 	}

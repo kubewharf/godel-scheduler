@@ -81,6 +81,8 @@ type Dispatcher struct {
 
 	DispatchInfo store.DispatchInfo
 
+	OwnerInfos store.OwnerInfo
+
 	SchedulerLister     schedulinglister.SchedulerLister
 	NodeLister          listerv1.NodeLister
 	NMNodeLister        nodelister.NMNodeLister
@@ -122,6 +124,7 @@ func New(
 		client:               client,
 		podLister:            podInformer.Lister(),
 		UnitInfos:            queue.NewUnitInfos(recorder),
+		OwnerInfos:           store.NewOwnerInfo(),
 		FIFOPendingPodsQueue: queue.NewPendingFIFO(metrics.NewPendingPodsRecorder("pending")),
 		SortedPodsQueue:      queue.NewSortedFIFO(metrics.NewPendingPodsRecorder("ready")),
 		DispatchInfo:         store.NewDispatchInfo(),
@@ -379,6 +382,9 @@ func (d *Dispatcher) selectSchedulerForUnit(pg *scheduling.PodGroup, pod *v1.Pod
 	}
 	if schedName != "" && d.maintainer.SchedulerExist(schedName) && d.maintainer.IsSchedulerInActiveQueue(schedName) {
 		d.DispatchInfo.AddPodInAdvance(pod, schedName)
+		if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
+			d.OwnerInfos.AddDispatchedUnboundPod(pod, schedName)
+		}
 		return schedName, nil
 	}
 
@@ -418,7 +424,29 @@ func (d *Dispatcher) selectScheduler(pod *v1.Pod) (string, error) {
 }
 
 func (d *Dispatcher) pickScheduler(pod *v1.Pod) (string, error) {
+	if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
+		return d.selectSchedulerBasedOnOwner(pod)
+	}
 	return d.loadBalancing(pod)
+}
+
+func (d *Dispatcher) selectSchedulerBasedOnOwner(pod *v1.Pod) (string, error) {
+	schedulerName := d.OwnerInfos.SelectSchedulerAndSetDispatchedUnboundPod(pod)
+	if schedulerName != "" {
+		d.DispatchInfo.AddPodInAdvance(pod, schedulerName)
+		return schedulerName, nil
+	}
+
+	schedulerName, err := d.loadBalancing(pod)
+	if err == nil && schedulerName != "" {
+		gotSchedulerName := d.OwnerInfos.SetDispatchedUnboundPod(pod, schedulerName)
+		if gotSchedulerName != schedulerName {
+			d.DispatchInfo.UpdatePodInAdvance(pod, gotSchedulerName)
+		}
+		return gotSchedulerName, nil
+	}
+
+	return schedulerName, err
 }
 
 func (d *Dispatcher) loadBalancing(pod *v1.Pod) (string, error) {
@@ -449,6 +477,9 @@ func (d *Dispatcher) sendPodToScheduler(pod *v1.Pod, podInfo *queue.QueuedPodInf
 		klog.ErrorS(err, "Fail to patch pod", "pod", klog.KObj(pod))
 		// remove this pod from dispatched store if the api call fails
 		d.DispatchInfo.RemovePod(podCopy)
+		if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
+			d.deletePodFromOwnerInfo(podCopy)
+		}
 	}
 	return err
 }
