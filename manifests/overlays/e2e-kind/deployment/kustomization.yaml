@@ -8,3 +8,4 @@ patchesStrategicMerge:
   - binder.yaml
   - dispatcher.yaml
   - scheduler.yaml
+  - controller-manager.yaml

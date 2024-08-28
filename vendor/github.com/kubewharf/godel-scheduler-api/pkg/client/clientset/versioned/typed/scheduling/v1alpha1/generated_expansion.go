@@ -22,4 +22,6 @@ type MovementExpansion interface{}
 
 type PodGroupExpansion interface{}
 
+type ReservationExpansion interface{}
+
 type SchedulerExpansion interface{}

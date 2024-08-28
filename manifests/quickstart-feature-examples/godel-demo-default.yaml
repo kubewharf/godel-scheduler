@@ -6,3 +6,7 @@ nodes:
     image: kindest/node:v1.21.1
   - role: worker
     image: kindest/node:v1.21.1
+  - role: worker
+    image: kindest/node:v1.21.1
+  - role: worker
+    image: kindest/node:v1.21.1

@@ -25,6 +25,7 @@ import (
 	podstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/pod_store"
 	podgroupstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/podgroup_store"
 	preemptionstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/preemption_store"
+	reservationstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/reservation_store"
 	unitstatusstore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/unit_status_store"
 )
 
@@ -35,6 +36,7 @@ var orderedStoreNames = []commonstore.StoreName{
 	podgroupstore.Name,
 
 	// pod related
+	reservationstore.Name,
 	movementstore.Name,
 	preemptionstore.Name,
 	unitstatusstore.Name,

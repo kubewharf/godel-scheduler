@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	goruntime "runtime"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -138,6 +139,12 @@ func runCommand(cmd *cobra.Command, opts *options.Options, args []string) error 
 	// Get the completed config
 	cc := c.Complete()
 
+	if cz, err := configz.New(ComponentName); err == nil {
+		cz.Set(cc.BinderConfig)
+	} else {
+		return fmt.Errorf("unable to register configz: %s", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -162,6 +169,7 @@ func Run(ctx context.Context, cc binderappconfig.CompletedConfig) error {
 		eventRecorder,
 		cc.BinderConfig.SchedulerName,
 		cc.BinderConfig.VolumeBindingTimeoutSeconds,
+		time.Duration(cc.BinderConfig.ReservationTimeOutSeconds)*time.Second,
 		binder.WithPluginsAndConfigs(cc.BinderConfig.Profile),
 	)
 	if err != nil {

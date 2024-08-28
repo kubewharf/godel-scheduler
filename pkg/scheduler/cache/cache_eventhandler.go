@@ -21,6 +21,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
+	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -91,4 +92,28 @@ func (cache *schedulerCache) RemovePod(pod *v1.Pod) error {
 		}
 	}
 	return cache.CommonStoresSwitch.Range(func(cs commonstore.Store) error { return cs.DeletePod(pod) })
+}
+
+func (cache *schedulerCache) AddReservation(request *schedulingv1a1.Reservation) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	return cache.CommonStoresSwitch.Range(func(cs commonstore.Store) error {
+		return cs.AddReservation(request)
+	})
+}
+
+func (cache *schedulerCache) UpdateReservation(oldRequest, newRequest *schedulingv1a1.Reservation) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	return cache.CommonStoresSwitch.Range(func(cs commonstore.Store) error {
+		return cs.UpdateReservation(oldRequest, newRequest)
+	})
+}
+
+func (cache *schedulerCache) DeleteReservation(request *schedulingv1a1.Reservation) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	return cache.CommonStoresSwitch.Range(func(cs commonstore.Store) error {
+		return cs.DeleteReservation(request)
+	})
 }

@@ -765,3 +765,29 @@ func (rs *ReplicaSetWrapper) Label(k, v string) *ReplicaSetWrapper {
 	rs.Labels[k] = v
 	return rs
 }
+
+type ReservationWrapper struct {
+	schedulingv1a1.Reservation
+}
+
+func MakeReservation() *ReservationWrapper {
+	return &ReservationWrapper{schedulingv1a1.Reservation{}}
+}
+
+func WrapReservation(prr *schedulingv1a1.Reservation) *ReservationWrapper {
+	return &ReservationWrapper{*prr}
+}
+
+func (prr *ReservationWrapper) CreateTime(createTime metav1.Time) *ReservationWrapper {
+	prr.CreationTimestamp = createTime
+	return prr
+}
+
+func (prr *ReservationWrapper) SetStatus(status schedulingv1a1.ReservationStatus) *ReservationWrapper {
+	prr.Status = status
+	return prr
+}
+
+func (prr *ReservationWrapper) Obj() *schedulingv1a1.Reservation {
+	return &prr.Reservation
+}

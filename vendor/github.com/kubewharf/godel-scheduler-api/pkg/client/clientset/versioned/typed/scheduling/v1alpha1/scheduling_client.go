@@ -30,6 +30,7 @@ type SchedulingV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	MovementsGetter
 	PodGroupsGetter
+	ReservationsGetter
 	SchedulersGetter
 }
 
@@ -44,6 +45,10 @@ func (c *SchedulingV1alpha1Client) Movements() MovementInterface {
 
 func (c *SchedulingV1alpha1Client) PodGroups(namespace string) PodGroupInterface {
 	return newPodGroups(c, namespace)
+}
+
+func (c *SchedulingV1alpha1Client) Reservations(namespace string) ReservationInterface {
+	return newReservations(c, namespace)
 }
 
 func (c *SchedulingV1alpha1Client) Schedulers() SchedulerInterface {

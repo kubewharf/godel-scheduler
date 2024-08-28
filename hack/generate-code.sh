@@ -57,12 +57,40 @@ echo "Generating binder config conversions"
  -h "$PWD"/hack/boilerplate.go.txt
 }
 
+function generateControllerConfig() {
+echo "Generating controller deepcopy funcs"
+"${GOPATH}"/bin/deepcopy-gen --input-dirs \
+ github.com/kubewharf/godel-scheduler/pkg/controller/apis/config/v1alpha1,\
+github.com/kubewharf/godel-scheduler/pkg/controller/apis/config \
+ -O zz_generated.deepcopy \
+ --output-base=./ \
+ -h "$PWD"/hack/boilerplate.go.txt
+
+echo "Generating controller defaulters"
+"${GOPATH}"/bin/defaulter-gen --input-dirs \
+ github.com/kubewharf/godel-scheduler/pkg/controller/apis/config/v1alpha1\
+ -O zz_generated.defaults \
+ --output-base=./ \
+ -h "$PWD"/hack/boilerplate.go.txt
+
+echo "Generating controller conversions"
+"${GOPATH}"/bin/conversion-gen --input-dirs \
+ github.com/kubewharf/godel-scheduler/pkg/controller/apis/config/v1alpha1\
+ -O zz_generated.conversion \
+ --output-base=./ \
+ -h "$PWD"/hack/boilerplate.go.txt
+}
+
 if [[ "$1" == "scheduler"  || "$1" == "" ]] ; then
     generateSchedulerConfig
 fi
 
 if [[ "$1" == "binder"  || "$1" == "" ]] ; then
     generateBinderConfig
+fi
+
+if [[ "$1" == "controller"  || "$1" == "" ]] ; then
+    generateControllerConfig
 fi
 
 echo "

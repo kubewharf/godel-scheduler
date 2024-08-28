@@ -20,11 +20,6 @@ import (
 	"fmt"
 	"reflect"
 
-	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
-	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
-	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
-	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
-	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	policy "k8s.io/api/policy/v1"
@@ -35,12 +30,17 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
+	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
+	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
+	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	godelfeatures "github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	"github.com/kubewharf/godel-scheduler/pkg/util/features"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	unitutil "github.com/kubewharf/godel-scheduler/pkg/util/unit"
+	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 )
 
 func (sched *Scheduler) onPvAdd(obj interface{}) {
@@ -833,6 +833,71 @@ func (sched *Scheduler) deleteMovement(obj interface{}) {
 	sched.commonCache.DeleteMovement(movement)
 }
 
+func (sched *Scheduler) addReservation(obj interface{}) {
+	req, ok := obj.(*schedulingv1a1.Reservation)
+	if !ok {
+		klog.InfoS("cannot convert to *scheduling.Reservation", "object", obj)
+		return
+	}
+	klog.V(4).InfoS("add event for Reservation", "reservation", klog.KObj(req))
+	if err := sched.commonCache.AddReservation(req); err != nil {
+		klog.ErrorS(err, "failed to add reservation to cache")
+	}
+}
+
+func (sched *Scheduler) updateReservation(oldObj, newObj interface{}) {
+	oldReq, ok := oldObj.(*schedulingv1a1.Reservation)
+	if !ok {
+		klog.InfoS("cannot convert to *scheduling.Reservation", "oldObj", oldObj)
+		return
+	}
+
+	newReq, ok := newObj.(*schedulingv1a1.Reservation)
+	if !ok {
+		klog.InfoS("cannot convert to *scheduling.Reservation", "newObj", newObj)
+		return
+	}
+	klog.V(4).InfoS("update event for Reservation", "reservation", klog.KObj(newReq))
+
+	err := sched.commonCache.UpdateReservation(oldReq, newReq)
+	if err != nil {
+		klog.ErrorS(err, "scheduler cache UpdateReservation failed")
+	}
+
+	if podutil.ShouldOccupyResources(oldReq) && !podutil.ShouldOccupyResources(newReq) {
+		if err != nil {
+			oldPod := podutil.ConvertReservationToPod(oldReq)
+			sched.ScheduleSwitch.Process(
+				ParseSwitchTypeForPod(oldPod),
+				func(dataSet ScheduleDataSet) {
+					dataSet.SchedulingQueue().MoveAllToActiveOrBackoffQueue(util.ReservationDelete)
+				},
+			)
+		}
+	}
+}
+
+func (sched *Scheduler) deleteReservation(obj interface{}) {
+	req, ok := obj.(*schedulingv1a1.Reservation)
+	if !ok {
+		klog.InfoS("cannot convert to *scheduling.Reservation", "object", obj)
+		return
+	}
+
+	klog.V(4).InfoS("delete event for Reservation", "reservation", klog.KObj(req))
+	if err := sched.commonCache.DeleteReservation(req); err != nil {
+		klog.ErrorS(err, "scheduler cache delete Reservation failed")
+	} else {
+		pod := podutil.ConvertReservationToPod(req)
+		sched.ScheduleSwitch.Process(
+			ParseSwitchTypeForPod(pod),
+			func(dataSet ScheduleDataSet) {
+				dataSet.SchedulingQueue().MoveAllToActiveOrBackoffQueue(util.AssignedPodDelete)
+			},
+		)
+	}
+}
+
 // addAllEventHandlers is a helper function used in tests and in Scheduler
 // to add event handlers for various informers.
 func addAllEventHandlers(
@@ -983,6 +1048,15 @@ func addAllEventHandlers(
 				AddFunc:    sched.addMovement,
 				UpdateFunc: sched.updateMovement,
 				DeleteFunc: sched.deleteMovement,
+			})
+	}
+
+	if utilfeature.DefaultFeatureGate.Enabled(godelfeatures.ResourceReservation) {
+		crdInformerFactory.Scheduling().V1alpha1().Reservations().Informer().AddEventHandler(
+			cache.ResourceEventHandlerFuncs{
+				AddFunc:    sched.addReservation,
+				UpdateFunc: sched.updateReservation,
+				DeleteFunc: sched.deleteReservation,
 			},
 		)
 	}

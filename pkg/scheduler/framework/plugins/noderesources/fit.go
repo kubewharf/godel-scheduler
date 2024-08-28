@@ -128,7 +128,7 @@ func validateLabelName(labelName string, fldPath *field.Path) field.ErrorList {
 }
 
 // NewFit initializes a new plugin and returns it.
-func NewFit(plArgs runtime.Object, _ handle.PodFrameworkHandle) (framework.Plugin, error) {
+func NewFit(plArgs runtime.Object, f handle.PodFrameworkHandle) (framework.Plugin, error) {
 	args, err := getFitArgs(plArgs)
 	if err != nil {
 		return nil, err
@@ -157,7 +157,7 @@ func getFitArgs(obj runtime.Object) (config.NodeResourcesFitArgs, error) {
 
 // PreFilter invoked at the prefilter extension point.
 func (f *Fit) PreFilter(_ context.Context, cycleState *framework.CycleState, pod *v1.Pod) *framework.Status {
-	state := utils.ComputePodResourceRequest(cycleState, pod)
+	state := utils.ComputePodResourceRequest(pod)
 	cycleState.Write(preFilterStateKey, newPreFilterState(state))
 	return nil
 }
@@ -200,13 +200,8 @@ func (f *Fit) Filter(_ context.Context, cycleState *framework.CycleState, pod *v
 
 	insufficientResources := utils.FitsRequest(s.getPodRequest(), nodeInfo, f.ignoredResources, f.ignoredResourceGroups)
 
-	if len(insufficientResources) != 0 {
-		// We will keep all failure reasons.
-		failureReasons := make([]string, 0, len(insufficientResources))
-		for _, r := range insufficientResources {
-			failureReasons = append(failureReasons, r.Reason)
-		}
-		return framework.NewStatus(framework.Unschedulable, failureReasons...)
+	if insufficientResources != nil {
+		return framework.NewStatus(framework.Unschedulable, insufficientResources.Reason)
 	}
 	return nil
 }

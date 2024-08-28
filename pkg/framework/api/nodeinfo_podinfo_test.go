@@ -22,13 +22,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/kubewharf/godel-scheduler/pkg/features"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
@@ -377,4 +379,202 @@ func TestGetPrioritiesForPodsMayBePreempted(t *testing.T) {
 			t.Errorf("expected: %v, but got: %v", expectedPriorities, priorities)
 		}
 	}
+}
+
+func TestGuaranteedReservedResource(t *testing.T) {
+	const fakeScalarResource = "kubernetes.io/fake-resource"
+
+	nodeName := "test-node"
+	pods := []*v1.Pod{
+		makeBasePod(t, nodeName, "test-1", "100m", "500", "", []v1.ContainerPort{{HostIP: "127.0.0.1", HostPort: 80, Protocol: "TCP"}}),
+		makeBasePod(t, nodeName, "test-2", "200m", "1Ki", "", []v1.ContainerPort{{HostIP: "127.0.0.1", HostPort: 8080, Protocol: "TCP"}}),
+		makeBasePod(t, nodeName, "test-2", "200m", "1Ki", "kubernetes.io/fake-resource:1", []v1.ContainerPort{{HostIP: "127.0.0.1", HostPort: 8080, Protocol: "TCP"}}),
+	}
+	pods[2].Annotations = map[string]string{
+		podutil.ReservationPlaceHolderPodAnnotation: podutil.IsReservationPlaceHolderPods,
+	}
+
+	utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ResourceReservation): true})
+
+	nodeInfo := NewNodeInfo()
+	nodeInfo.AddPod(pods[0])
+	resources := nodeInfo.GetGuaranteedReserved()
+	expected := &Resource{}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+
+	// add reserved pod
+	nodeInfo.AddPod(pods[2])
+	resources = nodeInfo.GetGuaranteedReserved()
+	expected = &Resource{
+		MilliCPU: 200,
+		Memory:   1024,
+		ScalarResources: map[v1.ResourceName]int64{
+			fakeScalarResource: 1,
+		},
+	}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+
+	// delete common pod
+	nodeInfo.RemovePod(pods[0], false)
+	resources = nodeInfo.GetGuaranteedReserved()
+	expected = &Resource{
+		MilliCPU: 200,
+		Memory:   1024,
+		ScalarResources: map[v1.ResourceName]int64{
+			fakeScalarResource: 1,
+		},
+	}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+
+	// delete reserved pod
+	nodeInfo.RemovePod(pods[2], false)
+	resources = nodeInfo.GetGuaranteedReserved()
+	expected = &Resource{
+		ScalarResources: map[v1.ResourceName]int64{
+			fakeScalarResource: 0,
+		},
+	}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+	utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ResourceReservation): false})
+}
+
+func TestPodNumChangeInReservation(t *testing.T) {
+	nodeName := "test-node"
+	pods := []*v1.Pod{
+		makeBasePod(t, nodeName, "test-1", "100m", "500", "", []v1.ContainerPort{{HostIP: "127.0.0.1", HostPort: 80, Protocol: "TCP"}}),
+		makeBasePod(t, nodeName, "test-2", "200m", "1Ki", "", []v1.ContainerPort{{HostIP: "127.0.0.1", HostPort: 8080, Protocol: "TCP"}}),
+		makeBasePod(t, nodeName, "test-3", "200m", "1Ki", "", []v1.ContainerPort{{HostIP: "127.0.0.1", HostPort: 8080, Protocol: "TCP"}}),
+	}
+	pods[2].Annotations = map[string]string{
+		podutil.ReservationPlaceHolderPodAnnotation: podutil.IsReservationPlaceHolderPods,
+	}
+
+	utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ResourceReservation): true})
+
+	nodeInfo := NewNodeInfo()
+	nodeInfo.AddPod(pods[0])
+	resources := nodeInfo.GetGuaranteedReserved()
+	expected := &Resource{}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+	if nodeInfo.NumPods() != 1 {
+		t.Errorf("expected pods num %v, got %v", 1, nodeInfo.NumPods())
+	}
+	if nodeInfo.NumPlaceholderPods() != 0 {
+		t.Errorf("expected pods num %v, got %v", 0, nodeInfo.NumPlaceholderPods())
+	}
+
+	// add reserved pod
+	nodeInfo.AddPod(pods[2])
+	resources = nodeInfo.GetGuaranteedReserved()
+	expected = &Resource{
+		MilliCPU: 200,
+		Memory:   1024,
+	}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+	if nodeInfo.NumPods() != 2 {
+		t.Errorf("expected pods num %v, got %v", 2, nodeInfo.NumPods())
+	}
+	if nodeInfo.NumPlaceholderPods() != 1 {
+		t.Errorf("expected pods num %v, got %v", 1, nodeInfo.NumPlaceholderPods())
+	}
+
+	// delete common pod
+	nodeInfo.RemovePod(pods[0], false)
+	resources = nodeInfo.GetGuaranteedReserved()
+	expected = &Resource{
+		MilliCPU: 200,
+		Memory:   1024,
+	}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+	if nodeInfo.NumPods() != 1 {
+		t.Errorf("expected pods num %v, got %v", 1, nodeInfo.NumPods())
+	}
+	if nodeInfo.NumPlaceholderPods() != 1 {
+		t.Errorf("expected pods num %v, got %v", 1, nodeInfo.NumPlaceholderPods())
+	}
+
+	// delete reserved pod
+	nodeInfo.RemovePod(pods[2], false)
+	resources = nodeInfo.GetGuaranteedReserved()
+	expected = &Resource{}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+	if nodeInfo.NumPods() != 0 {
+		t.Errorf("expected pods num %v, got %v", 0, nodeInfo.NumPods())
+	}
+	if nodeInfo.NumPlaceholderPods() != 0 {
+		t.Errorf("expected pods num %v, got %v", 0, nodeInfo.NumPlaceholderPods())
+	}
+	utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ResourceReservation): false})
+}
+
+func TestResourceChangeInReservation(t *testing.T) {
+	nodeName := "test-node"
+	pods := []*v1.Pod{
+		makeBasePod(t, nodeName, "test-1", "100m", "500", "", []v1.ContainerPort{{HostIP: "127.0.0.1", HostPort: 80, Protocol: "TCP"}}),
+		makeBasePod(t, nodeName, "test-2", "200m", "1Ki", "", []v1.ContainerPort{{HostIP: "127.0.0.1", HostPort: 8080, Protocol: "TCP"}}),
+		makeBasePod(t, nodeName, "test-3", "200m", "1Ki", "", []v1.ContainerPort{{HostIP: "127.0.0.1", HostPort: 8080, Protocol: "TCP"}}),
+	}
+	pods[2].Annotations = map[string]string{
+		podutil.ReservationPlaceHolderPodAnnotation: podutil.IsReservationPlaceHolderPods,
+	}
+
+	utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ResourceReservation): true})
+
+	nodeInfo := NewNodeInfo()
+	nodeInfo.AddPod(pods[0])
+	resources := nodeInfo.GetGuaranteedRequested()
+	expected := &Resource{
+		MilliCPU: 100,
+		Memory:   500,
+	}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+
+	// add reserved pod
+	nodeInfo.AddPod(pods[2])
+	resources = nodeInfo.GetGuaranteedRequested()
+	expected = &Resource{
+		MilliCPU: 300,
+		Memory:   1524,
+	}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+
+	// delete common pod
+	nodeInfo.RemovePod(pods[0], false)
+	resources = nodeInfo.GetGuaranteedRequested()
+	expected = &Resource{
+		MilliCPU: 200,
+		Memory:   1024,
+	}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+
+	// delete reserved pod
+	nodeInfo.RemovePod(pods[2], false)
+	resources = nodeInfo.GetGuaranteedRequested()
+	expected = &Resource{}
+	if !reflect.DeepEqual(resources, expected) {
+		t.Errorf("expected: %#v, got: %#v", expected, resources)
+	}
+	utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ResourceReservation): false})
 }

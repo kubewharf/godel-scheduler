@@ -21,6 +21,7 @@ import (
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/node_store"
 	pdbstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/pdb_store"
 	podstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/pod_store"
+	reservationstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/reservation_store"
 	unitstatusstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/unit_status_store"
 	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 )
@@ -31,6 +32,7 @@ var orderedStoreNames = []commonstore.StoreName{
 	pdbstore.Name,
 
 	// pod related
+	reservationstore.Name,
 	unitstatusstore.Name,
 	deletedmarkerstore.Name,
 

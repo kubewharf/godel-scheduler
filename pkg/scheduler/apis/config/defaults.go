@@ -140,6 +140,9 @@ func SetDefaults_GodelSchedulerConfiguration(obj *GodelSchedulerConfiguration) {
 			defaultValue := DefaultSubClusterKey
 			obj.SubClusterKey = &defaultValue
 		}
+		if obj.ReservationTimeOutSeconds <= 0 {
+			obj.ReservationTimeOutSeconds = DefaultReservationTimeOutSeconds
+		}
 	}
 	// 5. Godel Profiles
 	{

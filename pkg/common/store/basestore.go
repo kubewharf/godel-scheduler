@@ -76,6 +76,9 @@ func (i *BaseStoreImpl) UpdatePodGroup(oldPodGroup, newPodGroup *schedulingv1a1.
 	return nil
 }
 func (i *BaseStoreImpl) DeletePodGroup(podGroup *schedulingv1a1.PodGroup) error         { return nil }
+func (i *BaseStoreImpl) AddReservation(*schedulingv1a1.Reservation) error               { return nil }
+func (i *BaseStoreImpl) UpdateReservation(_, _ *schedulingv1a1.Reservation) error       { return nil }
+func (i *BaseStoreImpl) DeleteReservation(*schedulingv1a1.Reservation) error            { return nil }
 func (i *BaseStoreImpl) AddPDB(pdb *policy.PodDisruptionBudget) error                   { return nil }
 func (i *BaseStoreImpl) UpdatePDB(oldPdb, newPdb *policy.PodDisruptionBudget) error     { return nil }
 func (i *BaseStoreImpl) DeletePDB(pdb *policy.PodDisruptionBudget) error                { return nil }
