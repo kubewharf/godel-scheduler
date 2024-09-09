@@ -112,11 +112,6 @@ func basePluginsForKubelet() *framework.PluginCollection {
 			framework.NewPluginSpec(victimscount.LeastVictimsName),
 			framework.NewPluginSpec(starttime.LatestEarliestStartTimeName),
 		},
-		Scores: []*framework.PluginSpec{
-			//TODO(ljw) 存疑
-			framework.NewPluginSpec(interpodaffinity.Name),
-			framework.NewPluginSpec(podtopologyspread.Name),
-		},
 	}
 	return &basicPlugins
 }
