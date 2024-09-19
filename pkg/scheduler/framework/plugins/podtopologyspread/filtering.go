@@ -40,14 +40,14 @@ const preFilterStateKey = "PreFilter" + Name
 // An empty preFilterState object denotes it's a legit state and is set in PreFilter phase.
 // Fields are exported for comparison during testing.
 type preFilterState struct {
-	Constraints []topologySpreadConstraint
+	Constraints []TopologySpreadConstraint
 	// We record 2 critical paths instead of all critical paths here.
 	// criticalPaths[0].MatchNum always holds the minimum matching number.
 	// criticalPaths[1].MatchNum is always greater or equal to criticalPaths[0].MatchNum, but
 	// it's not guaranteed to be the 2nd minimum match number.
-	TpKeyToCriticalPaths map[string]*criticalPaths
+	TpKeyToCriticalPaths map[string]*CriticalPaths
 	// TpPairToMatchNum is keyed with topologyPair, and valued with the number of matching pods.
-	TpPairToMatchNum map[topologyPair]*int32
+	TpPairToMatchNum map[TopologyPair]*int32
 }
 
 // Clone makes a copy of the given state.
@@ -58,14 +58,14 @@ func (s *preFilterState) Clone() framework.StateData {
 	copy := preFilterState{
 		// Constraints are shared because they don't change.
 		Constraints:          s.Constraints,
-		TpKeyToCriticalPaths: make(map[string]*criticalPaths, len(s.TpKeyToCriticalPaths)),
-		TpPairToMatchNum:     make(map[topologyPair]*int32, len(s.TpPairToMatchNum)),
+		TpKeyToCriticalPaths: make(map[string]*CriticalPaths, len(s.TpKeyToCriticalPaths)),
+		TpPairToMatchNum:     make(map[TopologyPair]*int32, len(s.TpPairToMatchNum)),
 	}
 	for tpKey, paths := range s.TpKeyToCriticalPaths {
-		copy.TpKeyToCriticalPaths[tpKey] = &criticalPaths{paths[0], paths[1]}
+		copy.TpKeyToCriticalPaths[tpKey] = &CriticalPaths{paths[0], paths[1]}
 	}
 	for tpPair, matchNum := range s.TpPairToMatchNum {
-		copyPair := topologyPair{key: tpPair.key, value: tpPair.value}
+		copyPair := TopologyPair{Key: tpPair.Key, Value: tpPair.Value}
 		copyCount := *matchNum
 		copy.TpPairToMatchNum[copyPair] = &copyCount
 	}
@@ -79,18 +79,25 @@ func (s *preFilterState) Clone() framework.StateData {
 // If we plan to turn to a more complex algorithm like "arbitrary pods on multiple nodes", this
 // structure needs to be revisited.
 // Fields are exported for comparison during testing.
-type criticalPaths [2]struct {
+type CriticalPaths [2]struct {
 	// TopologyValue denotes the topology value mapping to topology key.
 	TopologyValue string
 	// MatchNum denotes the number of matching pods.
 	MatchNum int32
 }
 
-func newCriticalPaths() *criticalPaths {
-	return &criticalPaths{{MatchNum: math.MaxInt32}, {MatchNum: math.MaxInt32}}
+func NewCriticalPaths() *CriticalPaths {
+	return &CriticalPaths{{MatchNum: math.MaxInt32}, {MatchNum: math.MaxInt32}}
 }
 
-func (p *criticalPaths) update(tpVal string, num int32) {
+func (p *CriticalPaths) Sort() {
+	if p[0].MatchNum == p[1].MatchNum && p[0].TopologyValue > p[1].TopologyValue {
+		// Swap TopologyValue to make them sorted alphabetically.
+		p[0].TopologyValue, p[1].TopologyValue = p[1].TopologyValue, p[0].TopologyValue
+	}
+}
+
+func (p *CriticalPaths) Update(tpVal string, num int32) {
 	// first verify if `tpVal` exists or not
 	i := -1
 	if tpVal == p[0].TopologyValue {
@@ -124,7 +131,7 @@ func (s *preFilterState) updateWithPod(updatedPod, preemptorPod *v1.Pod, node *v
 	if s == nil || updatedPod.Namespace != preemptorPod.Namespace || node == nil {
 		return
 	}
-	if !nodeLabelsMatchSpreadConstraints(node.Labels, s.Constraints) {
+	if !NodeLabelsMatchSpreadConstraints(node.Labels, s.Constraints) {
 		return
 	}
 
@@ -135,10 +142,10 @@ func (s *preFilterState) updateWithPod(updatedPod, preemptorPod *v1.Pod, node *v
 		}
 
 		k, v := constraint.TopologyKey, node.Labels[constraint.TopologyKey]
-		pair := topologyPair{key: k, value: v}
+		pair := TopologyPair{Key: k, Value: v}
 		*s.TpPairToMatchNum[pair] += delta
 
-		s.TpKeyToCriticalPaths[k].update(v, *s.TpPairToMatchNum[pair])
+		s.TpKeyToCriticalPaths[k].Update(v, *s.TpPairToMatchNum[pair])
 	}
 }
 
@@ -198,11 +205,11 @@ func getPreFilterState(cycleState *framework.CycleState) (*preFilterState, error
 func (pl *PodTopologySpread) calPreFilterState(pod *v1.Pod) (*preFilterState, error) {
 	allNodes := pl.sharedLister.NodeInfos().List()
 	var err error
-	var constraints []topologySpreadConstraint
+	var constraints []TopologySpreadConstraint
 	if len(pod.Spec.TopologySpreadConstraints) > 0 {
 		// We have feature gating in APIServer to strip the spec
 		// so don't need to re-check feature gate, just check length of Constraints.
-		constraints, err = filterTopologySpreadConstraints(pod.Spec.TopologySpreadConstraints, v1.DoNotSchedule)
+		constraints, err = FilterTopologySpreadConstraints(pod.Spec.TopologySpreadConstraints, v1.DoNotSchedule)
 		if err != nil {
 			return nil, fmt.Errorf("obtaining pod's hard topology spread constraints: %v", err)
 		}
@@ -218,8 +225,8 @@ func (pl *PodTopologySpread) calPreFilterState(pod *v1.Pod) (*preFilterState, er
 
 	s := preFilterState{
 		Constraints:          constraints,
-		TpKeyToCriticalPaths: make(map[string]*criticalPaths, len(constraints)),
-		TpPairToMatchNum:     make(map[topologyPair]*int32, sizeHeuristic(len(allNodes), constraints)),
+		TpKeyToCriticalPaths: make(map[string]*CriticalPaths, len(constraints)),
+		TpPairToMatchNum:     make(map[TopologyPair]*int32, SizeHeuristic(len(allNodes), constraints)),
 	}
 	for _, n := range allNodes {
 		node := n.GetNode()
@@ -233,11 +240,11 @@ func (pl *PodTopologySpread) calPreFilterState(pod *v1.Pod) (*preFilterState, er
 			continue
 		}
 		// Ensure current node's labels contains all topologyKeys in 'Constraints'.
-		if !nodeLabelsMatchSpreadConstraints(node.Labels, constraints) {
+		if !NodeLabelsMatchSpreadConstraints(node.Labels, constraints) {
 			continue
 		}
 		for _, c := range constraints {
-			pair := topologyPair{key: c.TopologyKey, value: node.Labels[c.TopologyKey]}
+			pair := TopologyPair{Key: c.TopologyKey, Value: node.Labels[c.TopologyKey]}
 			s.TpPairToMatchNum[pair] = new(int32)
 		}
 	}
@@ -247,12 +254,12 @@ func (pl *PodTopologySpread) calPreFilterState(pod *v1.Pod) (*preFilterState, er
 		node := nodeInfo.GetNode()
 
 		for _, constraint := range constraints {
-			pair := topologyPair{key: constraint.TopologyKey, value: node.Labels[constraint.TopologyKey]}
+			pair := TopologyPair{Key: constraint.TopologyKey, Value: node.Labels[constraint.TopologyKey]}
 			tpCount := s.TpPairToMatchNum[pair]
 			if tpCount == nil {
 				continue
 			}
-			count := countPodsMatchSelector(nodeInfo.GetPods(), constraint.Selector, pod.Namespace)
+			count := CountPodsMatchSelector(nodeInfo.GetPods(), constraint.Selector, pod.Namespace)
 			atomic.AddInt32(tpCount, int32(count))
 		}
 	}
@@ -261,10 +268,10 @@ func (pl *PodTopologySpread) calPreFilterState(pod *v1.Pod) (*preFilterState, er
 	// calculate min match for each topology pair
 	for i := 0; i < len(constraints); i++ {
 		key := constraints[i].TopologyKey
-		s.TpKeyToCriticalPaths[key] = newCriticalPaths()
+		s.TpKeyToCriticalPaths[key] = NewCriticalPaths()
 	}
 	for pair, num := range s.TpPairToMatchNum {
-		s.TpKeyToCriticalPaths[pair.key].update(pair.value, *num)
+		s.TpKeyToCriticalPaths[pair.Key].Update(pair.Value, *num)
 	}
 
 	return &s, nil
@@ -301,7 +308,7 @@ func (pl *PodTopologySpread) Filter(ctx context.Context, cycleState *framework.C
 			selfMatchNum = 1
 		}
 
-		pair := topologyPair{key: tpKey, value: tpVal}
+		pair := TopologyPair{Key: tpKey, Value: tpVal}
 		paths, ok := s.TpKeyToCriticalPaths[tpKey]
 		if !ok {
 			// error which should not happen
@@ -325,7 +332,7 @@ func (pl *PodTopologySpread) Filter(ctx context.Context, cycleState *framework.C
 	return nil
 }
 
-func sizeHeuristic(nodes int, constraints []topologySpreadConstraint) int {
+func SizeHeuristic(nodes int, constraints []TopologySpreadConstraint) int {
 	for _, c := range constraints {
 		if c.TopologyKey == v1.LabelHostname {
 			return nodes

@@ -72,7 +72,7 @@ func New(plArgs runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, 
 	if h.SnapshotSharedLister() == nil {
 		return nil, fmt.Errorf("SnapshotSharedlister is nil")
 	}
-	args, err := getArgs(plArgs)
+	args, err := GetArgs(plArgs)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func New(plArgs runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, 
 	return pl, nil
 }
 
-func getArgs(obj runtime.Object) (config.PodTopologySpreadArgs, error) {
+func GetArgs(obj runtime.Object) (config.PodTopologySpreadArgs, error) {
 	if obj == nil {
 		return config.PodTopologySpreadArgs{}, nil
 	}

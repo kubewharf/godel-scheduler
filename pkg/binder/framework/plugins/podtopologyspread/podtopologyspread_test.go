@@ -1,5 +1,5 @@
 /*
-Copyright 2019 The Kubernetes Authors.
+Copyright 2023 The Godel Scheduler Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,17 +20,22 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/cache"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
+	pt "github.com/kubewharf/godel-scheduler/pkg/binder/testing"
+	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
+	podtopologyspreadScheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/podtopologyspread"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
-	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
-	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/pointer"
@@ -40,14 +45,58 @@ var cmpOpts = []cmp.Option{
 	cmp.Comparer(func(s1 labels.Selector, s2 labels.Selector) bool {
 		return reflect.DeepEqual(s1, s2)
 	}),
-	cmp.Comparer(func(p1, p2 CriticalPaths) bool {
+	cmp.Comparer(func(p1, p2 podtopologyspreadScheduler.CriticalPaths) bool {
 		p1.Sort()
 		p2.Sort()
 		return p1[0] == p2[0] && p1[1] == p2[1]
 	}),
 }
 
-func TestPreFilterState(t *testing.T) {
+func mustConvertLabelSelectorAsSelector(t *testing.T, ls *metav1.LabelSelector) labels.Selector {
+	t.Helper()
+	s, err := metav1.LabelSelectorAsSelector(ls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func initInformerFactoryInformers(informerFactory *informers.SharedInformerFactory) {
+	(*informerFactory).Core().V1().Nodes().Informer()
+	(*informerFactory).Core().V1().Pods().Informer()
+	(*informerFactory).Core().V1().Services().Informer()
+	(*informerFactory).Apps().V1().ReplicaSets().Informer()
+	(*informerFactory).Apps().V1().StatefulSets().Informer()
+}
+
+func initFrameworkHandle(client *fake.Clientset, nodes []*v1.Node, existingPods []*v1.Pod) (handle.BinderFrameworkHandle, error) {
+	ctx := context.Background()
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	initInformerFactoryInformers(&informerFactory)
+	cacheHandler := commoncache.MakeCacheHandlerWrapper().
+		Period(10 * time.Second).PodAssumedTTL(30 * time.Second).StopCh(make(chan struct{})).
+		ComponentName("godel-binder").Obj()
+	cache := cache.New(cacheHandler)
+
+	for _, node := range nodes {
+		_, err := client.CoreV1().Nodes().Create(context.TODO(), node, metav1.CreateOptions{})
+		if err != nil {
+			return nil, err
+		}
+		cache.AddNode(node)
+	}
+
+	for _, pod := range existingPods {
+		pod.UID = types.UID(pod.Name)
+		cache.AddPod(pod)
+	}
+
+	informerFactory.Start(ctx.Done())
+	informerFactory.WaitForCacheSync(ctx.Done())
+	return pt.NewBinderFrameworkHandle(client, nil, informerFactory, nil, cache)
+}
+
+func TestGetTopologyCondition(t *testing.T) {
 	fooSelector := testing_helper.MakeLabelSelector().Exists("foo").Obj()
 	barSelector := testing_helper.MakeLabelSelector().Exists("bar").Obj()
 	tests := []struct {
@@ -57,7 +106,7 @@ func TestPreFilterState(t *testing.T) {
 		existingPods       []*v1.Pod
 		objs               []runtime.Object
 		defaultConstraints []v1.TopologySpreadConstraint
-		want               *preFilterState
+		want               *TopologySpreadCondition
 	}{
 		{
 			name: "clean cluster with one spreadConstraint",
@@ -70,18 +119,18 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     5,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Label("foo", "bar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
 					"zone": {{"zone1", 0}, {"zone2", 0}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(0),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(0),
 				},
@@ -105,18 +154,18 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
 					"zone": {{"zone2", 2}, {"zone1", 3}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
 				},
@@ -142,18 +191,18 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
 					"zone": {{"zone3", 0}, {"zone2", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
 					{Key: "zone", Value: "zone3"}: pointer.Int32Ptr(0),
@@ -178,18 +227,18 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y1").Namespace("ns2").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
 					"zone": {{"zone2", 1}, {"zone1", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(2),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(1),
 				},
@@ -216,8 +265,8 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -229,11 +278,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-x", 0}, {"node-b", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
@@ -265,8 +314,8 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -278,11 +327,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-b", 1}, {"node-a", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
@@ -306,8 +355,8 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-a").Node("node-a").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-b").Node("node-b").Label("bar", "").Obj(),
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -319,11 +368,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, barSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
 					"zone": {{"zone2", 0}, {"zone1", 1}},
 					"node": {{"node-a", 0}, {"node-y", 0}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(1),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(0),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(0),
@@ -352,8 +401,8 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Label("bar", "").Obj(),
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -365,11 +414,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, barSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-b", 0}, {"node-a", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
@@ -400,8 +449,8 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -413,11 +462,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-b", 1}, {"node-a", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
@@ -437,8 +486,8 @@ func TestPreFilterState(t *testing.T) {
 			objs: []runtime.Object{
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": "bar"}}},
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     3,
 						TopologyKey: "node",
@@ -450,11 +499,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Label("foo", "bar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"node": NewCriticalPaths(),
-					"rack": NewCriticalPaths(),
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+					"node": podtopologyspreadScheduler.NewCriticalPaths(),
+					"rack": podtopologyspreadScheduler.NewCriticalPaths(),
 				},
-				TpPairToMatchNum: make(map[TopologyPair]*int32),
+				TpPairToMatchNum: make(map[podtopologyspreadScheduler.TopologyPair]*int32),
 			},
 		},
 		{
@@ -466,7 +515,7 @@ func TestPreFilterState(t *testing.T) {
 			objs: []runtime.Object{
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"baz": "kep"}}},
 			},
-			want: &preFilterState{},
+			want: &TopologySpreadCondition{},
 		},
 		{
 			name: "default constraints and a service, but pod has constraints",
@@ -479,18 +528,18 @@ func TestPreFilterState(t *testing.T) {
 			objs: []runtime.Object{
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": "bar"}}},
 			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+			want: &TopologySpreadCondition{
+				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Label("baz", "tar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": NewCriticalPaths(),
+				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+					"zone": podtopologyspreadScheduler.NewCriticalPaths(),
 				},
-				TpPairToMatchNum: make(map[TopologyPair]*int32),
+				TpPairToMatchNum: make(map[podtopologyspreadScheduler.TopologyPair]*int32),
 			},
 		},
 		{
@@ -502,653 +551,44 @@ func TestPreFilterState(t *testing.T) {
 			objs: []runtime.Object{
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": "bar"}}},
 			},
-			want: &preFilterState{},
+			want: &TopologySpreadCondition{},
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			informerFactory := informers.NewSharedInformerFactory(fake.NewSimpleClientset(tt.objs...), 0)
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
-
-			pl := PodTopologySpread{
-				sharedLister: snapshot,
-				args: config.PodTopologySpreadArgs{
-					DefaultConstraints: tt.defaultConstraints,
-				},
-			}
-			pl.setListers(informerFactory)
-			informerFactory.Start(ctx.Done())
-			informerFactory.WaitForCacheSync(ctx.Done())
-			cs := framework.NewCycleState()
-			if s := pl.PreFilter(ctx, cs, tt.pod); !s.IsSuccess() {
-				t.Fatal(s.AsError())
-			}
-			got, err := getPreFilterState(cs)
+			client := fake.NewSimpleClientset(tt.objs...)
+			frameworkHandle, err := initFrameworkHandle(client, tt.nodes, tt.existingPods)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if diff := cmp.Diff(tt.want, got, cmpOpts...); diff != "" {
+
+			pl := PodTopologySpreadCheck{
+				args: config.PodTopologySpreadArgs{
+					DefaultConstraints: tt.defaultConstraints,
+				},
+				frameworkHandle: frameworkHandle}
+			pl.setListers(frameworkHandle.SharedInformerFactory())
+
+			gotTopologySpreadCondition, err := pl.getTopologyCondition(tt.pod)
+			if err != nil {
+				t.Fatalf("PodTopologySpread#PreFilter() error: %v", err)
+			}
+
+			if diff := cmp.Diff(tt.want, gotTopologySpreadCondition, cmpOpts...); diff != "" {
 				t.Errorf("PodTopologySpread#PreFilter() returned diff (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestPreFilterStateAddPod(t *testing.T) {
-	nodeConstraint := TopologySpreadConstraint{
-		MaxSkew:     1,
-		TopologyKey: "node",
-		Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Exists("foo").Obj()),
-	}
-	zoneConstraint := nodeConstraint
-	zoneConstraint.TopologyKey = "zone"
+func TestCheckConflictsForSingleConstraint(t *testing.T) {
 	tests := []struct {
 		name         string
-		preemptor    *v1.Pod
-		addedPod     *v1.Pod
-		existingPods []*v1.Pod
-		nodeIdx      int // denotes which node 'addedPod' belongs to
+		pod          *v1.Pod
 		nodes        []*v1.Node
-		want         *preFilterState
-	}{
-		{
-			name: "node a and b both impact current min match",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			addedPod:     testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-			existingPods: nil, // it's an empty cluster
-			nodeIdx:      0,
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"node": {{"node-b", 0}, {"node-a", 1}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(0),
-				},
-			},
-		},
-		{
-			name: "only node a impacts current min match",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			addedPod: testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-			},
-			nodeIdx: 0,
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"node": {{"node-a", 1}, {"node-b", 1}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(1),
-				},
-			},
-		},
-		{
-			name: "add a pod in a different namespace doesn't change topologyKeyToMinPodsMap",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			addedPod: testing_helper.MakePod().Name("p-a1").Namespace("ns1").Node("node-a").Label("foo", "").Obj(),
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-			},
-			nodeIdx: 0,
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"node": {{"node-a", 0}, {"node-b", 1}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(0),
-					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(1),
-				},
-			},
-		},
-		{
-			name: "add pod on non-critical node won't trigger re-calculation",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			addedPod: testing_helper.MakePod().Name("p-b2").Node("node-b").Label("foo", "").Obj(),
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-			},
-			nodeIdx: 1,
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"node": {{"node-a", 0}, {"node-b", 2}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(0),
-					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(2),
-				},
-			},
-		},
-		{
-			name: "node a and x both impact topologyKeyToMinPodsMap on zone and node",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			addedPod:     testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-			existingPods: nil, // it's an empty cluster
-			nodeIdx:      0,
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
-			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint, nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": {{"zone2", 0}, {"zone1", 1}},
-					"node": {{"node-x", 0}, {"node-a", 1}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(1),
-					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(0),
-					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-x"}: pointer.Int32Ptr(0),
-				},
-			},
-		},
-		{
-			name: "only node a impacts topologyKeyToMinPodsMap on zone and node",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			addedPod: testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Obj(),
-			},
-			nodeIdx: 0,
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
-			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint, nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": {{"zone1", 1}, {"zone2", 1}},
-					"node": {{"node-a", 1}, {"node-x", 1}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(1),
-					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-x"}: pointer.Int32Ptr(1),
-				},
-			},
-		},
-		{
-			name: "node a impacts topologyKeyToMinPodsMap on node, node x impacts topologyKeyToMinPodsMap on zone",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			addedPod: testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-b2").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Obj(),
-			},
-			nodeIdx: 0,
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
-			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint, nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": {{"zone2", 1}, {"zone1", 3}},
-					"node": {{"node-a", 1}, {"node-x", 1}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
-					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(2),
-					{Key: "node", Value: "node-x"}: pointer.Int32Ptr(1),
-				},
-			},
-		},
-		{
-			name: "Constraints hold different labelSelectors, node a impacts topologyKeyToMinPodsMap on zone",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").Label("bar", "").
-				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("bar").Obj()).
-				Obj(),
-			addedPod: testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Label("bar", "").Obj(),
-				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Label("bar", "").Obj(),
-				testing_helper.MakePod().Name("p-x2").Node("node-x").Label("bar", "").Obj(),
-			},
-			nodeIdx: 0,
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
-			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
-					zoneConstraint,
-					{
-						MaxSkew:     1,
-						TopologyKey: "node",
-						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Exists("bar").Obj()),
-					},
-				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": {{"zone2", 1}, {"zone1", 2}},
-					"node": {{"node-a", 0}, {"node-b", 1}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(2),
-					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(0),
-					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-x"}: pointer.Int32Ptr(2),
-				},
-			},
-		},
-		{
-			name: "Constraints hold different labelSelectors, node a impacts topologyKeyToMinPodsMap on both zone and node",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").Label("bar", "").
-				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("bar").Obj()).
-				Obj(),
-			addedPod: testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Label("bar", "").Obj(),
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("bar", "").Obj(),
-				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Label("bar", "").Obj(),
-				testing_helper.MakePod().Name("p-x2").Node("node-x").Label("bar", "").Obj(),
-			},
-			nodeIdx: 0,
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
-			},
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
-					zoneConstraint,
-					{
-						MaxSkew:     1,
-						TopologyKey: "node",
-						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Exists("bar").Obj()),
-					},
-				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": {{"zone1", 1}, {"zone2", 1}},
-					"node": {{"node-a", 1}, {"node-b", 1}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(1),
-					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-x"}: pointer.Int32Ptr(2),
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
-
-			pl := PodTopologySpread{
-				sharedLister: snapshot,
-			}
-			cs := framework.NewCycleState()
-			ctx := context.Background()
-			if s := pl.PreFilter(ctx, cs, tt.preemptor); !s.IsSuccess() {
-				t.Fatal(s.AsError())
-			}
-			nodeInfo, err := snapshot.Get(tt.nodes[tt.nodeIdx].Name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if s := pl.AddPod(ctx, cs, tt.preemptor, tt.addedPod, nodeInfo); !s.IsSuccess() {
-				t.Fatal(s.AsError())
-			}
-			state, err := getPreFilterState(cs)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if diff := cmp.Diff(state, tt.want, cmpOpts...); diff != "" {
-				t.Errorf("PodTopologySpread.AddPod() returned diff (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestPreFilterStateRemovePod(t *testing.T) {
-	nodeConstraint := TopologySpreadConstraint{
-		MaxSkew:     1,
-		TopologyKey: "node",
-		Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Exists("foo").Obj()),
-	}
-	zoneConstraint := nodeConstraint
-	zoneConstraint.TopologyKey = "zone"
-	tests := []struct {
-		name          string
-		preemptor     *v1.Pod // preemptor pod
-		nodes         []*v1.Node
-		existingPods  []*v1.Pod
-		deletedPodIdx int     // need to reuse *Pod of existingPods[i]
-		deletedPod    *v1.Pod // this field is used only when deletedPodIdx is -1
-		nodeIdx       int     // denotes which node "deletedPod" belongs to
-		want          *preFilterState
-	}{
-		{
-			// A high priority pod may not be scheduled due to node taints or resource shortage.
-			// So preemption is triggered.
-			name: "one spreadConstraint on zone, topologyKeyToMinPodsMap unchanged",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
-			},
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Obj(),
-			},
-			deletedPodIdx: 0, // remove pod "p-a1"
-			nodeIdx:       0, // node-a
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": {{"zone1", 1}, {"zone2", 1}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(1),
-					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(1),
-				},
-			},
-		},
-		{
-			name: "one spreadConstraint on node, topologyKeyToMinPodsMap changed",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
-				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
-			},
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
-			},
-			deletedPodIdx: 0, // remove pod "p-a1"
-			nodeIdx:       0, // node-a
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": {{"zone1", 1}, {"zone2", 2}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(1),
-					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
-				},
-			},
-		},
-		{
-			name: "delete an irrelevant pod won't help",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
-				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
-			},
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-a0").Node("node-a").Label("bar", "").Obj(),
-				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
-			},
-			deletedPodIdx: 0, // remove pod "p-a0"
-			nodeIdx:       0, // node-a
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": {{"zone1", 2}, {"zone2", 2}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(2),
-					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
-				},
-			},
-		},
-		{
-			name: "delete a non-existing pod won't help",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
-				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
-			},
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
-			},
-			deletedPodIdx: -1,
-			deletedPod:    testing_helper.MakePod().Name("p-a0").Node("node-a").Label("bar", "").Obj(),
-			nodeIdx:       0, // node-a
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": {{"zone1", 2}, {"zone2", 2}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(2),
-					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
-				},
-			},
-		},
-		{
-			name: "two spreadConstraints",
-			preemptor: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			nodes: []*v1.Node{
-				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
-				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
-				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
-			},
-			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-x2").Node("node-x").Label("foo", "").Obj(),
-			},
-			deletedPodIdx: 3, // remove pod "p-x1"
-			nodeIdx:       2, // node-x
-			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint, nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": {{"zone2", 1}, {"zone1", 3}},
-					"node": {{"node-b", 1}, {"node-x", 1}},
-				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
-					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
-					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
-					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(1),
-					{Key: "node", Value: "node-x"}: pointer.Int32Ptr(1),
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
-
-			pl := PodTopologySpread{
-				sharedLister: snapshot,
-			}
-			cs := framework.NewCycleState()
-			ctx := context.Background()
-			s := pl.PreFilter(ctx, cs, tt.preemptor)
-			if !s.IsSuccess() {
-				t.Fatal(s.AsError())
-			}
-
-			deletedPod := tt.deletedPod
-			if tt.deletedPodIdx < len(tt.existingPods) && tt.deletedPodIdx >= 0 {
-				deletedPod = tt.existingPods[tt.deletedPodIdx]
-			}
-
-			nodeInfo, err := snapshot.Get(tt.nodes[tt.nodeIdx].Name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if s := pl.RemovePod(ctx, cs, tt.preemptor, deletedPod, nodeInfo); !s.IsSuccess() {
-				t.Fatal(s.AsError())
-			}
-
-			state, err := getPreFilterState(cs)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if diff := cmp.Diff(state, tt.want, cmpOpts...); diff != "" {
-				t.Errorf("PodTopologySpread.RemovePod() returned diff (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func BenchmarkFilter(b *testing.B) {
-	tests := []struct {
-		name             string
-		pod              *v1.Pod
-		existingPodsNum  int
-		allNodesNum      int
-		filteredNodesNum int
-	}{
-		{
-			name: "1000nodes/single-constraint-zone",
-			pod: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, v1.LabelZoneFailureDomain, v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			existingPodsNum:  10000,
-			allNodesNum:      1000,
-			filteredNodesNum: 500,
-		},
-		{
-			name: "1000nodes/single-constraint-node",
-			pod: testing_helper.MakePod().Name("p").Label("foo", "").
-				SpreadConstraint(1, v1.LabelHostname, v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				Obj(),
-			existingPodsNum:  10000,
-			allNodesNum:      1000,
-			filteredNodesNum: 500,
-		},
-		{
-			name: "1000nodes/two-Constraints-zone-node",
-			pod: testing_helper.MakePod().Name("p").Label("foo", "").Label("bar", "").
-				SpreadConstraint(1, v1.LabelZoneFailureDomain, v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
-				SpreadConstraint(1, v1.LabelHostname, v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("bar").Obj()).
-				Obj(),
-			existingPodsNum:  10000,
-			allNodesNum:      1000,
-			filteredNodesNum: 500,
-		},
-	}
-	for _, tt := range tests {
-		var state *framework.CycleState
-		b.Run(tt.name, func(b *testing.B) {
-			existingPods, allNodes, _ := testing_helper.MakeNodesAndPodsForEvenPodsSpread(tt.pod.Labels, tt.existingPodsNum, tt.allNodesNum, tt.filteredNodesNum)
-			snapshot := framework_helper.MakeSnapShot(existingPods, allNodes)
-
-			pl := PodTopologySpread{
-				sharedLister: snapshot,
-			}
-			ctx := context.Background()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				state = framework.NewCycleState()
-				s := pl.PreFilter(ctx, state, tt.pod)
-				if !s.IsSuccess() {
-					b.Fatal(s.AsError())
-				}
-				filterNode := func(i int) {
-					n, _ := pl.sharedLister.NodeInfos().Get(allNodes[i].Name)
-					pl.Filter(ctx, state, tt.pod, n)
-				}
-				parallelize.Until(ctx, len(allNodes), filterNode)
-			}
-		})
-		b.Run(tt.name+"/Clone", func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
-				state.Clone()
-			}
-		})
-	}
-}
-
-func mustConvertLabelSelectorAsSelector(t *testing.T, ls *metav1.LabelSelector) labels.Selector {
-	t.Helper()
-	s, err := metav1.LabelSelectorAsSelector(ls)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
-func TestSingleConstraint(t *testing.T) {
-	tests := []struct {
-		name           string
-		pod            *v1.Pod
-		nodes          []*v1.Node
-		existingPods   []*v1.Pod
-		wantStatusCode map[string]framework.Code
+		existingPods []*v1.Pod
+		wantStatus   map[string]*framework.Status
 	}{
 		{
 			name: "no existing pods",
@@ -1161,11 +601,11 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Success,
-				"node-b": framework.Success,
-				"node-x": framework.Success,
-				"node-y": framework.Success,
+			wantStatus: map[string]*framework.Status{
+				"node-a": nil,
+				"node-b": nil,
+				"node-x": nil,
+				"node-y": nil,
 			},
 		},
 		{
@@ -1179,11 +619,11 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Success,
-				"node-b": framework.Success,
-				"node-x": framework.Success,
-				"node-y": framework.Success,
+			wantStatus: map[string]*framework.Status{
+				"node-a": nil,
+				"node-b": nil,
+				"node-x": nil,
+				"node-y": nil,
 			},
 		},
 		{
@@ -1203,11 +643,15 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Success,
-				"node-b": framework.Success,
-				"node-x": framework.Unschedulable,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": nil,
+				"node-b": nil,
+				"node-x": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1229,11 +673,11 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Success,
-				"node-b": framework.Success,
-				"node-x": framework.Success,
-				"node-y": framework.Success,
+			wantStatus: map[string]*framework.Status{
+				"node-a": nil,
+				"node-b": nil,
+				"node-x": nil,
+				"node-y": nil,
 			},
 		},
 		{
@@ -1255,11 +699,17 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Success,
-				"node-b": framework.UnschedulableAndUnresolvable,
-				"node-x": framework.Unschedulable,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": nil,
+				"node-b": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadNodeLabelNotMatch),
+				"node-x": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1271,9 +721,13 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.UnschedulableAndUnresolvable,
-				"node-x": framework.UnschedulableAndUnresolvable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadNodeLabelNotMatch),
+				"node-x": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadNodeLabelNotMatch),
 			},
 		},
 		{
@@ -1295,11 +749,17 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Unschedulable,
-				"node-b": framework.Unschedulable,
-				"node-x": framework.Success,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-b": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-x": nil,
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1321,11 +781,15 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Unschedulable,
-				"node-b": framework.Success,
-				"node-x": framework.Success,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-b": nil,
+				"node-x": nil,
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1351,11 +815,15 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Unschedulable,
-				"node-b": framework.Success,
-				"node-x": framework.Success,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-b": nil,
+				"node-x": nil,
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1383,11 +851,13 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Success,
-				"node-b": framework.Success, // in real case, it's false
-				"node-x": framework.Success, // in real case, it's false
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": nil,
+				"node-b": nil, // in real case, it's false
+				"node-x": nil, // in real case, it's false
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1403,41 +873,44 @@ func TestSingleConstraint(t *testing.T) {
 				testing_helper.MakePod().Name("p-a").Node("node-a").Label("foo", "").Terminating().Obj(),
 				testing_helper.MakePod().Name("p-b").Node("node-b").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Success,
-				"node-b": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": nil,
+				"node-b": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			frameworkHandle, err := initFrameworkHandle(fake.NewSimpleClientset(), tt.nodes, tt.existingPods)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-			p := &PodTopologySpread{sharedLister: snapshot}
-			state := framework.NewCycleState()
-			preFilterStatus := p.PreFilter(context.Background(), state, tt.pod)
-			if !preFilterStatus.IsSuccess() {
-				t.Errorf("preFilter failed with status: %v", preFilterStatus)
+			pl, err := New(nil, frameworkHandle)
+			if err != nil {
+				t.Fatal(err)
 			}
 
 			for _, node := range tt.nodes {
-				nodeInfo, _ := snapshot.NodeInfos().Get(node.Name)
-				status := p.Filter(context.Background(), state, tt.pod, nodeInfo)
-				if len(tt.wantStatusCode) != 0 && status.Code() != tt.wantStatusCode[node.Name] {
-					t.Errorf("[%s]: expected status code %v got %v", node.Name, tt.wantStatusCode[node.Name], status.Code())
+				nodeInfo := frameworkHandle.GetNodeInfo(node.Name)
+				gotStatus := pl.(framework.CheckConflictsPlugin).CheckConflicts(context.Background(), nil, tt.pod, nodeInfo)
+				if !reflect.DeepEqual(gotStatus, tt.wantStatus[node.Name]) {
+					t.Errorf("status does not match: %v, want: %v", gotStatus, tt.wantStatus[node.Name])
 				}
 			}
 		})
 	}
 }
 
-func TestMultipleConstraints(t *testing.T) {
+func TestCheckConflictsForMultipleConstraint(t *testing.T) {
 	tests := []struct {
-		name           string
-		pod            *v1.Pod
-		nodes          []*v1.Node
-		existingPods   []*v1.Pod
-		wantStatusCode map[string]framework.Code
+		name         string
+		pod          *v1.Pod
+		nodes        []*v1.Node
+		existingPods []*v1.Pod
+		wantStatus   map[string]*framework.Status
 	}{
 		{
 			// 1. to fulfil "zone" constraint, incoming pod can be placed on any zone (hence any node)
@@ -1462,11 +935,17 @@ func TestMultipleConstraints(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Unschedulable,
-				"node-b": framework.Unschedulable,
-				"node-x": framework.Success,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-b": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-x": nil,
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1493,11 +972,19 @@ func TestMultipleConstraints(t *testing.T) {
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Unschedulable,
-				"node-b": framework.Unschedulable,
-				"node-x": framework.Unschedulable,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-b": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-x": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1519,11 +1006,17 @@ func TestMultipleConstraints(t *testing.T) {
 				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("bar", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Unschedulable,
-				"node-b": framework.Unschedulable,
-				"node-x": framework.Success,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-b": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-x": nil,
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1546,11 +1039,19 @@ func TestMultipleConstraints(t *testing.T) {
 				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("bar", "").Obj(),
 				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("bar", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Unschedulable,
-				"node-b": framework.Unschedulable,
-				"node-x": framework.Unschedulable,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-b": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-x": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1575,11 +1076,17 @@ func TestMultipleConstraints(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Label("bar", "").Obj(),
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Unschedulable,
-				"node-b": framework.Success,
-				"node-x": framework.Unschedulable,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-b": nil,
+				"node-x": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1602,11 +1109,15 @@ func TestMultipleConstraints(t *testing.T) {
 				testing_helper.MakePod().Name("p-x1").Node("node-x").Label("bar", "").Obj(),
 				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("bar", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Success,
-				"node-b": framework.Success,
-				"node-x": framework.Unschedulable,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": nil,
+				"node-b": nil,
+				"node-x": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 		{
@@ -1628,46 +1139,40 @@ func TestMultipleConstraints(t *testing.T) {
 				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 			},
-			wantStatusCode: map[string]framework.Code{
-				"node-a": framework.Unschedulable,
-				"node-b": framework.Success,
-				"node-x": framework.UnschedulableAndUnresolvable,
-				"node-y": framework.Unschedulable,
+			wantStatus: map[string]*framework.Status{
+				"node-a": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
+				"node-b": nil,
+				"node-x": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadNodeLabelNotMatch),
+				"node-y": framework.NewStatus(
+					framework.Unschedulable,
+					ErrReasonPodTopologySpreadMaxSkewNotMatch),
 			},
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			frameworkHandle, err := initFrameworkHandle(fake.NewSimpleClientset(), tt.nodes, tt.existingPods)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-			p := &PodTopologySpread{sharedLister: snapshot}
-			state := framework.NewCycleState()
-			preFilterStatus := p.PreFilter(context.Background(), state, tt.pod)
-			if !preFilterStatus.IsSuccess() {
-				t.Errorf("preFilter failed with status: %v", preFilterStatus)
+			pl, err := New(nil, frameworkHandle)
+			if err != nil {
+				t.Fatal(err)
 			}
 
 			for _, node := range tt.nodes {
-				nodeInfo, _ := snapshot.NodeInfos().Get(node.Name)
-				status := p.Filter(context.Background(), state, tt.pod, nodeInfo)
-				if len(tt.wantStatusCode) != 0 && status.Code() != tt.wantStatusCode[node.Name] {
-					t.Errorf("[%s]: expected error code %v got %v", node.Name, tt.wantStatusCode[node.Name], status.Code())
+				nodeInfo := frameworkHandle.GetNodeInfo(node.Name)
+				gotStatus := pl.(framework.CheckConflictsPlugin).CheckConflicts(context.Background(), nil, tt.pod, nodeInfo)
+				if !reflect.DeepEqual(gotStatus, tt.wantStatus[node.Name]) {
+					t.Errorf("status does not match: %v, want: %v", gotStatus, tt.wantStatus[node.Name])
 				}
 			}
 		})
-	}
-}
-
-func TestPreFilterDisabled(t *testing.T) {
-	pod := &v1.Pod{}
-	nodeInfo := framework.NewNodeInfo()
-	node := v1.Node{}
-	nodeInfo.SetNode(&node)
-	p := &PodTopologySpread{}
-	cycleState := framework.NewCycleState()
-	gotStatus := p.Filter(context.Background(), cycleState, pod, nodeInfo)
-	wantStatus := framework.NewStatus(framework.Error, `error reading "PreFilterPodTopologySpread" from cycleState: not found`)
-	if !reflect.DeepEqual(gotStatus, wantStatus) {
-		t.Errorf("status does not match: %v, want: %v", gotStatus, wantStatus)
 	}
 }
