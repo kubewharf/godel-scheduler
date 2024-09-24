@@ -568,7 +568,6 @@ func TestGetTopologyCondition(t *testing.T) {
 					DefaultConstraints: tt.defaultConstraints,
 				},
 				frameworkHandle: frameworkHandle}
-			pl.setListers(frameworkHandle.SharedInformerFactory())
 
 			gotTopologySpreadCondition, err := pl.getTopologyCondition(tt.pod)
 			if err != nil {

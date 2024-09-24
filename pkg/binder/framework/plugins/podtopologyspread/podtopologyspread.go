@@ -31,9 +31,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/informers"
-	appslisters "k8s.io/client-go/listers/apps/v1"
-	corelisters "k8s.io/client-go/listers/core/v1"
 )
 
 const (
@@ -49,12 +46,8 @@ type TopologySpreadCondition struct {
 }
 
 type PodTopologySpreadCheck struct {
-	args             config.PodTopologySpreadArgs
-	frameworkHandle  handle.BinderFrameworkHandle
-	services         corelisters.ServiceLister
-	replicationCtrls corelisters.ReplicationControllerLister
-	replicaSets      appslisters.ReplicaSetLister
-	statefulSets     appslisters.StatefulSetLister
+	args            config.PodTopologySpreadArgs
+	frameworkHandle handle.BinderFrameworkHandle
 }
 
 var _ framework.CheckConflictsPlugin = &PodTopologySpreadCheck{}
@@ -93,17 +86,9 @@ func New(plArgs runtime.Object, handle handle.BinderFrameworkHandle) (framework.
 		if handle.SharedInformerFactory() == nil {
 			return nil, fmt.Errorf("SharedInformerFactory is nil")
 		}
-		pl.setListers(handle.SharedInformerFactory())
 	}
 
 	return pl, nil
-}
-
-func (pl *PodTopologySpreadCheck) setListers(factory informers.SharedInformerFactory) {
-	pl.services = factory.Core().V1().Services().Lister()
-	pl.replicationCtrls = factory.Core().V1().ReplicationControllers().Lister()
-	pl.replicaSets = factory.Apps().V1().ReplicaSets().Lister()
-	pl.statefulSets = factory.Apps().V1().StatefulSets().Lister()
 }
 
 // defaultConstraints builds the constraints for a pod using
@@ -114,7 +99,9 @@ func (pl *PodTopologySpreadCheck) defaultConstraints(p *v1.Pod, action v1.Unsati
 	if err != nil || len(constraints) == 0 {
 		return nil, err
 	}
-	selector := helper.DefaultSelector(p, pl.services, pl.replicationCtrls, pl.replicaSets, pl.statefulSets)
+	selector := helper.DefaultSelector(p, pl.frameworkHandle.SharedInformerFactory().Core().V1().Services().Lister(),
+		pl.frameworkHandle.SharedInformerFactory().Core().V1().ReplicationControllers().Lister(),
+		pl.frameworkHandle.SharedInformerFactory().Apps().V1().ReplicaSets().Lister(), pl.frameworkHandle.SharedInformerFactory().Apps().V1().StatefulSets().Lister())
 	if selector.Empty() {
 		return nil, nil
 	}
@@ -156,7 +143,9 @@ func (pl *PodTopologySpreadCheck) getTopologyCondition(pod *v1.Pod) (*TopologySp
 	for _, node := range allNodes {
 		// In accordance to design, if NodeAffinity or NodeSelector is defined,
 		// spreading is applied to nodes that pass those filters.
-		if !helper.PodMatchesNodeSelectorAndAffinityTerms(pod, node) {
+		nodeInfo := framework.NewNodeInfo()
+		nodeInfo.SetNode(node)
+		if !helper.PodMatchesNodeSelectorAndAffinityTerms(pod, nodeInfo) {
 			continue
 		}
 		// Ensure current node's labels contains all topologyKeys in 'Constraints'.
