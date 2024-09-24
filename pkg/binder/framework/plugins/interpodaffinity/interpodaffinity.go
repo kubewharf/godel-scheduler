@@ -18,22 +18,26 @@ package interpodaffinity
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
-	godelutil "github.com/kubewharf/godel-scheduler/pkg/util"
+	interpodScheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/interpodaffinity"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
 )
 
 const (
-	Name                                       = "InterPodAffinityCheck"
-	ErrReasonExistingAntiAffinityRulesNotMatch = "node didn't satisfy existing pods anti-affinity rules"
-	ErrReasonAffinityRulesNotMatch             = "node didn't match pod affinity rules"
-	ErrReasonAntiAffinityRulesNotMatch         = "node didn't match pod anti-affinity rules"
+	Name                                      = "InterPodAffinityCheck"
+	ErrorReasonWhenFilterNodeWithSameTopology = "failed to get nodes with same topology labels"
 )
 
-type InterPodAffinity struct{}
+type InterPodAffinity struct {
+	frameworkHandle handle.BinderFrameworkHandle
+}
 
 var _ framework.CheckConflictsPlugin = &InterPodAffinity{}
 
@@ -42,74 +46,81 @@ func (pl *InterPodAffinity) Name() string {
 }
 
 func (pl *InterPodAffinity) CheckConflicts(_ context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
-	checkRes := []string{}
-	// Check whether the pod satisfies the node's existing pod anti-affinity.
-	if res := pl.checkNodeExistingPodAntiAffinity(pod, nodeInfo); res != "" {
-		checkRes = append(checkRes, res)
+	// Get the nodes with the same topology labels as the node to be scheduled
+	podLauncher, err := podutil.GetPodLauncher(pod)
+	if err != nil {
+		return framework.NewStatus(framework.Error, err.Error())
 	}
-	// Check whether the pods on the node satisfy the pod's anti-affinity and affinity.
-	if res := pl.checkPodAffinityAntiAffinity(pod, nodeInfo); len(res) > 0 {
-		checkRes = append(checkRes, res...)
+	topologyLabels := nodeInfo.GetNodeLabels(podLauncher)
+	matchedNodeInfos, err := pl.getNodesWithSameTopologyLabels(topologyLabels)
+	if err != nil {
+		return framework.NewStatus(framework.Unschedulable, ErrorReasonWhenFilterNodeWithSameTopology)
 	}
 
-	if len(checkRes) > 0 {
-		return framework.NewStatus(framework.Unschedulable, checkRes...)
+	existingPodAntiAffinityMap := interpodScheduler.GetTPMapMatchingExistingAntiAffinity(pod, matchedNodeInfos, podLauncher)
+
+	podInfo := framework.NewPodInfo(pod)
+	incomingPodAffinityMap, incomingPodAntiAffinityMap := interpodScheduler.GetTPMapMatchingIncomingAffinityAntiAffinity(podInfo, matchedNodeInfos, podLauncher)
+
+	state := &interpodScheduler.PreFilterState{
+		TopologyToMatchedExistingAntiAffinityTerms: existingPodAntiAffinityMap,
+		TopologyToMatchedAffinityTerms:             incomingPodAffinityMap,
+		TopologyToMatchedAntiAffinityTerms:         incomingPodAntiAffinityMap,
+		PodInfo:                                    podInfo,
 	}
+
+	if !interpodScheduler.SatisfyPodAffinity(state, nodeInfo, podLauncher) {
+		return framework.NewStatus(framework.UnschedulableAndUnresolvable, interpodScheduler.ErrReasonAffinityNotMatch, interpodScheduler.ErrReasonAffinityRulesNotMatch)
+	}
+
+	if !interpodScheduler.SatisfyPodAntiAffinity(state, nodeInfo, podLauncher) {
+		return framework.NewStatus(framework.Unschedulable, interpodScheduler.ErrReasonAffinityNotMatch, interpodScheduler.ErrReasonAntiAffinityRulesNotMatch)
+	}
+
+	if !interpodScheduler.SatisfyExistingPodsAntiAffinity(state, nodeInfo, podLauncher) {
+		return framework.NewStatus(framework.Unschedulable, interpodScheduler.ErrReasonAffinityNotMatch, interpodScheduler.ErrReasonExistingAntiAffinityRulesNotMatch)
+	}
+
 	return nil
 }
 
 func New(_ runtime.Object, handle handle.BinderFrameworkHandle) (framework.Plugin, error) {
-	return &InterPodAffinity{}, nil
+	return &InterPodAffinity{
+		frameworkHandle: handle,
+	}, nil
 }
 
-func (pl *InterPodAffinity) checkNodeExistingPodAntiAffinity(pod *v1.Pod, nodeInfo framework.NodeInfo) string {
-	for _, existingPod := range nodeInfo.GetPodsWithRequiredAntiAffinity() {
-		for _, antiAffinityTerm := range existingPod.RequiredAntiAffinityTerms {
-			if godelutil.PodMatchesTermsNamespaceAndSelector(pod, antiAffinityTerm.Namespaces, antiAffinityTerm.Selector) {
-				return ErrReasonExistingAntiAffinityRulesNotMatch
-			}
-		}
-	}
-	return ""
-}
+func (pl *InterPodAffinity) getNodesWithSameTopologyLabels(topologyLabels map[string]string) ([]framework.NodeInfo, error) {
+	nodeLister := pl.frameworkHandle.SharedInformerFactory().Core().V1().Nodes().Lister()
 
-func (pl *InterPodAffinity) checkPodAffinityAntiAffinity(pod *v1.Pod, nodeInfo framework.NodeInfo) []string {
-	podInfo := framework.NewPodInfo(pod)
-	checkRes := []string{}
+	var matchedNodeInfos []framework.NodeInfo
+	nodeSet := make(map[string]*v1.Node) // Used to remove duplicates
 
-	isAllAffinityTermSatisfied := true
-	for _, podAffinityTerm := range podInfo.RequiredAffinityTerms {
-		isTermSatified := false
-		for _, existingPod := range nodeInfo.GetPods() {
-			if godelutil.PodMatchesTermsNamespaceAndSelector(existingPod.Pod, podAffinityTerm.Namespaces, podAffinityTerm.Selector) {
-				isTermSatified = true
-				continue
-			}
+	// 针对每个 label key-value 进行筛选，并合并结果
+	for key, value := range topologyLabels {
+		selector := labels.NewSelector()
+
+		// 为每个 label key-value 创建一个筛选条件
+		requirement, _ := labels.NewRequirement(key, selection.Equals, []string{value})
+		selector = selector.Add(*requirement)
+
+		// 获取符合条件的节点
+		nodes, err := nodeLister.List(selector)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list nodes for selector %s: %v", selector.String(), err)
 		}
-		if !isTermSatified {
-			isAllAffinityTermSatisfied = false
-			break
+
+		// 将筛选结果加入到 nodeSet 中，确保不重复添加节点
+		for _, node := range nodes {
+			nodeSet[node.Name] = node
 		}
-	}
-	if !isAllAffinityTermSatisfied {
-		checkRes = append(checkRes, ErrReasonAffinityRulesNotMatch)
 	}
 
-	isAllAntiAffinityTermSatisfied := true
-	for _, podAntiAffinityTerm := range podInfo.RequiredAntiAffinityTerms {
-		for _, existingPod := range nodeInfo.GetPods() {
-			if godelutil.PodMatchesTermsNamespaceAndSelector(existingPod.Pod, podAntiAffinityTerm.Namespaces, podAntiAffinityTerm.Selector) {
-				isAllAntiAffinityTermSatisfied = false
-				break
-			}
-		}
-		if !isAllAntiAffinityTermSatisfied {
-			break
-		}
-	}
-	if !isAllAntiAffinityTermSatisfied {
-		checkRes = append(checkRes, ErrReasonAntiAffinityRulesNotMatch)
+	// 将去重后的节点列表转为切片
+	for _, node := range nodeSet {
+		nodeInfo := pl.frameworkHandle.GetNodeInfo(node.Name)
+		matchedNodeInfos = append(matchedNodeInfos, nodeInfo)
 	}
 
-	return checkRes
+	return matchedNodeInfos, nil
 }
