@@ -21,13 +21,16 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
@@ -191,7 +194,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			informerFactory := informers.NewSharedInformerFactory(fake.NewSimpleClientset(tt.objs...), 0)
-			snapshot := framework_helper.MakeSnapShot(nil, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(nil, tt.nodes, nil)
 
 			pl := PodTopologySpread{
 				sharedLister: snapshot,
@@ -643,7 +646,7 @@ func TestPodTopologySpreadScore(t *testing.T) {
 			allNodes = append(allNodes, tt.failedNodes...)
 			state := framework.NewCycleState()
 
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, allNodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, allNodes, nil)
 
 			p := &PodTopologySpread{sharedLister: snapshot}
 
@@ -660,6 +663,117 @@ func TestPodTopologySpreadScore(t *testing.T) {
 			var gotList framework.NodeScoreList
 			for _, n := range tt.nodes {
 				nodeName := n.Name
+				score, status := p.Score(context.Background(), state, tt.pod, nodeName)
+				if !status.IsSuccess() {
+					t.Errorf("unexpected error: %v", status)
+				}
+				gotList = append(gotList, framework.NodeScore{Name: nodeName, Score: score})
+			}
+
+			status = p.NormalizeScore(context.Background(), state, tt.pod, gotList)
+			if !status.IsSuccess() {
+				t.Errorf("unexpected error: %v", status)
+			}
+			if diff := cmp.Diff(tt.want, gotList, cmpOpts...); diff != "" {
+				t.Errorf("unexpected scores (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestNMNodesScore(t *testing.T) {
+	tests := []struct {
+		name         string
+		pod          *v1.Pod
+		existingPods []*v1.Pod
+		nodes        []*v1.Node
+		nmNodes      []*nodev1alpha1.NMNode
+		want         framework.NodeScoreList
+	}{
+		{
+			// matching pods spread as 2/1/0/3.
+			name: "All nodes are of NMNode type, that is, they are managed by the node manager. One constraint on node, all 4 nodes are candidates",
+			pod: testing_helper.MakePod().Name("p").Label("foo", "").
+				SpreadConstraint(1, v1.LabelHostname, v1.ScheduleAnyway, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
+				Obj(),
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-d1").Node("node-d").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-d2").Node("node-d").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-d3").Node("node-d").Label("foo", "").Obj(),
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{v1.LabelHostname: "node-a"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-b", Labels: map[string]string{v1.LabelHostname: "node-b"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-c", Labels: map[string]string{v1.LabelHostname: "node-c"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-d", Labels: map[string]string{v1.LabelHostname: "node-d"}}},
+			},
+			want: []framework.NodeScore{
+				{Name: "node-a", Score: 40},
+				{Name: "node-b", Score: 80},
+				{Name: "node-c", Score: 100},
+				{Name: "node-d", Score: 0},
+			},
+		},
+		{
+			// matching pods spread as 2/1/0/3.
+			name: "The first node-a is v1.node and the others are of NMNode type. Since node-a is of v1.Node type, it does not meet the requirements of the pod to be scheduled, so the score is 0.",
+			pod: testing_helper.MakePod().Name("p").Label("foo", "").
+				SpreadConstraint(1, v1.LabelHostname, v1.ScheduleAnyway, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
+				Obj(),
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-d1").Node("node-d").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-d2").Node("node-d").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-d3").Node("node-d").Label("foo", "").Obj(),
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{v1.LabelHostname: "node-a"}}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-b", Labels: map[string]string{v1.LabelHostname: "node-b"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-c", Labels: map[string]string{v1.LabelHostname: "node-c"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-d", Labels: map[string]string{v1.LabelHostname: "node-d"}}},
+			},
+			want: []framework.NodeScore{
+				{Name: "node-a", Score: 0},
+				{Name: "node-b", Score: 75},
+				{Name: "node-c", Score: 100},
+				{Name: "node-d", Score: 0},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.pod.Annotations = map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}
+			state := framework.NewCycleState()
+
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes, tt.nmNodes)
+
+			p := &PodTopologySpread{sharedLister: snapshot}
+
+			nodeInfos := make([]framework.NodeInfo, len(tt.nodes)+len(tt.nmNodes))
+			for indexNode := 0; indexNode < len(tt.nodes)+len(tt.nmNodes); indexNode++ {
+				if indexNode < len(tt.nodes) {
+					nodeInfos[indexNode], _ = snapshot.NodeInfos().Get(tt.nodes[indexNode].Name)
+				} else {
+					nodeInfos[indexNode], _ = snapshot.NodeInfos().Get(tt.nmNodes[indexNode-len(tt.nodes)].Name)
+				}
+			}
+
+			status := p.PreScore(context.Background(), state, tt.pod, nodeInfos)
+			if !status.IsSuccess() {
+				t.Errorf("unexpected error: %v", status)
+			}
+
+			var gotList framework.NodeScoreList
+			for _, nodeInfo := range nodeInfos {
+				nodeName := nodeInfo.GetNodeName()
 				score, status := p.Score(context.Background(), state, tt.pod, nodeName)
 				if !status.IsSuccess() {
 					t.Errorf("unexpected error: %v", status)
@@ -719,7 +833,7 @@ func BenchmarkTestPodTopologySpreadScore(b *testing.B) {
 		b.Run(tt.name, func(b *testing.B) {
 			existingPods, allNodes, filteredNodes := testing_helper.MakeNodesAndPodsForEvenPodsSpread(tt.pod.Labels, tt.existingPodsNum, tt.allNodesNum, tt.filteredNodesNum)
 			state := framework.NewCycleState()
-			snapshot := framework_helper.MakeSnapShot(existingPods, allNodes)
+			snapshot := framework_helper.MakeSnapShot(existingPods, allNodes, nil)
 
 			p := &PodTopologySpread{sharedLister: snapshot}
 
@@ -783,7 +897,7 @@ func BenchmarkTestDefaultEvenPodsSpreadPriority(b *testing.B) {
 			pod := testing_helper.MakePod().Name("p").Label("foo", "").Obj()
 			existingPods, allNodes, filteredNodes := testing_helper.MakeNodesAndPodsForEvenPodsSpread(pod.Labels, tt.existingPodsNum, tt.allNodesNum, tt.allNodesNum)
 			state := framework.NewCycleState()
-			snapshot := framework_helper.MakeSnapShot(existingPods, allNodes)
+			snapshot := framework_helper.MakeSnapShot(existingPods, allNodes, nil)
 
 			p := &PodTopologySpread{
 				sharedLister: snapshot,

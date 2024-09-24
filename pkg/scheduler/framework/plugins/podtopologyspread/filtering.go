@@ -24,7 +24,9 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/helper"
+	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
@@ -127,11 +129,14 @@ func (p *CriticalPaths) Update(tpVal string, num int32) {
 	}
 }
 
-func (s *preFilterState) updateWithPod(updatedPod, preemptorPod *v1.Pod, node *v1.Node, delta int32) {
-	if s == nil || updatedPod.Namespace != preemptorPod.Namespace || node == nil {
+func (s *preFilterState) updateWithPod(updatedPod, preemptorPod *v1.Pod, nodeInfo framework.NodeInfo, delta int32) {
+	if s == nil || updatedPod.Namespace != preemptorPod.Namespace || nodeInfo == nil {
 		return
 	}
-	if !NodeLabelsMatchSpreadConstraints(node.Labels, s.Constraints) {
+	podLauncher, _ := podutil.GetPodLauncher(updatedPod)
+	nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
+
+	if !NodeLabelsMatchSpreadConstraints(nodeLabels, s.Constraints) {
 		return
 	}
 
@@ -141,7 +146,7 @@ func (s *preFilterState) updateWithPod(updatedPod, preemptorPod *v1.Pod, node *v
 			continue
 		}
 
-		k, v := constraint.TopologyKey, node.Labels[constraint.TopologyKey]
+		k, v := constraint.TopologyKey, nodeLabels[constraint.TopologyKey]
 		pair := TopologyPair{Key: k, Value: v}
 		*s.TpPairToMatchNum[pair] += delta
 
@@ -171,7 +176,7 @@ func (pl *PodTopologySpread) AddPod(ctx context.Context, cycleState *framework.C
 		return framework.NewStatus(framework.Error, err.Error())
 	}
 
-	s.updateWithPod(podToAdd, podToSchedule, nodeInfo.GetNode(), 1)
+	s.updateWithPod(podToAdd, podToSchedule, nodeInfo, 1)
 	return nil
 }
 
@@ -182,7 +187,7 @@ func (pl *PodTopologySpread) RemovePod(ctx context.Context, cycleState *framewor
 		return framework.NewStatus(framework.Error, err.Error())
 	}
 
-	s.updateWithPod(podToRemove, podToSchedule, nodeInfo.GetNode(), -1)
+	s.updateWithPod(podToRemove, podToSchedule, nodeInfo, -1)
 	return nil
 }
 
@@ -203,8 +208,12 @@ func getPreFilterState(cycleState *framework.CycleState) (*preFilterState, error
 
 // calPreFilterState computes preFilterState describing how pods are spread on topologies.
 func (pl *PodTopologySpread) calPreFilterState(pod *v1.Pod) (*preFilterState, error) {
+	podLauncher, err := podutil.GetPodLauncher(pod)
+	if err != nil {
+		return nil, fmt.Errorf("getting pod launcher: %v", err)
+	}
+
 	allNodes := pl.sharedLister.NodeInfos().List()
-	var err error
 	var constraints []TopologySpreadConstraint
 	if len(pod.Spec.TopologySpreadConstraints) > 0 {
 		// We have feature gating in APIServer to strip the spec
@@ -228,33 +237,29 @@ func (pl *PodTopologySpread) calPreFilterState(pod *v1.Pod) (*preFilterState, er
 		TpKeyToCriticalPaths: make(map[string]*CriticalPaths, len(constraints)),
 		TpPairToMatchNum:     make(map[TopologyPair]*int32, SizeHeuristic(len(allNodes), constraints)),
 	}
-	for _, n := range allNodes {
-		node := n.GetNode()
-		if node == nil {
-			klog.Error("node not found")
-			continue
-		}
+	for _, nodeInfo := range allNodes {
 		// In accordance to design, if NodeAffinity or NodeSelector is defined,
 		// spreading is applied to nodes that pass those filters.
-		if !helper.PodMatchesNodeSelectorAndAffinityTerms(pod, node) {
+		if !helper.PodMatchesNodeSelectorAndAffinityTerms(pod, nodeInfo) {
 			continue
 		}
+		nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
 		// Ensure current node's labels contains all topologyKeys in 'Constraints'.
-		if !NodeLabelsMatchSpreadConstraints(node.Labels, constraints) {
+		if !NodeLabelsMatchSpreadConstraints(nodeLabels, constraints) {
 			continue
 		}
 		for _, c := range constraints {
-			pair := TopologyPair{Key: c.TopologyKey, Value: node.Labels[c.TopologyKey]}
+			pair := TopologyPair{Key: c.TopologyKey, Value: nodeLabels[c.TopologyKey]}
 			s.TpPairToMatchNum[pair] = new(int32)
 		}
 	}
 
 	processNode := func(i int) {
 		nodeInfo := allNodes[i]
-		node := nodeInfo.GetNode()
+		nodeLabels := allNodes[i].GetNodeLabels(podLauncher)
 
 		for _, constraint := range constraints {
-			pair := TopologyPair{Key: constraint.TopologyKey, Value: node.Labels[constraint.TopologyKey]}
+			pair := TopologyPair{Key: constraint.TopologyKey, Value: nodeLabels[constraint.TopologyKey]}
 			tpCount := s.TpPairToMatchNum[pair]
 			if tpCount == nil {
 				continue
@@ -279,10 +284,11 @@ func (pl *PodTopologySpread) calPreFilterState(pod *v1.Pod) (*preFilterState, er
 
 // Filter invoked at the filter extension point.
 func (pl *PodTopologySpread) Filter(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
-	node := nodeInfo.GetNode()
-	if node == nil {
-		return framework.NewStatus(framework.Error, "node not found")
+	podLauncher, status := podlauncher.NodeFits(cycleState, pod, nodeInfo)
+	if status != nil {
+		return status
 	}
+	nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
 
 	s, err := getPreFilterState(cycleState)
 	if err != nil {
@@ -297,9 +303,9 @@ func (pl *PodTopologySpread) Filter(ctx context.Context, cycleState *framework.C
 	podLabelSet := labels.Set(pod.Labels)
 	for _, c := range s.Constraints {
 		tpKey := c.TopologyKey
-		tpVal, ok := node.Labels[c.TopologyKey]
+		tpVal, ok := nodeLabels[c.TopologyKey]
 		if !ok {
-			klog.V(5).Infof("node '%s' doesn't have required label '%s'", node.Name, tpKey)
+			klog.V(5).Infof("node '%s' doesn't have required label '%s'", nodeInfo.GetNodeName(), tpKey)
 			return framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonNodeLabelNotMatch)
 		}
 
@@ -324,7 +330,7 @@ func (pl *PodTopologySpread) Filter(ctx context.Context, cycleState *framework.C
 		}
 		skew := matchNum + selfMatchNum - minMatchNum
 		if skew > c.MaxSkew {
-			klog.V(5).Infof("node '%s' failed spreadConstraint[%s]: MatchNum(%d) + selfMatchNum(%d) - minMatchNum(%d) > maxSkew(%d)", node.Name, tpKey, matchNum, selfMatchNum, minMatchNum, c.MaxSkew)
+			klog.V(5).Infof("node '%s' failed spreadConstraint[%s]: MatchNum(%d) + selfMatchNum(%d) - minMatchNum(%d) > maxSkew(%d)", nodeInfo.GetNodeName(), tpKey, matchNum, selfMatchNum, minMatchNum, c.MaxSkew)
 			return framework.NewStatus(framework.Unschedulable, ErrReasonConstraintsNotMatch)
 		}
 	}

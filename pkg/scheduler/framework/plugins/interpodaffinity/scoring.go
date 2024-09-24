@@ -24,6 +24,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	schedutil "github.com/kubewharf/godel-scheduler/pkg/scheduler/util"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -47,15 +48,15 @@ func (s *preScoreState) Clone() framework.StateData {
 func (m scoreMap) processTerm(
 	term *framework.WeightedAffinityTerm,
 	podToCheck *v1.Pod,
-	fixedNode *v1.Node,
+	nodeLabels map[string]string,
 	multiplier int,
 ) {
-	if len(fixedNode.Labels) == 0 {
+	if len(nodeLabels) == 0 {
 		return
 	}
 
 	match := schedutil.PodMatchesTermsNamespaceAndSelector(podToCheck, term.Namespaces, term.Selector)
-	tpValue, tpValueExist := fixedNode.Labels[term.TopologyKey]
+	tpValue, tpValueExist := nodeLabels[term.TopologyKey]
 	if match && tpValueExist {
 		if m[term.TopologyKey] == nil {
 			m[term.TopologyKey] = make(map[string]int64)
@@ -65,9 +66,9 @@ func (m scoreMap) processTerm(
 	return
 }
 
-func (m scoreMap) processTerms(terms []framework.WeightedAffinityTerm, podToCheck *v1.Pod, fixedNode *v1.Node, multiplier int) {
+func (m scoreMap) processTerms(terms []framework.WeightedAffinityTerm, podToCheck *v1.Pod, nodeLabels map[string]string, multiplier int) {
 	for _, term := range terms {
-		m.processTerm(&term, podToCheck, fixedNode, multiplier)
+		m.processTerm(&term, podToCheck, nodeLabels, multiplier)
 	}
 }
 
@@ -87,21 +88,19 @@ func (m scoreMap) append(other scoreMap) {
 func (pl *InterPodAffinity) processExistingPod(
 	state *preScoreState,
 	existingPod *framework.PodInfo,
-	existingPodNodeInfo framework.NodeInfo,
+	nodeLabels map[string]string,
 	incomingPod *v1.Pod,
 	topoScore scoreMap,
 ) {
-	existingPodNode := existingPodNodeInfo.GetNode()
-
 	// For every soft pod affinity term of <pod>, if <existingPod> matches the term,
 	// increment <p.counts> for every node in the cluster with the same <term.TopologyKey>
 	// value as that of <existingPods>`s node by the term`s weight.
-	topoScore.processTerms(state.podInfo.PreferredAffinityTerms, existingPod.Pod, existingPodNode, 1)
+	topoScore.processTerms(state.podInfo.PreferredAffinityTerms, existingPod.Pod, nodeLabels, 1)
 
 	// For every soft pod anti-affinity term of <pod>, if <existingPod> matches the term,
 	// decrement <p.counts> for every node in the cluster with the same <term.TopologyKey>
 	// value as that of <existingPod>`s node by the term`s weight.
-	topoScore.processTerms(state.podInfo.PreferredAntiAffinityTerms, existingPod.Pod, existingPodNode, -1)
+	topoScore.processTerms(state.podInfo.PreferredAntiAffinityTerms, existingPod.Pod, nodeLabels, -1)
 
 	// For every hard pod affinity term of <existingPod>, if <pod> matches the term,
 	// increment <p.counts> for every node in the cluster with the same <term.TopologyKey>
@@ -109,19 +108,19 @@ func (pl *InterPodAffinity) processExistingPod(
 	if pl.args.HardPodAffinityWeight > 0 {
 		for _, term := range existingPod.RequiredAffinityTerms {
 			t := framework.WeightedAffinityTerm{AffinityTerm: term, Weight: pl.args.HardPodAffinityWeight}
-			topoScore.processTerm(&t, incomingPod, existingPodNode, 1)
+			topoScore.processTerm(&t, incomingPod, nodeLabels, 1)
 		}
 	}
 
 	// For every soft pod affinity term of <existingPod>, if <pod> matches the term,
 	// increment <p.counts> for every node in the cluster with the same <term.TopologyKey>
 	// value as that of <existingPod>'s node by the term's weight.
-	topoScore.processTerms(existingPod.PreferredAffinityTerms, incomingPod, existingPodNode, 1)
+	topoScore.processTerms(existingPod.PreferredAffinityTerms, incomingPod, nodeLabels, 1)
 
 	// For every soft pod anti-affinity term of <existingPod>, if <pod> matches the term,
 	// decrement <pm.counts> for every node in the cluster with the same <term.TopologyKey>
 	// value as that of <existingPod>'s node by the term's weight.
-	topoScore.processTerms(existingPod.PreferredAntiAffinityTerms, incomingPod, existingPodNode, -1)
+	topoScore.processTerms(existingPod.PreferredAntiAffinityTerms, incomingPod, nodeLabels, -1)
 }
 
 // PreScore builds and writes cycle state used by Score and NormalizeScore.
@@ -134,6 +133,11 @@ func (pl *InterPodAffinity) PreScore(
 	if len(nodes) == 0 {
 		// No nodes to score.
 		return nil
+	}
+
+	podLauncher, err := podutil.GetPodLauncher(pod)
+	if err != nil {
+		return framework.NewStatus(framework.Error, err.Error())
 	}
 
 	if pl.sharedLister == nil {
@@ -168,9 +172,6 @@ func (pl *InterPodAffinity) PreScore(
 	index := int32(-1)
 	processNode := func(i int) {
 		nodeInfo := allNodes[i]
-		if nodeInfo.GetNode() == nil {
-			return
-		}
 		// Unless the pod being scheduled has preferred affinity terms, we only
 		// need to process pods with affinity in the node.
 		podsToProcess := nodeInfo.GetPodsWithAffinity()
@@ -181,7 +182,7 @@ func (pl *InterPodAffinity) PreScore(
 
 		topoScore := make(scoreMap)
 		for _, existingPod := range podsToProcess {
-			pl.processExistingPod(state, existingPod, nodeInfo, pod, topoScore)
+			pl.processExistingPod(state, existingPod, nodeInfo.GetNodeLabels(podLauncher), pod, topoScore)
 		}
 		if len(topoScore) > 0 {
 			topoScores[atomic.AddInt32(&index, 1)] = topoScore
@@ -215,11 +216,12 @@ func getPreScoreState(cycleState *framework.CycleState) (*preScoreState, error) 
 // it is normalized later.
 // Note: the returned "score" is positive for pod-affinity, and negative for pod-antiaffinity.
 func (pl *InterPodAffinity) Score(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
+	podLauncher, _ := podutil.GetPodLauncher(pod)
 	nodeInfo, err := pl.sharedLister.NodeInfos().Get(nodeName)
-	if err != nil || nodeInfo.GetNode() == nil {
-		return 0, framework.NewStatus(framework.Error, fmt.Sprintf("getting node %q from Snapshot: %v, node is nil: %v", nodeName, err, nodeInfo.GetNode() == nil))
+	if err != nil {
+		return 0, framework.NewStatus(framework.Error, fmt.Sprintf("getting node %q from Snapshot: %v", nodeName, err))
 	}
-	node := nodeInfo.GetNode()
+	nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
 
 	s, err := getPreScoreState(cycleState)
 	if err != nil {
@@ -227,7 +229,7 @@ func (pl *InterPodAffinity) Score(ctx context.Context, cycleState *framework.Cyc
 	}
 	var score int64
 	for tpKey, tpValues := range s.topologyScore {
-		if v, exist := node.Labels[tpKey]; exist {
+		if v, exist := nodeLabels[tpKey]; exist {
 			score += tpValues[v]
 		}
 	}

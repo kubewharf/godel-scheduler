@@ -7,12 +7,14 @@ import (
 	"testing"
 	"time"
 
+	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	st "github.com/kubewharf/godel-scheduler/pkg/scheduler/testing"
 	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -568,7 +570,7 @@ func TestPreferredAffinity(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			state := framework.NewCycleState()
-			snapshot := framework_helper.MakeSnapShot(test.pods, test.nodes)
+			snapshot := framework_helper.MakeSnapShot(test.pods, test.nodes, nil)
 
 			p := &InterPodAffinity{
 				args: config.InterPodAffinityArgs{
@@ -738,6 +740,146 @@ func TestPreferredAffinityWithHardPodAffinitySymmetricWeight(t *testing.T) {
 			if !reflect.DeepEqual(test.expectedList, gotList) {
 				t.Errorf("expected:\n\t%+v,\ngot:\n\t%+v", test.expectedList, gotList)
 			}
+		})
+	}
+}
+
+func TestNMNodesScore(t *testing.T) {
+	labelRgChina := map[string]string{
+		"region": "China",
+	}
+	labelRgIndia := map[string]string{
+		"region": "India",
+	}
+	labelAzAz1 := map[string]string{
+		"az": "az1",
+	}
+	podLabelSecurityS1 := map[string]string{
+		"security": "S1",
+	}
+	podLabelSecurityS2 := map[string]string{
+		"security": "S2",
+	}
+	// considered only preferredDuringSchedulingIgnoredDuringExecution in pod affinity
+	stayWithS1InRegion := &v1.Affinity{
+		PodAffinity: &v1.PodAffinity{
+			PreferredDuringSchedulingIgnoredDuringExecution: []v1.WeightedPodAffinityTerm{
+				{
+					Weight: 5,
+					PodAffinityTerm: v1.PodAffinityTerm{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "security",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"S1"},
+								},
+							},
+						},
+						TopologyKey: "region",
+					},
+				},
+			},
+		},
+	}
+	tests := []struct {
+		pod          *v1.Pod
+		pods         []*v1.Pod
+		nodes        []*v1.Node
+		nmNodes      []*nodev1alpha1.NMNode
+		expectedList framework.NodeScoreList
+		name         string
+		wantStatus   *framework.Status
+	}{
+		// the node(machine1) that have the label {"region": "China"} (match the topology key) and that have existing pods that match the labelSelector get high score
+		// the node(machine3) that don't have the label {"region": "whatever the value is"} (mismatch the topology key) but that have existing pods that match the labelSelector get low score
+		// the node(machine2) that have the label {"region": "China"} (match the topology key) but that have existing pods that mismatch the labelSelector get low score
+		{
+			pod: &v1.Pod{Spec: v1.PodSpec{NodeName: "", Affinity: stayWithS1InRegion}, ObjectMeta: metav1.ObjectMeta{Labels: podLabelSecurityS1}},
+			pods: []*v1.Pod{
+				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelSecurityS1}},
+				{Spec: v1.PodSpec{NodeName: "machine2"}, ObjectMeta: metav1.ObjectMeta{Name: "p2", Labels: podLabelSecurityS2}},
+				{Spec: v1.PodSpec{NodeName: "machine3"}, ObjectMeta: metav1.ObjectMeta{Name: "p3", Labels: podLabelSecurityS1}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgIndia}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelAzAz1}},
+			},
+			expectedList: []framework.NodeScore{{Name: "machine1", Score: framework.MaxNodeScore}, {Name: "machine2", Score: 0}, {Name: "machine3", Score: 0}},
+			name: "All nodes are of NMNode type, that is, they are managed by the node manager. Affinity: pod that matches topology key & pods in nodes will get high score comparing to others" +
+				"which doesn't match either pods in nodes or in topology key",
+		},
+		{
+			pod: &v1.Pod{Spec: v1.PodSpec{NodeName: "", Affinity: stayWithS1InRegion}, ObjectMeta: metav1.ObjectMeta{Labels: podLabelSecurityS1}},
+			pods: []*v1.Pod{
+				{Spec: v1.PodSpec{NodeName: "machine0"}, ObjectMeta: metav1.ObjectMeta{Name: "p0", Labels: podLabelSecurityS1}},
+				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelSecurityS1}},
+				{Spec: v1.PodSpec{NodeName: "machine2"}, ObjectMeta: metav1.ObjectMeta{Name: "p2", Labels: podLabelSecurityS2}},
+				{Spec: v1.PodSpec{NodeName: "machine3"}, ObjectMeta: metav1.ObjectMeta{Name: "p3", Labels: podLabelSecurityS1}},
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine0", Labels: labelRgChina}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgIndia}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelAzAz1}},
+			},
+			expectedList: []framework.NodeScore{{Name: "machine0", Score: 0}, {Name: "machine1", Score: framework.MaxNodeScore}, {Name: "machine2", Score: 0}, {Name: "machine3", Score: 0}},
+			name:         "The first node machine0 is v1.node and the others are of NMNode type. The machine0 participates in the scoring with an empty label {}, so its score is 0.",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.pod.Annotations = map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}
+
+			state := framework.NewCycleState()
+			snapshot := framework_helper.MakeSnapShot(test.pods, test.nodes, test.nmNodes)
+
+			p := &InterPodAffinity{
+				args: config.InterPodAffinityArgs{
+					HardPodAffinityWeight: 1,
+				},
+				sharedLister: snapshot,
+			}
+
+			nodeInfos := make([]framework.NodeInfo, len(test.nodes)+len(test.nmNodes))
+			for indexNode := 0; indexNode < len(test.nodes)+len(test.nmNodes); indexNode++ {
+				if indexNode < len(test.nodes) {
+					nodeInfos[indexNode] = mustGetNodeInfo(t, snapshot, test.nodes[indexNode].Name)
+				} else {
+					nodeInfos[indexNode] = mustGetNodeInfo(t, snapshot, test.nmNodes[indexNode-len(test.nodes)].Name)
+				}
+			}
+
+			status := p.PreScore(context.Background(), state, test.pod, nodeInfos)
+			if !status.IsSuccess() {
+				if !strings.Contains(status.Message(), test.wantStatus.Message()) {
+					t.Errorf("unexpected error: %v", status)
+				}
+			} else {
+				var gotList framework.NodeScoreList
+				for _, nodeInfo := range nodeInfos {
+					nodeName := nodeInfo.GetNodeName()
+					score, status := p.Score(context.Background(), state, test.pod, nodeName)
+					if !status.IsSuccess() {
+						t.Errorf("unexpected error: %v", status)
+					}
+					gotList = append(gotList, framework.NodeScore{Name: nodeName, Score: score})
+				}
+
+				status = p.ScoreExtensions().NormalizeScore(context.Background(), state, test.pod, gotList)
+				if !status.IsSuccess() {
+					t.Errorf("unexpected error: %v", status)
+				}
+
+				if !reflect.DeepEqual(test.expectedList, gotList) {
+					t.Errorf("expected:\n\t%+v,\ngot:\n\t%+v", test.expectedList, gotList)
+				}
+			}
+
 		})
 	}
 }

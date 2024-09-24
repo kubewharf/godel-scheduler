@@ -25,6 +25,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -72,13 +73,19 @@ func (pl *PodTopologySpread) initPreScoreState(s *preScoreState, pod *v1.Pod, fi
 	if len(s.Constraints) == 0 {
 		return nil
 	}
+
+	podLauncher, err := podutil.GetPodLauncher(pod)
+	if err != nil {
+		return err
+	}
+
 	topoSize := make([]int, len(s.Constraints))
 	for _, nodeInfo := range filteredNodes {
-		node := nodeInfo.GetNode()
-		if !NodeLabelsMatchSpreadConstraints(node.Labels, s.Constraints) {
+		nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
+		if !NodeLabelsMatchSpreadConstraints(nodeLabels, s.Constraints) {
 			// Nodes which don't have all required topologyKeys present are ignored
 			// when scoring later.
-			s.IgnoredNodes.Insert(node.Name)
+			s.IgnoredNodes.Insert(nodeInfo.GetNodeName())
 			continue
 		}
 		for i, constraint := range s.Constraints {
@@ -86,7 +93,7 @@ func (pl *PodTopologySpread) initPreScoreState(s *preScoreState, pod *v1.Pod, fi
 			if constraint.TopologyKey == v1.LabelHostname {
 				continue
 			}
-			pair := TopologyPair{Key: constraint.TopologyKey, Value: node.Labels[constraint.TopologyKey]}
+			pair := TopologyPair{Key: constraint.TopologyKey, Value: nodeLabels[constraint.TopologyKey]}
 			if s.TopologyPairToPodCounts[pair] == nil {
 				s.TopologyPairToPodCounts[pair] = new(int64)
 				topoSize[i]++
@@ -112,6 +119,11 @@ func (pl *PodTopologySpread) PreScore(
 	pod *v1.Pod,
 	filteredNodes []framework.NodeInfo,
 ) *framework.Status {
+	podLauncher, err := podutil.GetPodLauncher(pod)
+	if err != nil {
+		return framework.NewStatus(framework.Error, err.Error())
+	}
+
 	allNodes := pl.sharedLister.NodeInfos().List()
 
 	if len(filteredNodes) == 0 || len(allNodes) == 0 {
@@ -123,7 +135,7 @@ func (pl *PodTopologySpread) PreScore(
 		IgnoredNodes:            sets.NewString(),
 		TopologyPairToPodCounts: make(map[TopologyPair]*int64),
 	}
-	err := pl.initPreScoreState(state, pod, filteredNodes)
+	err = pl.initPreScoreState(state, pod, filteredNodes)
 	if err != nil {
 		return framework.NewStatus(framework.Error, fmt.Sprintf("error when calculating preScoreState: %v", err))
 	}
@@ -136,19 +148,16 @@ func (pl *PodTopologySpread) PreScore(
 
 	processAllNode := func(i int) {
 		nodeInfo := allNodes[i]
-		node := nodeInfo.GetNode()
-		if node == nil {
-			return
-		}
+		nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
 		// (1) `node` should satisfy incoming pod's NodeSelector/NodeAffinity
 		// (2) All topologyKeys need to be present in `node`
-		if !helper.PodMatchesNodeSelectorAndAffinityTerms(pod, node) ||
-			!NodeLabelsMatchSpreadConstraints(node.Labels, state.Constraints) {
+		if !helper.PodMatchesNodeSelectorAndAffinityTerms(pod, nodeInfo) ||
+			!NodeLabelsMatchSpreadConstraints(nodeLabels, state.Constraints) {
 			return
 		}
 
 		for _, c := range state.Constraints {
-			pair := TopologyPair{Key: c.TopologyKey, Value: node.Labels[c.TopologyKey]}
+			pair := TopologyPair{Key: c.TopologyKey, Value: nodeLabels[c.TopologyKey]}
 			// If current topology pair is not associated with any candidate node,
 			// continue to avoid unnecessary calculation.
 			// Per-node counts are also skipped, as they are done during Score.
@@ -170,19 +179,20 @@ func (pl *PodTopologySpread) PreScore(
 // The "score" returned in this function is the matching number of pods on the `nodeName`,
 // it is normalized later.
 func (pl *PodTopologySpread) Score(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
+	podLauncher, _ := podutil.GetPodLauncher(pod)
 	nodeInfo, err := pl.sharedLister.NodeInfos().Get(nodeName)
-	if err != nil || nodeInfo.GetNode() == nil {
-		return 0, framework.NewStatus(framework.Error, fmt.Sprintf("getting node %q from Snapshot: %v, node is nil: %v", nodeName, err, nodeInfo.GetNode() == nil))
+	if err != nil {
+		return 0, framework.NewStatus(framework.Error, fmt.Sprintf("getting node %q from Snapshot: %v,", nodeName, err))
 	}
+	nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
 
-	node := nodeInfo.GetNode()
 	s, err := getPreScoreState(cycleState)
 	if err != nil {
 		return 0, framework.NewStatus(framework.Error, err.Error())
 	}
 
 	// Return if the node is not qualified.
-	if s.IgnoredNodes.Has(node.Name) {
+	if s.IgnoredNodes.Has(nodeInfo.GetNodeName()) {
 		return 0, nil
 	}
 
@@ -190,7 +200,7 @@ func (pl *PodTopologySpread) Score(ctx context.Context, cycleState *framework.Cy
 	// And we sum up <matchSum> and return it as this node's score.
 	var score float64
 	for i, c := range s.Constraints {
-		if tpVal, ok := node.Labels[c.TopologyKey]; ok {
+		if tpVal, ok := nodeLabels[c.TopologyKey]; ok {
 			var cnt int64
 			if c.TopologyKey == v1.LabelHostname {
 				cnt = int64(CountPodsMatchSelector(nodeInfo.GetPods(), c.Selector, pod.Namespace))
@@ -235,9 +245,8 @@ func (pl *PodTopologySpread) NormalizeScore(ctx context.Context, cycleState *fra
 		if err != nil {
 			return framework.NewStatus(framework.Error, err.Error())
 		}
-		node := nodeInfo.GetNode()
 
-		if s.IgnoredNodes.Has(node.Name) {
+		if s.IgnoredNodes.Has(nodeInfo.GetNodeName()) {
 			scores[i].Score = 0
 			continue
 		}

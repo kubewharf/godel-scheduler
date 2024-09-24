@@ -19,6 +19,7 @@ package helper
 import (
 	"testing"
 
+	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -703,7 +704,9 @@ func TestPodMatchesNodeSelectorAndAffinityTerms(t *testing.T) {
 				Name:   test.nodeName,
 				Labels: test.labels,
 			}}
-			got := PodMatchesNodeSelectorAndAffinityTerms(test.pod, &node)
+			nodeInfo := framework.NewNodeInfo()
+			nodeInfo.SetNode(&node)
+			got := PodMatchesNodeSelectorAndAffinityTerms(test.pod, nodeInfo)
 			if test.want != got {
 				t.Errorf("expected: %v got %v", test.want, got)
 			}

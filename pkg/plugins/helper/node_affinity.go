@@ -17,7 +17,9 @@ limitations under the License.
 package helper
 
 import (
+	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util/helper"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
@@ -25,11 +27,14 @@ import (
 
 // PodMatchesNodeSelectorAndAffinityTerms checks whether the pod is schedulable onto nodes according to
 // the requirements in both NodeAffinity and nodeSelector.
-func PodMatchesNodeSelectorAndAffinityTerms(pod *v1.Pod, node *v1.Node) bool {
+func PodMatchesNodeSelectorAndAffinityTerms(pod *v1.Pod, nodeInfo framework.NodeInfo) bool {
+	podLancher, _ := podutil.GetPodLauncher(pod)
+	nodeLabels := nodeInfo.GetNodeLabels(podLancher)
+
 	// Check if node.Labels match pod.Spec.NodeSelector.
 	if len(pod.Spec.NodeSelector) > 0 {
 		selector := labels.SelectorFromSet(pod.Spec.NodeSelector)
-		if !selector.Matches(labels.Set(node.Labels)) {
+		if !selector.Matches(labels.Set(nodeLabels)) {
 			return false
 		}
 	}
@@ -62,7 +67,7 @@ func PodMatchesNodeSelectorAndAffinityTerms(pod *v1.Pod, node *v1.Node) bool {
 		// Match node selector for requiredDuringSchedulingIgnoredDuringExecution.
 		if nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
 			nodeSelectorTerms := nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
-			nodeAffinityMatches = nodeAffinityMatches && nodeMatchesNodeSelectorTerms(node, nodeSelectorTerms)
+			nodeAffinityMatches = nodeAffinityMatches && nodeMatchesNodeSelectorTerms(nodeLabels, nodeSelectorTerms, nodeInfo.GetNodeName())
 		}
 
 	}
@@ -71,8 +76,6 @@ func PodMatchesNodeSelectorAndAffinityTerms(pod *v1.Pod, node *v1.Node) bool {
 
 // nodeMatchesNodeSelectorTerms checks if a node's labels satisfy a list of node selector terms,
 // terms are ORed, and an empty list of terms will match nothing.
-func nodeMatchesNodeSelectorTerms(node *v1.Node, nodeSelectorTerms []v1.NodeSelectorTerm) bool {
-	return helper.MatchNodeSelectorTerms(nodeSelectorTerms, node.Labels, fields.Set{
-		"metadata.name": node.Name,
-	})
+func nodeMatchesNodeSelectorTerms(nodeLabels map[string]string, nodeSelectorTerms []v1.NodeSelectorTerm, nodeName string) bool {
+	return helper.MatchNodeSelectorTerms(nodeSelectorTerms, nodeLabels, fields.Set{"metadata.name": nodeName})
 }

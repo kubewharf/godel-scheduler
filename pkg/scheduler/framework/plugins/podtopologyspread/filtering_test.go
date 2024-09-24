@@ -22,11 +22,13 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -509,7 +511,7 @@ func TestPreFilterState(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			informerFactory := informers.NewSharedInformerFactory(fake.NewSimpleClientset(tt.objs...), 0)
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes, nil)
 
 			pl := PodTopologySpread{
 				sharedLister: snapshot,
@@ -822,7 +824,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes, nil)
 
 			pl := PodTopologySpread{
 				sharedLister: snapshot,
@@ -1028,7 +1030,7 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes, nil)
 
 			pl := PodTopologySpread{
 				sharedLister: snapshot,
@@ -1105,7 +1107,7 @@ func BenchmarkFilter(b *testing.B) {
 		var state *framework.CycleState
 		b.Run(tt.name, func(b *testing.B) {
 			existingPods, allNodes, _ := testing_helper.MakeNodesAndPodsForEvenPodsSpread(tt.pod.Labels, tt.existingPodsNum, tt.allNodesNum, tt.filteredNodesNum)
-			snapshot := framework_helper.MakeSnapShot(existingPods, allNodes)
+			snapshot := framework_helper.MakeSnapShot(existingPods, allNodes, nil)
 
 			pl := PodTopologySpread{
 				sharedLister: snapshot,
@@ -1411,7 +1413,7 @@ func TestSingleConstraint(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes, nil)
 
 			p := &PodTopologySpread{sharedLister: snapshot}
 			state := framework.NewCycleState()
@@ -1638,7 +1640,7 @@ func TestMultipleConstraints(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes, nil)
 
 			p := &PodTopologySpread{sharedLister: snapshot}
 			state := framework.NewCycleState()
@@ -1670,4 +1672,94 @@ func TestPreFilterDisabled(t *testing.T) {
 	if !reflect.DeepEqual(gotStatus, wantStatus) {
 		t.Errorf("status does not match: %v, want: %v", gotStatus, wantStatus)
 	}
+}
+
+func TestNMNodesFilter(t *testing.T) {
+	tests := []struct {
+		name           string
+		pod            *v1.Pod
+		nodes          []*v1.Node
+		nmNodes        []*nodev1alpha1.NMNode
+		existingPods   []*v1.Pod
+		wantStatusCode map[string]framework.Code
+	}{
+		{
+			name: "All nodes are of NMNode type, that is, they are managed by the node manager. Pods spread across nodes as 2/1/0/3, only node-x fits",
+			pod: testing_helper.MakePod().Name("p").Label("foo", "").SpreadConstraint(
+				1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj(),
+			).Obj(),
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{"node": "node-a"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-b", Labels: map[string]string{"node": "node-b"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-x", Labels: map[string]string{"node": "node-x"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-y", Labels: map[string]string{"node": "node-y"}}},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
+			},
+			wantStatusCode: map[string]framework.Code{
+				"node-a": framework.Unschedulable,
+				"node-b": framework.Unschedulable,
+				"node-x": framework.Success,
+				"node-y": framework.Unschedulable,
+			},
+		},
+		{
+			name: "The first node-x is v1.node and the others are of NMNode type. Although node-x matches the smallest number of pods, it cannot be scheduled to it because it is a v1.Node. It can only be scheduled to node-b. Pods spread across nodes as 0/2/1/3.",
+			pod: testing_helper.MakePod().Name("p").Label("foo", "").SpreadConstraint(
+				1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj(),
+			).Obj(),
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-x", Labels: map[string]string{"node": "node-x"}}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{"node": "node-a"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-b", Labels: map[string]string{"node": "node-b"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-y", Labels: map[string]string{"node": "node-y"}}},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
+			},
+			wantStatusCode: map[string]framework.Code{
+				"node-x": framework.UnschedulableAndUnresolvable,
+				"node-a": framework.Unschedulable,
+				"node-b": framework.Success,
+				"node-y": framework.Unschedulable,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.pod.Annotations = map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes, tt.nmNodes)
+
+			p := &PodTopologySpread{sharedLister: snapshot}
+			state := framework.NewCycleState()
+			preFilterStatus := p.PreFilter(context.Background(), state, tt.pod)
+			if !preFilterStatus.IsSuccess() {
+				t.Errorf("preFilter failed with status: %v", preFilterStatus)
+			}
+
+			nodeInfos := snapshot.NodeInfos().List()
+			for _, nodeInfo := range nodeInfos {
+				nodeName := nodeInfo.GetNodeName()
+				status := p.Filter(context.Background(), state, tt.pod, nodeInfo)
+				if len(tt.wantStatusCode) != 0 && status.Code() != tt.wantStatusCode[nodeName] {
+					t.Errorf("[%s]: expected status code %v got %v", nodeName, tt.wantStatusCode[nodeName], status.Code())
+				}
+			}
+		})
+	}
+
 }

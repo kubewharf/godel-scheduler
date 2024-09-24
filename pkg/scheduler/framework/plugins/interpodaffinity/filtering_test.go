@@ -22,9 +22,12 @@ import (
 	"strings"
 	"testing"
 
+	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -852,7 +855,7 @@ func TestRequiredAffinitySingleNode(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(test.pods, []*v1.Node{test.node})
+			snapshot := framework_helper.MakeSnapShot(test.pods, []*v1.Node{test.node}, nil)
 
 			p := &InterPodAffinity{
 				sharedLister: snapshot,
@@ -1740,7 +1743,7 @@ func TestRequiredAffinityMultipleNodes(t *testing.T) {
 
 	for indexTest, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(test.pods, test.nodes)
+			snapshot := framework_helper.MakeSnapShot(test.pods, test.nodes, nil)
 
 			for indexNode, node := range test.nodes {
 				p := &InterPodAffinity{
@@ -1752,6 +1755,137 @@ func TestRequiredAffinityMultipleNodes(t *testing.T) {
 					t.Errorf("prefilter failed with status: %v", preFilterStatus)
 				}
 				nodeInfo := mustGetNodeInfo(t, snapshot, node.Name)
+				gotStatus := p.Filter(context.Background(), state, test.pod, nodeInfo)
+				if !reflect.DeepEqual(gotStatus, test.wantStatuses[indexNode]) {
+					t.Errorf("index: %d status does not match: %v, want: %v", indexTest, gotStatus, test.wantStatuses[indexNode])
+				}
+			}
+		})
+	}
+}
+
+func TestNMNodesFilter(t *testing.T) {
+	podLabelA := map[string]string{
+		"foo": "bar",
+	}
+	labelRgChina := map[string]string{
+		"region": "China",
+	}
+	labelRgChinaAzAz1 := map[string]string{
+		"region": "China",
+		"az":     "az1",
+	}
+	labelRgIndia := map[string]string{
+		"region": "India",
+	}
+	tests := []struct {
+		pod          *v1.Pod
+		pods         []*v1.Pod
+		nodes        []*v1.Node
+		nmNodes      []*nodev1alpha1.NMNode
+		wantStatuses []*framework.Status
+		name         string
+	}{
+		{
+			pod: createPodWithAffinityTerms(defaultNamespace, "", nil,
+				[]v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "foo",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"bar"},
+								},
+							},
+						},
+						TopologyKey: "region",
+					},
+				}, nil),
+			pods: []*v1.Pod{
+				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelA, Annotations: map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgChinaAzAz1}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelRgIndia}},
+			},
+			wantStatuses: []*framework.Status{
+				nil,
+				nil,
+				framework.NewStatus(
+					framework.UnschedulableAndUnresolvable,
+					ErrReasonAffinityNotMatch,
+					ErrReasonAffinityRulesNotMatch,
+				),
+			},
+			name: "All nodes are of NMNode type, that is, they are managed by the node manager. A pod can be scheduled onto all the nodes that have the same topology key & label value with one of them has an existing pod that matches the affinity rules",
+		},
+		{
+			pod: createPodWithAffinityTerms(defaultNamespace, "", nil,
+				[]v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "foo",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"bar"},
+								},
+							},
+						},
+						TopologyKey: "region",
+					},
+				}, nil),
+			pods: []*v1.Pod{
+				{Spec: v1.PodSpec{NodeName: "machine0"}, ObjectMeta: metav1.ObjectMeta{Name: "p0", Labels: podLabelA}},
+				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelA}},
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine0", Labels: labelRgIndia}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgChinaAzAz1}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelRgIndia}},
+			},
+			wantStatuses: []*framework.Status{
+				framework.NewStatus(
+					framework.UnschedulableAndUnresolvable,
+					fmt.Sprintf(podlauncher.ErrReasonTemplate, podutil.NodeManager),
+				),
+				nil,
+				nil,
+				framework.NewStatus(
+					framework.UnschedulableAndUnresolvable,
+					ErrReasonAffinityNotMatch,
+					ErrReasonAffinityRulesNotMatch,
+				),
+			},
+			name: "The first node machine0 is v1.node and the others are of NMNode type. Although there is a pod with relevant affinity on machine0, they are managed by kubelet and cannot be recorded, so machine0 and machine3 cannot be scheduled.",
+		},
+	}
+
+	for indexTest, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.pod.Annotations = map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}
+			snapshot := framework_helper.MakeSnapShot(test.pods, test.nodes, test.nmNodes)
+
+			for indexNode := 0; indexNode < len(test.nodes)+len(test.nmNodes); indexNode++ {
+				p := &InterPodAffinity{
+					sharedLister: snapshot,
+				}
+				var nodeInfo framework.NodeInfo
+				if indexNode < len(test.nodes) {
+					nodeInfo = mustGetNodeInfo(t, snapshot, test.nodes[indexNode].Name)
+				} else {
+					nodeInfo = mustGetNodeInfo(t, snapshot, test.nmNodes[indexNode-len(test.nodes)].Name)
+				}
+				state := framework.NewCycleState()
+				preFilterStatus := p.PreFilter(context.Background(), state, test.pod)
+				if !preFilterStatus.IsSuccess() {
+					t.Errorf("prefilter failed with status: %v", preFilterStatus)
+				}
 				gotStatus := p.Filter(context.Background(), state, test.pod, nodeInfo)
 				if !reflect.DeepEqual(gotStatus, test.wantStatuses[indexNode]) {
 					t.Errorf("index: %d status does not match: %v, want: %v", indexTest, gotStatus, test.wantStatuses[indexNode])
@@ -2031,8 +2165,8 @@ func TestPreFilterStateAddRemovePod(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// getMeta creates predicate meta data given the list of pods.
-			getState := func(pods []*v1.Pod) (*InterPodAffinity, *framework.CycleState, *preFilterState, *godelcache.Snapshot) {
-				snapshot := framework_helper.MakeSnapShot(pods, test.nodes)
+			getState := func(pods []*v1.Pod) (*InterPodAffinity, *framework.CycleState, *PreFilterState, *godelcache.Snapshot) {
+				snapshot := framework_helper.MakeSnapShot(pods, test.nodes, nil)
 
 				p := &InterPodAffinity{
 					sharedLister: snapshot,
@@ -2070,12 +2204,12 @@ func TestPreFilterStateAddRemovePod(t *testing.T) {
 				t.Errorf("failed to get preFilterState from cycleState: %v", err)
 			}
 
-			if !reflect.DeepEqual(newState.topologyToMatchedAntiAffinityTerms, test.expectedAntiAffinity) {
-				t.Errorf("State is not equal, got: %v, want: %v", newState.topologyToMatchedAntiAffinityTerms, test.expectedAntiAffinity)
+			if !reflect.DeepEqual(newState.TopologyToMatchedAntiAffinityTerms, test.expectedAntiAffinity) {
+				t.Errorf("State is not equal, got: %v, want: %v", newState.TopologyToMatchedAntiAffinityTerms, test.expectedAntiAffinity)
 			}
 
-			if !reflect.DeepEqual(newState.topologyToMatchedAffinityTerms, test.expectedAffinity) {
-				t.Errorf("State is not equal, got: %v, want: %v", newState.topologyToMatchedAffinityTerms, test.expectedAffinity)
+			if !reflect.DeepEqual(newState.TopologyToMatchedAffinityTerms, test.expectedAffinity) {
+				t.Errorf("State is not equal, got: %v, want: %v", newState.TopologyToMatchedAffinityTerms, test.expectedAffinity)
 			}
 
 			fmt.Printf("name: %v,allPodsState: %v, state: %v ", test.name, allPodsState, state)
@@ -2095,16 +2229,16 @@ func TestPreFilterStateAddRemovePod(t *testing.T) {
 }
 
 func TestPreFilterStateClone(t *testing.T) {
-	source := &preFilterState{
-		topologyToMatchedExistingAntiAffinityTerms: topologyToMatchedTermCount{
+	source := &PreFilterState{
+		TopologyToMatchedExistingAntiAffinityTerms: topologyToMatchedTermCount{
 			{key: "name", value: "machine1"}: 1,
 			{key: "name", value: "machine2"}: 1,
 		},
-		topologyToMatchedAffinityTerms: topologyToMatchedTermCount{
+		TopologyToMatchedAffinityTerms: topologyToMatchedTermCount{
 			{key: "name", value: "nodeA"}: 1,
 			{key: "name", value: "nodeC"}: 2,
 		},
-		topologyToMatchedAntiAffinityTerms: topologyToMatchedTermCount{
+		TopologyToMatchedAntiAffinityTerms: topologyToMatchedTermCount{
 			{key: "name", value: "nodeN"}: 3,
 			{key: "name", value: "nodeM"}: 1,
 		},
@@ -2318,10 +2452,14 @@ func TestGetTPMapMatchingIncomingAffinityAntiAffinity(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes)
+			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes, nil)
+			podLauncher, err := podutil.GetPodLauncher(tt.pod)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-			l := snapshot.NodeInfos().List()
-			gotAffinityPodsMap, gotAntiAffinityPodsMap := getTPMapMatchingIncomingAffinityAntiAffinity(framework.NewPodInfo(tt.pod), l)
+			nodes := snapshot.NodeInfos().List()
+			gotAffinityPodsMap, gotAntiAffinityPodsMap := GetTPMapMatchingIncomingAffinityAntiAffinity(framework.NewPodInfo(tt.pod), nodes, podLauncher)
 			if !reflect.DeepEqual(gotAffinityPodsMap, tt.wantAffinityPodsMap) {
 				t.Errorf("getTPMapMatchingIncomingAffinityAntiAffinity() gotAffinityPodsMap = %#v, want %#v", gotAffinityPodsMap, tt.wantAffinityPodsMap)
 			}

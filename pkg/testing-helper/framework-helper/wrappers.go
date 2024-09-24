@@ -19,6 +19,7 @@ package framework_helper
 import (
 	"time"
 
+	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -98,7 +99,13 @@ func WithNode(node *v1.Node) framework.NodeInfo {
 	return nodeInfo
 }
 
-func MakeSnapShot(existingPods []*v1.Pod, nodes []*v1.Node) *godelcache.Snapshot {
+func WithNMNode(nmNode *nodev1alpha1.NMNode) framework.NodeInfo {
+	nodeInfo := framework.NewNodeInfo()
+	nodeInfo.SetNMNode(nmNode)
+	return nodeInfo
+}
+
+func MakeSnapShot(existingPods []*v1.Pod, nodes []*v1.Node, nmNodes []*nodev1alpha1.NMNode) *godelcache.Snapshot {
 	cache := godelcache.New(commoncache.MakeCacheHandlerWrapper().
 		ComponentName("").SchedulerType("").SubCluster(framework.DefaultSubCluster).
 		PodAssumedTTL(time.Second).Period(10 * time.Second).StopCh(make(<-chan struct{})).
@@ -114,7 +121,12 @@ func MakeSnapShot(existingPods []*v1.Pod, nodes []*v1.Node) *godelcache.Snapshot
 		cache.AddPod(pod)
 	}
 	for _, node := range nodes {
+		// WithNode(node)
 		cache.AddNode(node)
+	}
+	for _, nmNode := range nmNodes {
+		// WithNMNode(nmNode)
+		cache.AddNMNode(nmNode)
 	}
 
 	cache.UpdateSnapshot(snapshot)
