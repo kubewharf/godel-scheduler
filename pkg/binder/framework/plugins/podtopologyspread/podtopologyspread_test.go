@@ -28,9 +28,10 @@ import (
 	pt "github.com/kubewharf/godel-scheduler/pkg/binder/testing"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
-	podtopologyspreadScheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/podtopologyspread"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -45,7 +46,7 @@ var cmpOpts = []cmp.Option{
 	cmp.Comparer(func(s1 labels.Selector, s2 labels.Selector) bool {
 		return reflect.DeepEqual(s1, s2)
 	}),
-	cmp.Comparer(func(p1, p2 podtopologyspreadScheduler.CriticalPaths) bool {
+	cmp.Comparer(func(p1, p2 utils.CriticalPaths) bool {
 		p1.Sort()
 		p2.Sort()
 		return p1[0] == p2[0] && p1[1] == p2[1]
@@ -120,17 +121,17 @@ func TestGetTopologyCondition(t *testing.T) {
 				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     5,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Label("foo", "bar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 0}, {"zone2", 0}},
 				},
-				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(0),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(0),
 				},
@@ -155,17 +156,17 @@ func TestGetTopologyCondition(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 2}, {"zone1", 3}},
 				},
-				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
 				},
@@ -192,17 +193,17 @@ func TestGetTopologyCondition(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone3", 0}, {"zone2", 2}},
 				},
-				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
 					{Key: "zone", Value: "zone3"}: pointer.Int32Ptr(0),
@@ -228,17 +229,17 @@ func TestGetTopologyCondition(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 1}, {"zone1", 2}},
 				},
-				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(2),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(1),
 				},
@@ -266,7 +267,7 @@ func TestGetTopologyCondition(t *testing.T) {
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -278,11 +279,11 @@ func TestGetTopologyCondition(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-x", 0}, {"node-b", 1}},
 				},
-				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
@@ -315,7 +316,7 @@ func TestGetTopologyCondition(t *testing.T) {
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -327,11 +328,11 @@ func TestGetTopologyCondition(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-b", 1}, {"node-a", 2}},
 				},
-				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
@@ -356,7 +357,7 @@ func TestGetTopologyCondition(t *testing.T) {
 				testing_helper.MakePod().Name("p-b").Node("node-b").Label("bar", "").Obj(),
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -368,11 +369,11 @@ func TestGetTopologyCondition(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, barSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 0}, {"zone1", 1}},
 					"node": {{"node-a", 0}, {"node-y", 0}},
 				},
-				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(1),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(0),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(0),
@@ -402,7 +403,7 @@ func TestGetTopologyCondition(t *testing.T) {
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Label("bar", "").Obj(),
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -414,11 +415,11 @@ func TestGetTopologyCondition(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, barSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-b", 0}, {"node-a", 1}},
 				},
-				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
@@ -450,7 +451,7 @@ func TestGetTopologyCondition(t *testing.T) {
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -462,11 +463,11 @@ func TestGetTopologyCondition(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-b", 1}, {"node-a", 2}},
 				},
-				TpPairToMatchNum: map[podtopologyspreadScheduler.TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
@@ -487,7 +488,7 @@ func TestGetTopologyCondition(t *testing.T) {
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": "bar"}}},
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     3,
 						TopologyKey: "node",
@@ -499,11 +500,11 @@ func TestGetTopologyCondition(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Label("foo", "bar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
-					"node": podtopologyspreadScheduler.NewCriticalPaths(),
-					"rack": podtopologyspreadScheduler.NewCriticalPaths(),
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
+					"node": utils.NewCriticalPaths(),
+					"rack": utils.NewCriticalPaths(),
 				},
-				TpPairToMatchNum: make(map[podtopologyspreadScheduler.TopologyPair]*int32),
+				TpPairToMatchNum: make(map[utils.TopologyPair]*int32),
 			},
 		},
 		{
@@ -529,17 +530,17 @@ func TestGetTopologyCondition(t *testing.T) {
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": "bar"}}},
 			},
 			want: &TopologySpreadCondition{
-				Constraints: []podtopologyspreadScheduler.TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Label("baz", "tar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*podtopologyspreadScheduler.CriticalPaths{
-					"zone": podtopologyspreadScheduler.NewCriticalPaths(),
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
+					"zone": utils.NewCriticalPaths(),
 				},
-				TpPairToMatchNum: make(map[podtopologyspreadScheduler.TopologyPair]*int32),
+				TpPairToMatchNum: make(map[utils.TopologyPair]*int32),
 			},
 		},
 		{
@@ -569,7 +570,11 @@ func TestGetTopologyCondition(t *testing.T) {
 				},
 				frameworkHandle: frameworkHandle}
 
-			gotTopologySpreadCondition, err := pl.getTopologyCondition(tt.pod)
+			podlauncher, err := podutil.GetPodLauncher(tt.pod)
+			if err != nil {
+				t.Fatalf("Get pod launcher error: %v", err)
+			}
+			gotTopologySpreadCondition, err := pl.getTopologyCondition(tt.pod, podlauncher)
 			if err != nil {
 				t.Fatalf("PodTopologySpread#PreFilter() error: %v", err)
 			}

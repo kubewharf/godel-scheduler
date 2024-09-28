@@ -24,10 +24,12 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/helper"
+	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
+	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/validation"
-	podtopologyspreadScheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,9 +42,9 @@ const (
 )
 
 type TopologySpreadCondition struct {
-	Constraints          []podtopologyspreadScheduler.TopologySpreadConstraint
-	TpKeyToCriticalPaths map[string]*podtopologyspreadScheduler.CriticalPaths
-	TpPairToMatchNum     map[podtopologyspreadScheduler.TopologyPair]*int32
+	Constraints          []utils.TopologySpreadConstraint
+	TpKeyToCriticalPaths map[string]*utils.CriticalPaths
+	TpPairToMatchNum     map[utils.TopologyPair]*int32
 }
 
 type PodTopologySpreadCheck struct {
@@ -57,12 +59,17 @@ func (pl *PodTopologySpreadCheck) Name() string {
 }
 
 func (pl *PodTopologySpreadCheck) CheckConflicts(_ context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
-	topologySpreadCondition, err := pl.getTopologyCondition(pod)
+	podLauncher, status := podlauncher.NodeFits(cycleState, pod, nodeInfo)
+	if status != nil {
+		return status
+	}
+
+	topologySpreadCondition, err := pl.getTopologyCondition(pod, podLauncher)
 	if err != nil {
 		return framework.NewStatus(framework.Error, err.Error())
 	}
 
-	if errReason := pl.isSatisfyPodTopologySpreadConstraints(pod, nodeInfo, topologySpreadCondition); errReason == "" {
+	if errReason := pl.isSatisfyPodTopologySpreadConstraints(pod, nodeInfo, topologySpreadCondition, podLauncher); errReason == "" {
 		return nil
 	} else {
 		return framework.NewStatus(framework.Unschedulable, errReason)
@@ -70,7 +77,7 @@ func (pl *PodTopologySpreadCheck) CheckConflicts(_ context.Context, cycleState *
 }
 
 func New(plArgs runtime.Object, handle handle.BinderFrameworkHandle) (framework.Plugin, error) {
-	args, err := podtopologyspreadScheduler.GetArgs(plArgs)
+	args, err := utils.GetArgs(plArgs)
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +101,8 @@ func New(plArgs runtime.Object, handle handle.BinderFrameworkHandle) (framework.
 // defaultConstraints builds the constraints for a pod using
 // .DefaultConstraints and the selectors from the services, replication
 // controllers, replica sets and stateful sets that match the pod.
-func (pl *PodTopologySpreadCheck) defaultConstraints(p *v1.Pod, action v1.UnsatisfiableConstraintAction) ([]podtopologyspreadScheduler.TopologySpreadConstraint, error) {
-	constraints, err := podtopologyspreadScheduler.FilterTopologySpreadConstraints(pl.args.DefaultConstraints, action)
+func (pl *PodTopologySpreadCheck) defaultConstraints(p *v1.Pod, action v1.UnsatisfiableConstraintAction) ([]utils.TopologySpreadConstraint, error) {
+	constraints, err := utils.FilterTopologySpreadConstraints(pl.args.DefaultConstraints, action)
 	if err != nil || len(constraints) == 0 {
 		return nil, err
 	}
@@ -111,16 +118,13 @@ func (pl *PodTopologySpreadCheck) defaultConstraints(p *v1.Pod, action v1.Unsati
 	return constraints, nil
 }
 
-func (pl *PodTopologySpreadCheck) getTopologyCondition(pod *v1.Pod) (*TopologySpreadCondition, error) {
-	constraints := []podtopologyspreadScheduler.TopologySpreadConstraint{}
-	allNodes, err := pl.frameworkHandle.SharedInformerFactory().Core().V1().Nodes().Lister().List(labels.Everything())
-	if err != nil {
-		return nil, err
-	}
+func (pl *PodTopologySpreadCheck) getTopologyCondition(pod *v1.Pod, podLauncher podutil.PodLauncher) (*TopologySpreadCondition, error) {
+	var err error
+	constraints := []utils.TopologySpreadConstraint{}
 	if len(pod.Spec.TopologySpreadConstraints) > 0 {
 		// We have feature gating in APIServer to strip the spec
 		// so don't need to re-check feature gate, just check length of Constraints.
-		constraints, err = podtopologyspreadScheduler.FilterTopologySpreadConstraints(pod.Spec.TopologySpreadConstraints, v1.DoNotSchedule)
+		constraints, err = utils.FilterTopologySpreadConstraints(pod.Spec.TopologySpreadConstraints, v1.DoNotSchedule)
 		if err != nil {
 			return nil, fmt.Errorf("obtaining pod's hard topology spread constraints: %v", err)
 		}
@@ -134,50 +138,53 @@ func (pl *PodTopologySpreadCheck) getTopologyCondition(pod *v1.Pod) (*TopologySp
 		return &TopologySpreadCondition{}, nil
 	}
 
+	nodeInfos, err := pl.getAllNodeInfos(podLauncher)
+	if err != nil {
+		return nil, err
+	}
 	topologySpreadCondition := TopologySpreadCondition{
 		Constraints:          constraints,
-		TpKeyToCriticalPaths: make(map[string]*podtopologyspreadScheduler.CriticalPaths, len(constraints)),
-		TpPairToMatchNum:     make(map[podtopologyspreadScheduler.TopologyPair]*int32, podtopologyspreadScheduler.SizeHeuristic(len(allNodes), constraints)),
+		TpKeyToCriticalPaths: make(map[string]*utils.CriticalPaths, len(constraints)),
+		TpPairToMatchNum:     make(map[utils.TopologyPair]*int32, utils.SizeHeuristic(len(nodeInfos), constraints)),
 	}
 
-	for _, node := range allNodes {
+	for _, nodeInfo := range nodeInfos {
+		nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
 		// In accordance to design, if NodeAffinity or NodeSelector is defined,
 		// spreading is applied to nodes that pass those filters.
-		nodeInfo := framework.NewNodeInfo()
-		nodeInfo.SetNode(node)
 		if !helper.PodMatchesNodeSelectorAndAffinityTerms(pod, nodeInfo) {
 			continue
 		}
 		// Ensure current node's labels contains all topologyKeys in 'Constraints'.
-		if !podtopologyspreadScheduler.NodeLabelsMatchSpreadConstraints(node.Labels, constraints) {
+		if !utils.NodeLabelsMatchSpreadConstraints(nodeLabels, constraints) {
 			continue
 		}
 		for _, c := range constraints {
-			pair := podtopologyspreadScheduler.TopologyPair{Key: c.TopologyKey, Value: node.Labels[c.TopologyKey]}
+			pair := utils.TopologyPair{Key: c.TopologyKey, Value: nodeLabels[c.TopologyKey]}
 			topologySpreadCondition.TpPairToMatchNum[pair] = new(int32)
 		}
 	}
 
 	processNode := func(i int) {
-		node := allNodes[i]
-		nodeInfo := pl.frameworkHandle.GetNodeInfo(node.Name)
+		nodeInfo := nodeInfos[i]
+		nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
 
 		for _, constraint := range constraints {
-			pair := podtopologyspreadScheduler.TopologyPair{Key: constraint.TopologyKey, Value: node.Labels[constraint.TopologyKey]}
+			pair := utils.TopologyPair{Key: constraint.TopologyKey, Value: nodeLabels[constraint.TopologyKey]}
 			tpCount := topologySpreadCondition.TpPairToMatchNum[pair]
 			if tpCount == nil {
 				continue
 			}
-			count := podtopologyspreadScheduler.CountPodsMatchSelector(nodeInfo.GetPods(), constraint.Selector, pod.Namespace)
+			count := utils.CountPodsMatchSelector(nodeInfo.GetPods(), constraint.Selector, pod.Namespace)
 			atomic.AddInt32(tpCount, int32(count))
 		}
 	}
-	parallelize.Until(context.Background(), len(allNodes), processNode)
+	parallelize.Until(context.Background(), len(nodeInfos), processNode)
 
 	// calculate min match for each topology pair
 	for i := 0; i < len(constraints); i++ {
 		key := constraints[i].TopologyKey
-		topologySpreadCondition.TpKeyToCriticalPaths[key] = podtopologyspreadScheduler.NewCriticalPaths()
+		topologySpreadCondition.TpKeyToCriticalPaths[key] = utils.NewCriticalPaths()
 	}
 	for pair, num := range topologySpreadCondition.TpPairToMatchNum {
 		topologySpreadCondition.TpKeyToCriticalPaths[pair.Key].Update(pair.Value, *num)
@@ -186,17 +193,46 @@ func (pl *PodTopologySpreadCheck) getTopologyCondition(pod *v1.Pod) (*TopologySp
 	return &topologySpreadCondition, nil
 }
 
+func (pl *PodTopologySpreadCheck) getAllNodeInfos(podLauncher podutil.PodLauncher) ([]framework.NodeInfo, error) {
+	if podLauncher == podutil.Kubelet {
+		allV1Nodes, err := pl.frameworkHandle.SharedInformerFactory().Core().V1().Nodes().Lister().List(labels.Everything())
+		if err != nil {
+			return nil, err
+		}
+
+		nodeInfos := make([]framework.NodeInfo, 0, len(allV1Nodes))
+		for _, node := range allV1Nodes {
+			nodeInfos = append(nodeInfos, pl.frameworkHandle.GetNodeInfo(node.Name))
+		}
+
+		return nodeInfos, nil
+	} else if podLauncher == podutil.NodeManager {
+		allNMNodes, err := pl.frameworkHandle.CRDSharedInformerFactory().Node().V1alpha1().NMNodes().Lister().List(labels.Everything())
+		if err != nil {
+			return nil, err
+		}
+
+		nodeInfos := make([]framework.NodeInfo, 0, len(allNMNodes))
+		for _, node := range allNMNodes {
+			nodeInfos = append(nodeInfos, pl.frameworkHandle.GetNodeInfo(node.Name))
+		}
+
+		return nodeInfos, nil
+	}
+	return nil, fmt.Errorf("unsupported pod launcher: %v", podLauncher)
+}
+
 func (pl *PodTopologySpreadCheck) isSatisfyPodTopologySpreadConstraints(pod *v1.Pod, nodeInfo framework.NodeInfo,
-	topologySpreadCondition *TopologySpreadCondition) string {
+	topologySpreadCondition *TopologySpreadCondition, podLauncher podutil.PodLauncher) string {
 	if topologySpreadCondition == nil || len(topologySpreadCondition.Constraints) == 0 {
 		return ""
 	}
 
-	node := nodeInfo.GetNode()
+	nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
 	podLabelSet := labels.Set(pod.Labels)
 	for _, c := range topologySpreadCondition.Constraints {
 		tpKey := c.TopologyKey
-		tpVal, ok := node.Labels[c.TopologyKey]
+		tpVal, ok := nodeLabels[c.TopologyKey]
 		if !ok {
 			return ErrReasonPodTopologySpreadNodeLabelNotMatch
 		}
@@ -206,7 +242,7 @@ func (pl *PodTopologySpreadCheck) isSatisfyPodTopologySpreadConstraints(pod *v1.
 			selfMatchNum = 1
 		}
 
-		pair := podtopologyspreadScheduler.TopologyPair{Key: tpKey, Value: tpVal}
+		pair := utils.TopologyPair{Key: tpKey, Value: tpVal}
 		paths, ok := topologySpreadCondition.TpKeyToCriticalPaths[tpKey]
 		if !ok {
 			// error which should not happen
