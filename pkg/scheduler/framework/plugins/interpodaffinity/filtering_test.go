@@ -25,11 +25,14 @@ import (
 	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/interpodaffinity"
+
+	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 var (
@@ -1821,49 +1824,89 @@ func TestNMNodesFilter(t *testing.T) {
 			},
 			name: "All nodes are of NMNode type, that is, they are managed by the node manager. A pod can be scheduled onto all the nodes that have the same topology key & label value with one of them has an existing pod that matches the affinity rules",
 		},
-		// {
-		// 	pod: createPodWithAffinityTerms(defaultNamespace, "", nil,
-		// 		[]v1.PodAffinityTerm{
-		// 			{
-		// 				LabelSelector: &metav1.LabelSelector{
-		// 					MatchExpressions: []metav1.LabelSelectorRequirement{
-		// 						{
-		// 							Key:      "foo",
-		// 							Operator: metav1.LabelSelectorOpIn,
-		// 							Values:   []string{"bar"},
-		// 						},
-		// 					},
-		// 				},
-		// 				TopologyKey: "region",
-		// 			},
-		// 		}, nil),
-		// 	pods: []*v1.Pod{
-		// 		{Spec: v1.PodSpec{NodeName: "machine0"}, ObjectMeta: metav1.ObjectMeta{Name: "p0", Labels: podLabelA}},
-		// 		{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelA}},
-		// 	},
-		// 	nodes: []*v1.Node{
-		// 		{ObjectMeta: metav1.ObjectMeta{Name: "machine0", Labels: labelRgIndia}},
-		// 	},
-		// 	nmNodes: []*nodev1alpha1.NMNode{
-		// 		{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
-		// 		{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgChinaAzAz1}},
-		// 		{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelRgIndia}},
-		// 	},
-		// 	wantStatuses: []*framework.Status{
-		// 		framework.NewStatus(
-		// 			framework.UnschedulableAndUnresolvable,
-		// 			fmt.Sprintf(podlauncher.utils.ErrReasonTemplate, podutil.NodeManager),
-		// 		),
-		// 		nil,
-		// 		nil,
-		// 		framework.NewStatus(
-		// 			framework.UnschedulableAndUnresolvable,
-		// 			utils.ErrReasonAffinityNotMatch,
-		// 			utils.ErrReasonAffinityRulesNotMatch,
-		// 		),
-		// 	},
-		// 	name: "The first node machine0 is v1.node and the others are of NMNode type. Although there is a pod with relevant affinity on machine0, they are managed by kubelet and cannot be recorded, so machine0 and machine3 cannot be scheduled.",
-		// },
+		{
+			pod: createPodWithAffinityTerms(defaultNamespace, "", nil,
+				[]v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "foo",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"bar"},
+								},
+							},
+						},
+						TopologyKey: "region",
+					},
+				}, nil),
+			pods: []*v1.Pod{
+				{Spec: v1.PodSpec{NodeName: "machine0"}, ObjectMeta: metav1.ObjectMeta{Name: "p0", Labels: podLabelA}},
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine0", Labels: labelRgIndia}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgChinaAzAz1}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelRgIndia}},
+			},
+			wantStatuses: []*framework.Status{
+				framework.NewStatus(
+					framework.UnschedulableAndUnresolvable,
+					fmt.Sprintf(podlauncher.ErrReasonTemplate, podutil.NodeManager),
+				),
+				framework.NewStatus(
+					framework.UnschedulableAndUnresolvable,
+					fmt.Sprintf(podlauncher.ErrReasonTemplate, podutil.NodeManager),
+				),
+				framework.NewStatus(
+					framework.UnschedulableAndUnresolvable,
+					utils.ErrReasonAffinityNotMatch,
+					utils.ErrReasonAffinityRulesNotMatch,
+				),
+				nil,
+			},
+			name: "Since the pod required by affinity is on v1.node of machine0, all nodes corresponding to NMNode in the India region can be scheduled. However, since both machine0 and machine1 only have v1.Node, they cannot be scheduled.",
+		},
+		{
+			pod: createPodWithAffinityTerms(defaultNamespace, "", nil,
+				[]v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "foo",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"bar"},
+								},
+							},
+						},
+						TopologyKey: "region",
+					},
+				}, nil),
+			pods: []*v1.Pod{
+				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelA}},
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgChinaAzAz1}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelRgIndia}},
+			},
+			wantStatuses: []*framework.Status{
+				nil,
+				nil,
+				framework.NewStatus(
+					framework.UnschedulableAndUnresolvable,
+					utils.ErrReasonAffinityNotMatch,
+					utils.ErrReasonAffinityRulesNotMatch,
+				),
+			},
+			name: "Machine 1 has v1.Node and NMNode, the others are of NMNode type. Since the pod required by affinity is on v1.node of machine1, all nodes corresponding to NMNode in the China region can be scheduled.",
+		},
 	}
 
 	for indexTest, test := range tests {
@@ -1871,16 +1914,14 @@ func TestNMNodesFilter(t *testing.T) {
 			test.pod.Annotations = map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}
 			snapshot := framework_helper.MakeSnapShot(test.pods, test.nodes, test.nmNodes)
 
-			for indexNode := 0; indexNode < len(test.nodes)+len(test.nmNodes); indexNode++ {
+			nodeNames := getNodeNames(test.nodes, test.nmNodes)
+			for indexNode := 0; indexNode < len(nodeNames); indexNode++ {
 				p := &InterPodAffinity{
 					sharedLister: snapshot,
 				}
 				var nodeInfo framework.NodeInfo
-				if indexNode < len(test.nodes) {
-					nodeInfo = mustGetNodeInfo(t, snapshot, test.nodes[indexNode].Name)
-				} else {
-					nodeInfo = mustGetNodeInfo(t, snapshot, test.nmNodes[indexNode-len(test.nodes)].Name)
-				}
+				nodeInfo = mustGetNodeInfo(t, snapshot, nodeNames[indexNode])
+
 				state := framework.NewCycleState()
 				preFilterStatus := p.PreFilter(context.Background(), state, test.pod)
 				if !preFilterStatus.IsSuccess() {
@@ -1893,6 +1934,17 @@ func TestNMNodesFilter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func getNodeNames(nodes []*v1.Node, nmNodes []*nodev1alpha1.NMNode) []string {
+	nameSet := sets.NewString()
+	for _, node := range nodes {
+		nameSet.Insert(node.Name)
+	}
+	for _, nmNode := range nmNodes {
+		nameSet.Insert(nmNode.Name)
+	}
+	return nameSet.List()
 }
 
 func TestPreFilterDisabled(t *testing.T) {

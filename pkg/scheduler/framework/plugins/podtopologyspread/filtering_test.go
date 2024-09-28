@@ -60,7 +60,7 @@ func TestPreFilterState(t *testing.T) {
 		existingPods       []*v1.Pod
 		objs               []runtime.Object
 		defaultConstraints []v1.TopologySpreadConstraint
-		want               *preFilterState
+		want               *utils.PreFilterState
 	}{
 		{
 			name: "clean cluster with one spreadConstraint",
@@ -73,7 +73,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     5,
@@ -108,7 +108,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
@@ -145,7 +145,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
@@ -181,7 +181,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y1").Namespace("ns2").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
@@ -219,7 +219,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
@@ -268,7 +268,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
@@ -309,7 +309,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-a").Node("node-a").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-b").Node("node-b").Label("bar", "").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
@@ -355,7 +355,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Label("bar", "").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
@@ -403,7 +403,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
@@ -440,7 +440,7 @@ func TestPreFilterState(t *testing.T) {
 			objs: []runtime.Object{
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": "bar"}}},
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     3,
@@ -469,7 +469,7 @@ func TestPreFilterState(t *testing.T) {
 			objs: []runtime.Object{
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"baz": "kep"}}},
 			},
-			want: &preFilterState{},
+			want: &utils.PreFilterState{},
 		},
 		{
 			name: "default constraints and a service, but pod has constraints",
@@ -482,7 +482,7 @@ func TestPreFilterState(t *testing.T) {
 			objs: []runtime.Object{
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": "bar"}}},
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
@@ -505,7 +505,7 @@ func TestPreFilterState(t *testing.T) {
 			objs: []runtime.Object{
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": "bar"}}},
 			},
-			want: &preFilterState{},
+			want: &utils.PreFilterState{},
 		},
 	}
 	for _, tt := range tests {
@@ -553,7 +553,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 		existingPods []*v1.Pod
 		nodeIdx      int // denotes which node 'addedPod' belongs to
 		nodes        []*v1.Node
-		want         *preFilterState
+		want         *utils.PreFilterState
 	}{
 		{
 			name: "node a and b both impact current min match",
@@ -567,7 +567,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{nodeConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"node": {{"node-b", 0}, {"node-a", 1}},
@@ -592,7 +592,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{nodeConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"node": {{"node-a", 1}, {"node-b", 1}},
@@ -617,7 +617,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{nodeConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"node": {{"node-a", 0}, {"node-b", 1}},
@@ -642,7 +642,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{nodeConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"node": {{"node-a", 0}, {"node-b", 2}},
@@ -666,7 +666,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{zoneConstraint, nodeConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 0}, {"zone1", 1}},
@@ -695,7 +695,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{zoneConstraint, nodeConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 1}, {"zone2", 1}},
@@ -727,7 +727,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{zoneConstraint, nodeConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 1}, {"zone1", 3}},
@@ -760,7 +760,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					zoneConstraint,
 					{
@@ -800,7 +800,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{
 					zoneConstraint,
 					{
@@ -869,7 +869,7 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 		deletedPodIdx int     // need to reuse *Pod of existingPods[i]
 		deletedPod    *v1.Pod // this field is used only when deletedPodIdx is -1
 		nodeIdx       int     // denotes which node "deletedPod" belongs to
-		want          *preFilterState
+		want          *utils.PreFilterState
 	}{
 		{
 			// A high priority pod may not be scheduled due to node taints or resource shortage.
@@ -890,7 +890,7 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 			},
 			deletedPodIdx: 0, // remove pod "p-a1"
 			nodeIdx:       0, // node-a
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{zoneConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 1}, {"zone2", 1}},
@@ -920,7 +920,7 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 			},
 			deletedPodIdx: 0, // remove pod "p-a1"
 			nodeIdx:       0, // node-a
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{zoneConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 1}, {"zone2", 2}},
@@ -951,7 +951,7 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 			},
 			deletedPodIdx: 0, // remove pod "p-a0"
 			nodeIdx:       0, // node-a
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{zoneConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 2}, {"zone2", 2}},
@@ -982,7 +982,7 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 			deletedPodIdx: -1,
 			deletedPod:    testing_helper.MakePod().Name("p-a0").Node("node-a").Label("bar", "").Obj(),
 			nodeIdx:       0, // node-a
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{zoneConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 2}, {"zone2", 2}},
@@ -1013,7 +1013,7 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 			},
 			deletedPodIdx: 3, // remove pod "p-x1"
 			nodeIdx:       2, // node-x
-			want: &preFilterState{
+			want: &utils.PreFilterState{
 				Constraints: []utils.TopologySpreadConstraint{zoneConstraint, nodeConstraint},
 				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 1}, {"zone1", 3}},
@@ -1696,12 +1696,12 @@ func TestNMNodesFilter(t *testing.T) {
 				{ObjectMeta: metav1.ObjectMeta{Name: "node-y", Labels: map[string]string{"node": "node-y"}}},
 			},
 			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
 			},
 			wantStatusCode: map[string]framework.Code{
 				"node-a": framework.Unschedulable,
@@ -1724,17 +1724,46 @@ func TestNMNodesFilter(t *testing.T) {
 				{ObjectMeta: metav1.ObjectMeta{Name: "node-y", Labels: map[string]string{"node": "node-y"}}},
 			},
 			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
 			},
 			wantStatusCode: map[string]framework.Code{
 				"node-x": framework.UnschedulableAndUnresolvable,
 				"node-a": framework.Unschedulable,
-				"node-b": framework.Success,
+				"node-b": framework.Unschedulable,
+				"node-y": framework.Unschedulable,
+			},
+		},
+		{
+			name: "The first node-x has v1.node and NMNode, the others are of NMNode type. Node-x matches the smallest number of pods and has NMNode, it cannot be scheduled. Pods spread across nodes as 0/2/1/3.",
+			pod: testing_helper.MakePod().Name("p").Label("foo", "").SpreadConstraint(
+				1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj(),
+			).Obj(),
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-x", Labels: map[string]string{"node": "node-x"}}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{"node": "node-a"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-b", Labels: map[string]string{"node": "node-b"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-x", Labels: map[string]string{"node": "node-x"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-y", Labels: map[string]string{"node": "node-y"}}},
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+			},
+			wantStatusCode: map[string]framework.Code{
+				"node-x": framework.Success,
+				"node-a": framework.Unschedulable,
+				"node-b": framework.Unschedulable,
 				"node-y": framework.Unschedulable,
 			},
 		},

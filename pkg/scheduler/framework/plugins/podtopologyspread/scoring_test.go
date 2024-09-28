@@ -698,12 +698,12 @@ func TestNMNodesScore(t *testing.T) {
 				SpreadConstraint(1, v1.LabelHostname, v1.ScheduleAnyway, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
 				Obj(),
 			existingPods: []*v1.Pod{
-				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-d1").Node("node-d").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-d2").Node("node-d").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-d3").Node("node-d").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-d1").Node("node-d").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-d2").Node("node-d").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-d3").Node("node-d").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
 			},
 			nmNodes: []*nodev1alpha1.NMNode{
 				{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{v1.LabelHostname: "node-a"}}},
@@ -727,10 +727,10 @@ func TestNMNodesScore(t *testing.T) {
 			existingPods: []*v1.Pod{
 				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
 				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-d1").Node("node-d").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-d2").Node("node-d").Label("foo", "").Obj(),
-				testing_helper.MakePod().Name("p-d3").Node("node-d").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-d1").Node("node-d").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-d2").Node("node-d").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-d3").Node("node-d").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
 			},
 			nodes: []*v1.Node{
 				{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{v1.LabelHostname: "node-a"}}},
@@ -747,6 +747,39 @@ func TestNMNodesScore(t *testing.T) {
 				{Name: "node-d", Score: 0},
 			},
 		},
+		{
+			// matching pods spread as 2-0/1/0/3. The first node-a has v1.node and NMNode.
+			// When counting the pods of each topology, we will record all the pods of node-a.
+			// However, when calculating its score, since the podLanucher of the pod to be scheduled is the node manager,
+			//only the pods on the NMNode of node-a will be considered. Since the number of pods on the NMNode is 0, the score is 100.
+			name: "The first node-a has v1.node and NMNode, and the others are of NMNode type. The score of node-a is 100",
+			pod: testing_helper.MakePod().Name("p").Label("foo", "").
+				SpreadConstraint(1, v1.LabelHostname, v1.ScheduleAnyway, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
+				Obj(),
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-d1").Node("node-d").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-d2").Node("node-d").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+				testing_helper.MakePod().Name("p-d3").Node("node-d").Label("foo", "").Annotation(podutil.PodLauncherAnnotationKey, string(podutil.NodeManager)).Obj(),
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{v1.LabelHostname: "node-a"}}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{v1.LabelHostname: "node-a"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-b", Labels: map[string]string{v1.LabelHostname: "node-b"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-c", Labels: map[string]string{v1.LabelHostname: "node-c"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-d", Labels: map[string]string{v1.LabelHostname: "node-d"}}},
+			},
+			want: []framework.NodeScore{
+				{Name: "node-a", Score: 100},
+				{Name: "node-b", Score: 80},
+				{Name: "node-c", Score: 100},
+				{Name: "node-d", Score: 0},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -758,13 +791,10 @@ func TestNMNodesScore(t *testing.T) {
 
 			p := &PodTopologySpread{sharedLister: snapshot}
 
-			nodeInfos := make([]framework.NodeInfo, len(tt.nodes)+len(tt.nmNodes))
-			for indexNode := 0; indexNode < len(tt.nodes)+len(tt.nmNodes); indexNode++ {
-				if indexNode < len(tt.nodes) {
-					nodeInfos[indexNode], _ = snapshot.NodeInfos().Get(tt.nodes[indexNode].Name)
-				} else {
-					nodeInfos[indexNode], _ = snapshot.NodeInfos().Get(tt.nmNodes[indexNode-len(tt.nodes)].Name)
-				}
+			nodeNames := getNodeNames(tt.nodes, tt.nmNodes)
+			nodeInfos := make([]framework.NodeInfo, len(nodeNames))
+			for indexNode := 0; indexNode < len(nodeNames); indexNode++ {
+				nodeInfos[indexNode], _ = snapshot.NodeInfos().Get(nodeNames[indexNode])
 			}
 
 			status := p.PreScore(context.Background(), state, tt.pod, nodeInfos)
@@ -791,6 +821,17 @@ func TestNMNodesScore(t *testing.T) {
 			}
 		})
 	}
+}
+
+func getNodeNames(nodes []*v1.Node, nmNodes []*nodev1alpha1.NMNode) []string {
+	nameSet := sets.NewString()
+	for _, node := range nodes {
+		nameSet.Insert(node.Name)
+	}
+	for _, nmNode := range nmNodes {
+		nameSet.Insert(nmNode.Name)
+	}
+	return nameSet.List()
 }
 
 func BenchmarkTestPodTopologySpreadScore(b *testing.B) {

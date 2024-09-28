@@ -22,7 +22,6 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
-	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -227,13 +226,9 @@ func TestGetTPMapMatchingIncomingAffinityAntiAffinity(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			snapshot := framework_helper.MakeSnapShot(tt.existingPods, tt.nodes, nil)
-			podLauncher, err := podutil.GetPodLauncher(tt.pod)
-			if err != nil {
-				t.Fatal(err)
-			}
 
 			nodes := snapshot.NodeInfos().List()
-			gotAffinityPodsMap, gotAntiAffinityPodsMap := GetTPMapMatchingIncomingAffinityAntiAffinity(framework.NewPodInfo(tt.pod), nodes, podLauncher)
+			gotAffinityPodsMap, gotAntiAffinityPodsMap := GetTPMapMatchingIncomingAffinityAntiAffinity(framework.NewPodInfo(tt.pod), nodes)
 			if !reflect.DeepEqual(gotAffinityPodsMap, tt.wantAffinityPodsMap) {
 				t.Errorf("getTPMapMatchingIncomingAffinityAntiAffinity() gotAffinityPodsMap = %#v, want %#v", gotAffinityPodsMap, tt.wantAffinityPodsMap)
 			}

@@ -27,9 +27,8 @@ import (
 
 // PodMatchesNodeSelectorAndAffinityTerms checks whether the pod is schedulable onto nodes according to
 // the requirements in both NodeAffinity and nodeSelector.
-func PodMatchesNodeSelectorAndAffinityTerms(pod *v1.Pod, nodeInfo framework.NodeInfo) bool {
-	podLancher, _ := podutil.GetPodLauncher(pod)
-	nodeLabels := nodeInfo.GetNodeLabels(podLancher)
+func PodMatchesNodeSelectorAndAffinityTerms(pod *v1.Pod, nodeInfo framework.NodeInfo, podLanucher podutil.PodLauncher) bool {
+	nodeLabels := nodeInfo.GetNodeLabels(podLanucher)
 
 	// Check if node.Labels match pod.Spec.NodeSelector.
 	if len(pod.Spec.NodeSelector) > 0 {
@@ -67,7 +66,12 @@ func PodMatchesNodeSelectorAndAffinityTerms(pod *v1.Pod, nodeInfo framework.Node
 		// Match node selector for requiredDuringSchedulingIgnoredDuringExecution.
 		if nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
 			nodeSelectorTerms := nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
-			nodeAffinityMatches = nodeAffinityMatches && nodeMatchesNodeSelectorTerms(nodeLabels, nodeSelectorTerms, nodeInfo.GetNodeName())
+			switch podLanucher {
+			case podutil.Kubelet:
+				nodeAffinityMatches = nodeAffinityMatches && nodeMatchesNodeSelectorTerms(nodeLabels, nodeSelectorTerms, nodeInfo.GetNode().Name)
+			case podutil.NodeManager:
+				nodeAffinityMatches = nodeAffinityMatches && nodeMatchesNodeSelectorTerms(nodeLabels, nodeSelectorTerms, nodeInfo.GetNMNode().Name)
+			}
 		}
 
 	}

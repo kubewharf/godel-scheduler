@@ -167,14 +167,14 @@ func PodMatchesAllAffinityTerms(pod *v1.Pod, terms []framework.AffinityTerm) boo
 // GetTPMapMatchingExistingAntiAffinity calculates the following for each existing pod on each node:
 // (1) Whether it has PodAntiAffinity
 // (2) Whether any AffinityTerm matches the incoming pod
-func GetTPMapMatchingExistingAntiAffinity(pod *v1.Pod, nodes []framework.NodeInfo, podLauncher podutil.PodLauncher) TopologyToMatchedTermCount {
+func GetTPMapMatchingExistingAntiAffinity(pod *v1.Pod, nodes []framework.NodeInfo) TopologyToMatchedTermCount {
 	topoMaps := make([]TopologyToMatchedTermCount, len(nodes))
 	index := int32(-1)
 	processNode := func(i int) {
 		nodeInfo := nodes[i]
 		topoMap := make(TopologyToMatchedTermCount)
 		for _, existingPod := range nodeInfo.GetPodsWithRequiredAntiAffinity() {
-			topoMap.UpdateWithAntiAffinityTerms(pod, nodeInfo.GetNodeLabels(podLauncher), existingPod.RequiredAntiAffinityTerms, 1)
+			topoMap.UpdateWithAntiAffinityTerms(pod, nodeInfo.GetNodeLabels(existingPod.PodLauncher), existingPod.RequiredAntiAffinityTerms, 1)
 		}
 		if len(topoMap) != 0 {
 			topoMaps[atomic.AddInt32(&index, 1)] = topoMap
@@ -194,28 +194,26 @@ func GetTPMapMatchingExistingAntiAffinity(pod *v1.Pod, nodes []framework.NodeInf
 // It returns a topologyToMatchedTermCount that are checked later by the affinity
 // predicate. With this topologyToMatchedTermCount available, the affinity predicate does not
 // need to check all the pods in the cluster.
-func GetTPMapMatchingIncomingAffinityAntiAffinity(podInfo *framework.PodInfo, allNodes []framework.NodeInfo, podLauncher podutil.PodLauncher) (TopologyToMatchedTermCount, TopologyToMatchedTermCount) {
-	matchedNodes := schedutil.FilterNodeInfosByPodLauncher(allNodes, podLauncher)
-
+func GetTPMapMatchingIncomingAffinityAntiAffinity(podInfo *framework.PodInfo, allNodes []framework.NodeInfo) (TopologyToMatchedTermCount, TopologyToMatchedTermCount) {
 	affinityCounts := make(TopologyToMatchedTermCount)
 	antiAffinityCounts := make(TopologyToMatchedTermCount)
 	if len(podInfo.RequiredAffinityTerms) == 0 && len(podInfo.RequiredAntiAffinityTerms) == 0 {
 		return affinityCounts, antiAffinityCounts
 	}
 
-	affinityCountsList := make([]TopologyToMatchedTermCount, len(matchedNodes))
-	antiAffinityCountsList := make([]TopologyToMatchedTermCount, len(matchedNodes))
+	affinityCountsList := make([]TopologyToMatchedTermCount, len(allNodes))
+	antiAffinityCountsList := make([]TopologyToMatchedTermCount, len(allNodes))
 	index := int32(-1)
 	processNode := func(i int) {
-		nodeInfo := matchedNodes[i]
+		nodeInfo := allNodes[i]
 		affinity := make(TopologyToMatchedTermCount)
 		antiAffinity := make(TopologyToMatchedTermCount)
 		for _, existingPod := range nodeInfo.GetPods() {
 			// Check affinity terms.
-			affinity.UpdateWithAffinityTerms(existingPod.Pod, nodeInfo.GetNodeLabels(podLauncher), podInfo.RequiredAffinityTerms, 1)
+			affinity.UpdateWithAffinityTerms(existingPod.Pod, nodeInfo.GetNodeLabels(existingPod.PodLauncher), podInfo.RequiredAffinityTerms, 1)
 
 			// Check anti-affinity terms.
-			antiAffinity.UpdateWithAntiAffinityTerms(existingPod.Pod, nodeInfo.GetNodeLabels(podLauncher), podInfo.RequiredAntiAffinityTerms, 1)
+			antiAffinity.UpdateWithAntiAffinityTerms(existingPod.Pod, nodeInfo.GetNodeLabels(existingPod.PodLauncher), podInfo.RequiredAntiAffinityTerms, 1)
 		}
 
 		if len(affinity) > 0 || len(antiAffinity) > 0 {
@@ -224,7 +222,7 @@ func GetTPMapMatchingIncomingAffinityAntiAffinity(podInfo *framework.PodInfo, al
 			antiAffinityCountsList[k] = antiAffinity
 		}
 	}
-	parallelize.Until(context.Background(), len(matchedNodes), processNode)
+	parallelize.Until(context.Background(), len(allNodes), processNode)
 
 	for i := 0; i <= int(index); i++ {
 		affinityCounts.append(affinityCountsList[i])

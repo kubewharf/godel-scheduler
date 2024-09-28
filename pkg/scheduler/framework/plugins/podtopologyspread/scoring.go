@@ -24,6 +24,7 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/helper"
+	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -37,7 +38,8 @@ const preScoreStateKey = "PreScore" + Name
 // Fields are exported for comparison during testing.
 type preScoreState struct {
 	Constraints []utils.TopologySpreadConstraint
-	// IgnoredNodes is a set of node names which miss some Constraints[*].topologyKey.
+	// IgnoredNodes records a set of node names which match the  scheduling pod's launcher type but miss some Constraints[*].topologyKey.
+	// It also records the node names that don't match the scheduling pod's launcher type
 	IgnoredNodes sets.String
 	// TopologyPairToPodCounts is keyed with topologyPair, and valued with the number of matching pods.
 	TopologyPairToPodCounts map[utils.TopologyPair]*int64
@@ -75,30 +77,41 @@ func (pl *PodTopologySpread) initPreScoreState(s *preScoreState, pod *v1.Pod, fi
 		return nil
 	}
 
-	podLauncher, err := podutil.GetPodLauncher(pod)
+	scheduledPodLauncher, err := podutil.GetPodLauncher(pod)
 	if err != nil {
 		return err
 	}
 
 	topoSize := make([]int, len(s.Constraints))
 	for _, nodeInfo := range filteredNodes {
-		nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
-		if !utils.NodeLabelsMatchSpreadConstraints(nodeLabels, s.Constraints) {
-			// Nodes which don't have all required topologyKeys present are ignored
-			// when scoring later.
-			s.IgnoredNodes.Insert(nodeInfo.GetNodeName())
-			continue
-		}
-		for i, constraint := range s.Constraints {
-			// per-node counts are calculated during Score.
-			if constraint.TopologyKey == v1.LabelHostname {
+		for _, podLanucher := range podutil.PodLanucherTypes {
+			if utils.IsNodeNil(nodeInfo, podLanucher) {
 				continue
 			}
-			pair := utils.TopologyPair{Key: constraint.TopologyKey, Value: nodeLabels[constraint.TopologyKey]}
-			if s.TopologyPairToPodCounts[pair] == nil {
-				s.TopologyPairToPodCounts[pair] = new(int64)
-				topoSize[i]++
+
+			nodeLabels := nodeInfo.GetNodeLabels(podLanucher)
+			if !utils.NodeLabelsMatchSpreadConstraints(nodeLabels, s.Constraints) {
+				// Nodes which don't have all required topologyKeys present are ignored
+				// when scoring later.
+				if podLanucher == scheduledPodLauncher {
+					s.IgnoredNodes.Insert(getNodeNameByPodLauncher(nodeInfo, podLanucher))
+				}
+				continue
 			}
+			for i, constraint := range s.Constraints {
+				// per-node counts are calculated during Score.
+				if constraint.TopologyKey == v1.LabelHostname {
+					continue
+				}
+				pair := utils.TopologyPair{Key: constraint.TopologyKey, Value: nodeLabels[constraint.TopologyKey]}
+				if s.TopologyPairToPodCounts[pair] == nil {
+					s.TopologyPairToPodCounts[pair] = new(int64)
+					topoSize[i]++
+				}
+			}
+		}
+		if utils.IsNodeNil(nodeInfo, scheduledPodLauncher) {
+			s.IgnoredNodes.Insert(nodeInfo.GetNodeName())
 		}
 	}
 
@@ -120,11 +133,6 @@ func (pl *PodTopologySpread) PreScore(
 	pod *v1.Pod,
 	filteredNodes []framework.NodeInfo,
 ) *framework.Status {
-	podLauncher, err := podutil.GetPodLauncher(pod)
-	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
-	}
-
 	allNodes := pl.sharedLister.NodeInfos().List()
 
 	if len(filteredNodes) == 0 || len(allNodes) == 0 {
@@ -136,7 +144,7 @@ func (pl *PodTopologySpread) PreScore(
 		IgnoredNodes:            sets.NewString(),
 		TopologyPairToPodCounts: make(map[utils.TopologyPair]*int64),
 	}
-	err = pl.initPreScoreState(state, pod, filteredNodes)
+	err := pl.initPreScoreState(state, pod, filteredNodes)
 	if err != nil {
 		return framework.NewStatus(framework.Error, fmt.Sprintf("error when calculating preScoreState: %v", err))
 	}
@@ -149,25 +157,31 @@ func (pl *PodTopologySpread) PreScore(
 
 	processAllNode := func(i int) {
 		nodeInfo := allNodes[i]
-		nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
-		// (1) `node` should satisfy incoming pod's NodeSelector/NodeAffinity
-		// (2) All topologyKeys need to be present in `node`
-		if !helper.PodMatchesNodeSelectorAndAffinityTerms(pod, nodeInfo) ||
-			!utils.NodeLabelsMatchSpreadConstraints(nodeLabels, state.Constraints) {
-			return
-		}
-
-		for _, c := range state.Constraints {
-			pair := utils.TopologyPair{Key: c.TopologyKey, Value: nodeLabels[c.TopologyKey]}
-			// If current topology pair is not associated with any candidate node,
-			// continue to avoid unnecessary calculation.
-			// Per-node counts are also skipped, as they are done during Score.
-			tpCount := state.TopologyPairToPodCounts[pair]
-			if tpCount == nil {
+		for _, podLanucher := range podutil.PodLanucherTypes {
+			if utils.IsNodeNil(nodeInfo, podLanucher) {
 				continue
 			}
-			count := utils.CountPodsMatchSelector(nodeInfo.GetPods(), c.Selector, pod.Namespace)
-			atomic.AddInt64(tpCount, int64(count))
+
+			nodeLabels := nodeInfo.GetNodeLabels(podLanucher)
+			// (1) `node` should satisfy incoming pod's NodeSelector/NodeAffinity
+			// (2) All topologyKeys need to be present in `node`
+			if !helper.PodMatchesNodeSelectorAndAffinityTerms(pod, nodeInfo, podLanucher) ||
+				!utils.NodeLabelsMatchSpreadConstraints(nodeLabels, state.Constraints) {
+				return
+			}
+
+			for _, c := range state.Constraints {
+				pair := utils.TopologyPair{Key: c.TopologyKey, Value: nodeLabels[c.TopologyKey]}
+				// If current topology pair is not associated with any candidate node,
+				// continue to avoid unnecessary calculation.
+				// Per-node counts are also skipped, as they are done during Score.
+				tpCount := state.TopologyPairToPodCounts[pair]
+				if tpCount == nil {
+					continue
+				}
+				count := utils.CountPodsMatchSelector(nodeInfo.GetPods(), c.Selector, pod.Namespace, podLanucher)
+				atomic.AddInt64(tpCount, int64(count))
+			}
 		}
 	}
 	parallelize.Until(ctx, len(allNodes), processAllNode)
@@ -180,11 +194,15 @@ func (pl *PodTopologySpread) PreScore(
 // The "score" returned in this function is the matching number of pods on the `nodeName`,
 // it is normalized later.
 func (pl *PodTopologySpread) Score(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
-	podLauncher, _ := podutil.GetPodLauncher(pod)
 	nodeInfo, err := pl.sharedLister.NodeInfos().Get(nodeName)
 	if err != nil {
 		return 0, framework.NewStatus(framework.Error, fmt.Sprintf("getting node %q from Snapshot: %v,", nodeName, err))
 	}
+	podLauncher, status := podlauncher.NodeFits(cycleState, pod, nodeInfo)
+	if status != nil {
+		return 0, nil
+	}
+
 	nodeLabels := nodeInfo.GetNodeLabels(podLauncher)
 
 	s, err := getPreScoreState(cycleState)
@@ -193,7 +211,7 @@ func (pl *PodTopologySpread) Score(ctx context.Context, cycleState *framework.Cy
 	}
 
 	// Return if the node is not qualified.
-	if s.IgnoredNodes.Has(nodeInfo.GetNodeName()) {
+	if s.IgnoredNodes.Has(getNodeNameByPodLauncher(nodeInfo, podLauncher)) {
 		return 0, nil
 	}
 
@@ -204,7 +222,7 @@ func (pl *PodTopologySpread) Score(ctx context.Context, cycleState *framework.Cy
 		if tpVal, ok := nodeLabels[c.TopologyKey]; ok {
 			var cnt int64
 			if c.TopologyKey == v1.LabelHostname {
-				cnt = int64(utils.CountPodsMatchSelector(nodeInfo.GetPods(), c.Selector, pod.Namespace))
+				cnt = int64(utils.CountPodsMatchSelector(nodeInfo.GetPods(), c.Selector, pod.Namespace, podLauncher))
 			} else {
 				pair := utils.TopologyPair{Key: c.TopologyKey, Value: tpVal}
 				cnt = *s.TopologyPairToPodCounts[pair]

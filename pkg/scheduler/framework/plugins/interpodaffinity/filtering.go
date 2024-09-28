@@ -23,7 +23,6 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/interpodaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
-	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -35,11 +34,6 @@ const (
 
 // PreFilter invoked at the prefilter extension point.
 func (pl *InterPodAffinity) PreFilter(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod) *framework.Status {
-	podLauncher, err := podutil.GetPodLauncher(pod)
-	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
-	}
-
 	var allNodes []framework.NodeInfo
 	var nodesWithRequiredAntiAffinityPods []framework.NodeInfo
 	allNodes = pl.sharedLister.NodeInfos().List()
@@ -51,11 +45,11 @@ func (pl *InterPodAffinity) PreFilter(ctx context.Context, cycleState *framework
 	}
 
 	// existingPodAntiAffinityMap will be used later for efficient check on existing pods' anti-affinity
-	existingPodAntiAffinityMap := utils.GetTPMapMatchingExistingAntiAffinity(pod, nodesWithRequiredAntiAffinityPods, podLauncher)
+	existingPodAntiAffinityMap := utils.GetTPMapMatchingExistingAntiAffinity(pod, nodesWithRequiredAntiAffinityPods)
 
 	// incomingPodAffinityMap will be used later for efficient check on incoming pod's affinity
 	// incomingPodAntiAffinityMap will be used later for efficient check on incoming pod's anti-affinity
-	incomingPodAffinityMap, incomingPodAntiAffinityMap := utils.GetTPMapMatchingIncomingAffinityAntiAffinity(podInfo, allNodes, podLauncher)
+	incomingPodAffinityMap, incomingPodAntiAffinityMap := utils.GetTPMapMatchingIncomingAffinityAntiAffinity(podInfo, allNodes)
 
 	s := &utils.PreFilterState{
 		TopologyToMatchedAffinityTerms:             incomingPodAffinityMap,

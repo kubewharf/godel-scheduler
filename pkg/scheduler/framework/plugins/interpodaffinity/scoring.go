@@ -135,11 +135,6 @@ func (pl *InterPodAffinity) PreScore(
 		return nil
 	}
 
-	podLauncher, err := podutil.GetPodLauncher(pod)
-	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
-	}
-
 	if pl.sharedLister == nil {
 		return framework.NewStatus(framework.Error, fmt.Sprintf("InterPodAffinity PreScore with empty shared lister found"))
 	}
@@ -182,7 +177,7 @@ func (pl *InterPodAffinity) PreScore(
 
 		topoScore := make(scoreMap)
 		for _, existingPod := range podsToProcess {
-			pl.processExistingPod(state, existingPod, nodeInfo.GetNodeLabels(podLauncher), pod, topoScore)
+			pl.processExistingPod(state, existingPod, nodeInfo.GetNodeLabels(existingPod.PodLauncher), pod, topoScore)
 		}
 		if len(topoScore) > 0 {
 			topoScores[atomic.AddInt32(&index, 1)] = topoScore

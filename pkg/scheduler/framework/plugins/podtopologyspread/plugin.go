@@ -30,13 +30,6 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 )
 
-const (
-	// ErrReasonConstraintsNotMatch is used for PodTopologySpread filter error.
-	ErrReasonConstraintsNotMatch = "node(s) didn't match pod topology spread constraints"
-	// ErrReasonNodeLabelNotMatch is used when the node doesn't hold the required label.
-	ErrReasonNodeLabelNotMatch = ErrReasonConstraintsNotMatch + " (missing required label)"
-)
-
 // PodTopologySpread is a plugin that ensures pod's topologySpreadConstraints is satisfied.
 type PodTopologySpread struct {
 	args             config.PodTopologySpreadArgs

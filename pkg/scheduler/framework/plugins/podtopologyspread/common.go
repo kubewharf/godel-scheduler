@@ -17,8 +17,10 @@ limitations under the License.
 package podtopologyspread
 
 import (
+	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/helper"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podtopologyspread"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -38,4 +40,22 @@ func (pl *PodTopologySpread) defaultConstraints(p *v1.Pod, action v1.Unsatisfiab
 		constraints[i].Selector = selector
 	}
 	return constraints, nil
+}
+
+func getNodeNameByPodLauncher(nodeInfo framework.NodeInfo, podLanucher podutil.PodLauncher) string {
+	if nodeInfo == nil {
+		return ""
+	}
+
+	switch podLanucher {
+	case podutil.Kubelet:
+		if nodeInfo.GetNode() != nil {
+			return nodeInfo.GetNode().Name
+		}
+	case podutil.NodeManager:
+		if nodeInfo.GetNMNode() != nil {
+			return nodeInfo.GetNMNode().Name
+		}
+	}
+	return ""
 }

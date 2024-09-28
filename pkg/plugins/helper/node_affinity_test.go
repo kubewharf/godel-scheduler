@@ -21,6 +21,7 @@ import (
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -706,7 +707,7 @@ func TestPodMatchesNodeSelectorAndAffinityTerms(t *testing.T) {
 			}}
 			nodeInfo := framework.NewNodeInfo()
 			nodeInfo.SetNode(&node)
-			got := PodMatchesNodeSelectorAndAffinityTerms(test.pod, nodeInfo)
+			got := PodMatchesNodeSelectorAndAffinityTerms(test.pod, nodeInfo, podutil.Kubelet)
 			if test.want != got {
 				t.Errorf("expected: %v got %v", test.want, got)
 			}

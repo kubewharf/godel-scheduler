@@ -797,9 +797,9 @@ func TestNMNodesScore(t *testing.T) {
 		{
 			pod: &v1.Pod{Spec: v1.PodSpec{NodeName: "", Affinity: stayWithS1InRegion}, ObjectMeta: metav1.ObjectMeta{Labels: podLabelSecurityS1}},
 			pods: []*v1.Pod{
-				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelSecurityS1}},
-				{Spec: v1.PodSpec{NodeName: "machine2"}, ObjectMeta: metav1.ObjectMeta{Name: "p2", Labels: podLabelSecurityS2}},
-				{Spec: v1.PodSpec{NodeName: "machine3"}, ObjectMeta: metav1.ObjectMeta{Name: "p3", Labels: podLabelSecurityS1}},
+				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelSecurityS1, Annotations: map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}}},
+				{Spec: v1.PodSpec{NodeName: "machine2"}, ObjectMeta: metav1.ObjectMeta{Name: "p2", Labels: podLabelSecurityS2, Annotations: map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}}},
+				{Spec: v1.PodSpec{NodeName: "machine3"}, ObjectMeta: metav1.ObjectMeta{Name: "p3", Labels: podLabelSecurityS1, Annotations: map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}}},
 			},
 			nmNodes: []*nodev1alpha1.NMNode{
 				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
@@ -814,20 +814,40 @@ func TestNMNodesScore(t *testing.T) {
 			pod: &v1.Pod{Spec: v1.PodSpec{NodeName: "", Affinity: stayWithS1InRegion}, ObjectMeta: metav1.ObjectMeta{Labels: podLabelSecurityS1}},
 			pods: []*v1.Pod{
 				{Spec: v1.PodSpec{NodeName: "machine0"}, ObjectMeta: metav1.ObjectMeta{Name: "p0", Labels: podLabelSecurityS1}},
-				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelSecurityS1}},
-				{Spec: v1.PodSpec{NodeName: "machine2"}, ObjectMeta: metav1.ObjectMeta{Name: "p2", Labels: podLabelSecurityS2}},
-				{Spec: v1.PodSpec{NodeName: "machine3"}, ObjectMeta: metav1.ObjectMeta{Name: "p3", Labels: podLabelSecurityS1}},
+				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelSecurityS1, Annotations: map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}}},
+				{Spec: v1.PodSpec{NodeName: "machine2"}, ObjectMeta: metav1.ObjectMeta{Name: "p2", Labels: podLabelSecurityS2, Annotations: map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}}},
+				{Spec: v1.PodSpec{NodeName: "machine3"}, ObjectMeta: metav1.ObjectMeta{Name: "p3", Labels: podLabelSecurityS1, Annotations: map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}}},
 			},
 			nodes: []*v1.Node{
-				{ObjectMeta: metav1.ObjectMeta{Name: "machine0", Labels: labelRgChina}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine0", Labels: labelRgIndia}},
 			},
 			nmNodes: []*nodev1alpha1.NMNode{
 				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
 				{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgIndia}},
 				{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelAzAz1}},
 			},
-			expectedList: []framework.NodeScore{{Name: "machine0", Score: 0}, {Name: "machine1", Score: framework.MaxNodeScore}, {Name: "machine2", Score: 0}, {Name: "machine3", Score: 0}},
-			name:         "The first node machine0 is v1.node and the others are of NMNode type. The machine0 participates in the scoring with an empty label {}, so its score is 0.",
+			expectedList: []framework.NodeScore{{Name: "machine0", Score: 0}, {Name: "machine1", Score: framework.MaxNodeScore}, {Name: "machine2", Score: framework.MaxNodeScore}, {Name: "machine3", Score: 0}},
+			name:         "The first node machine0 is v1.node and the others are of NMNode type. Although the node type of machine0 is v1.Node, its pods with the S1 label are also counted, so the number of pods with affinity for all nodes with region India is 1, the same as the nodes with region China.However, since the node type of machine0 is v1.Node, its score is 0.",
+		},
+		{
+			pod: &v1.Pod{Spec: v1.PodSpec{NodeName: "", Affinity: stayWithS1InRegion}, ObjectMeta: metav1.ObjectMeta{Labels: podLabelSecurityS1}},
+			pods: []*v1.Pod{
+				{Spec: v1.PodSpec{NodeName: "machine0"}, ObjectMeta: metav1.ObjectMeta{Name: "p0", Labels: podLabelSecurityS1}},
+				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelSecurityS1, Annotations: map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}}},
+				{Spec: v1.PodSpec{NodeName: "machine2"}, ObjectMeta: metav1.ObjectMeta{Name: "p2", Labels: podLabelSecurityS2, Annotations: map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}}},
+				{Spec: v1.PodSpec{NodeName: "machine3"}, ObjectMeta: metav1.ObjectMeta{Name: "p3", Labels: podLabelSecurityS1, Annotations: map[string]string{podutil.PodLauncherAnnotationKey: string(podutil.NodeManager)}}},
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine0", Labels: labelRgIndia}},
+			},
+			nmNodes: []*nodev1alpha1.NMNode{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine0", Labels: labelRgIndia}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgIndia}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelAzAz1}},
+			},
+			expectedList: []framework.NodeScore{{Name: "machine0", Score: framework.MaxNodeScore}, {Name: "machine1", Score: framework.MaxNodeScore}, {Name: "machine2", Score: framework.MaxNodeScore}, {Name: "machine3", Score: 0}},
+			name:         "Machine0 has both v1.Node and NMNode. Although the pod with the S1 label is on v1.Node, it is also counted. Therefore, the number of pods with affinity for all nodes with region India is 1, the same as the nodes with region China.",
 		},
 	}
 
@@ -844,14 +864,10 @@ func TestNMNodesScore(t *testing.T) {
 				},
 				sharedLister: snapshot,
 			}
-
-			nodeInfos := make([]framework.NodeInfo, len(test.nodes)+len(test.nmNodes))
-			for indexNode := 0; indexNode < len(test.nodes)+len(test.nmNodes); indexNode++ {
-				if indexNode < len(test.nodes) {
-					nodeInfos[indexNode] = mustGetNodeInfo(t, snapshot, test.nodes[indexNode].Name)
-				} else {
-					nodeInfos[indexNode] = mustGetNodeInfo(t, snapshot, test.nmNodes[indexNode-len(test.nodes)].Name)
-				}
+			nodeNames := getNodeNames(test.nodes, test.nmNodes)
+			nodeInfos := make([]framework.NodeInfo, len(nodeNames))
+			for indexNode := 0; indexNode < len(nodeInfos); indexNode++ {
+				nodeInfos[indexNode] = mustGetNodeInfo(t, snapshot, nodeNames[indexNode])
 			}
 
 			status := p.PreScore(context.Background(), state, test.pod, nodeInfos)

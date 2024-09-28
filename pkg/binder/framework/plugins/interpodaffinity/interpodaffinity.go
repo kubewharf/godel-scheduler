@@ -23,7 +23,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/interpodaffinity"
-	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
+	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,20 +47,20 @@ func (pl *InterPodAffinity) Name() string {
 
 func (pl *InterPodAffinity) CheckConflicts(_ context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
 	// Get the nodes with the same topology labels as the node to be scheduled
-	podLauncher, err := podutil.GetPodLauncher(pod)
-	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
+	podLauncher, status := podlauncher.NodeFits(nil, pod, nodeInfo)
+	if status != nil {
+		return status
 	}
 	topologyLabels := nodeInfo.GetNodeLabels(podLauncher)
-	matchedNodeInfos, err := pl.getNodesWithSameTopologyLabels(topologyLabels, podLauncher)
+	matchedNodeInfos, err := pl.getNodesWithSameTopologyLabels(topologyLabels)
 	if err != nil {
 		return framework.NewStatus(framework.Unschedulable, ErrorReasonWhenFilterNodeWithSameTopology)
 	}
 
-	existingPodAntiAffinityMap := utils.GetTPMapMatchingExistingAntiAffinity(pod, matchedNodeInfos, podLauncher)
+	existingPodAntiAffinityMap := utils.GetTPMapMatchingExistingAntiAffinity(pod, matchedNodeInfos)
 
 	podInfo := framework.NewPodInfo(pod)
-	incomingPodAffinityMap, incomingPodAntiAffinityMap := utils.GetTPMapMatchingIncomingAffinityAntiAffinity(podInfo, matchedNodeInfos, podLauncher)
+	incomingPodAffinityMap, incomingPodAntiAffinityMap := utils.GetTPMapMatchingIncomingAffinityAntiAffinity(podInfo, matchedNodeInfos)
 
 	state := &utils.PreFilterState{
 		TopologyToMatchedExistingAntiAffinityTerms: existingPodAntiAffinityMap,
@@ -90,7 +90,7 @@ func New(_ runtime.Object, handle handle.BinderFrameworkHandle) (framework.Plugi
 	}, nil
 }
 
-func (pl *InterPodAffinity) getNodesWithSameTopologyLabels(topologyLabels map[string]string, podLauncher podutil.PodLauncher) ([]framework.NodeInfo, error) {
+func (pl *InterPodAffinity) getNodesWithSameTopologyLabels(topologyLabels map[string]string) ([]framework.NodeInfo, error) {
 	var matchedNodeInfos []framework.NodeInfo
 	nodeInfoSet := make(map[string]framework.NodeInfo) // Used to remove duplicates
 
@@ -100,21 +100,25 @@ func (pl *InterPodAffinity) getNodesWithSameTopologyLabels(topologyLabels map[st
 		requirement, _ := labels.NewRequirement(key, selection.Equals, []string{value})
 		selector = selector.Add(*requirement)
 
-		if podLauncher == podutil.Kubelet {
+		if pl.frameworkHandle.SharedInformerFactory() != nil {
 			nodes, err := pl.frameworkHandle.SharedInformerFactory().Core().V1().Nodes().Lister().List(selector)
 			if err != nil {
 				return nil, fmt.Errorf("failed to list nodes for selector %s: %v", selector.String(), err)
 			}
 			for _, node := range nodes {
-				nodeInfoSet[node.Name] = pl.frameworkHandle.GetNodeInfo(node.Name)
+				nodeInfo := pl.frameworkHandle.GetNodeInfo(node.Name)
+				nodeInfoSet[nodeInfo.GetNodeName()] = nodeInfo
 			}
-		} else {
-			nodes, err := pl.frameworkHandle.CRDSharedInformerFactory().Node().V1alpha1().NMNodes().Lister().List(selector)
+		}
+
+		if pl.frameworkHandle.CRDSharedInformerFactory() != nil {
+			nmNodes, err := pl.frameworkHandle.CRDSharedInformerFactory().Node().V1alpha1().NMNodes().Lister().List(selector)
 			if err != nil {
 				return nil, fmt.Errorf("failed to list nodes for selector %s: %v", selector.String(), err)
 			}
-			for _, node := range nodes {
-				nodeInfoSet[node.Name] = pl.frameworkHandle.GetNodeInfo(node.Name)
+			for _, nmNode := range nmNodes {
+				nodeInfo := pl.frameworkHandle.GetNodeInfo(nmNode.Name)
+				nodeInfoSet[nodeInfo.GetNodeName()] = nodeInfo
 			}
 		}
 	}
