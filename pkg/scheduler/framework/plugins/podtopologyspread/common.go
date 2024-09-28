@@ -17,32 +17,16 @@ limitations under the License.
 package podtopologyspread
 
 import (
-	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/helper"
+	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podtopologyspread"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 )
-
-type TopologyPair struct {
-	Key   string
-	Value string
-}
-
-// TopologySpreadConstraint is an internal version for v1.TopologySpreadConstraint
-// and where the selector is parsed.
-// Fields are exported for comparison during testing.
-type TopologySpreadConstraint struct {
-	MaxSkew     int32
-	TopologyKey string
-	Selector    labels.Selector
-}
 
 // defaultConstraints builds the constraints for a pod using
 // .DefaultConstraints and the selectors from the services, replication
 // controllers, replica sets and stateful sets that match the pod.
-func (pl *PodTopologySpread) defaultConstraints(p *v1.Pod, action v1.UnsatisfiableConstraintAction) ([]TopologySpreadConstraint, error) {
-	constraints, err := FilterTopologySpreadConstraints(pl.args.DefaultConstraints, action)
+func (pl *PodTopologySpread) defaultConstraints(p *v1.Pod, action v1.UnsatisfiableConstraintAction) ([]utils.TopologySpreadConstraint, error) {
+	constraints, err := utils.FilterTopologySpreadConstraints(pl.args.DefaultConstraints, action)
 	if err != nil || len(constraints) == 0 {
 		return nil, err
 	}
@@ -54,46 +38,4 @@ func (pl *PodTopologySpread) defaultConstraints(p *v1.Pod, action v1.Unsatisfiab
 		constraints[i].Selector = selector
 	}
 	return constraints, nil
-}
-
-// NodeLabelsMatchSpreadConstraints checks if ALL topology keys in spread Constraints are present in node labels.
-func NodeLabelsMatchSpreadConstraints(nodeLabels map[string]string, constraints []TopologySpreadConstraint) bool {
-	for _, c := range constraints {
-		if _, ok := nodeLabels[c.TopologyKey]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
-func FilterTopologySpreadConstraints(constraints []v1.TopologySpreadConstraint, action v1.UnsatisfiableConstraintAction) ([]TopologySpreadConstraint, error) {
-	var result []TopologySpreadConstraint
-	for _, c := range constraints {
-		if c.WhenUnsatisfiable == action {
-			selector, err := metav1.LabelSelectorAsSelector(c.LabelSelector)
-			if err != nil {
-				return nil, err
-			}
-			result = append(result, TopologySpreadConstraint{
-				MaxSkew:     c.MaxSkew,
-				TopologyKey: c.TopologyKey,
-				Selector:    selector,
-			})
-		}
-	}
-	return result, nil
-}
-
-func CountPodsMatchSelector(podInfos []*framework.PodInfo, selector labels.Selector, ns string) int {
-	count := 0
-	for _, p := range podInfos {
-		// Bypass terminating Pod (see #87621).
-		if p.Pod.DeletionTimestamp != nil || p.Pod.Namespace != ns {
-			continue
-		}
-		if selector.Matches(labels.Set(p.Pod.Labels)) {
-			count++
-		}
-	}
-	return count
 }

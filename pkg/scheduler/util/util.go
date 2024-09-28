@@ -18,6 +18,7 @@ package util
 
 import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
 func GetListIndex(pluginList framework.PluginList) framework.PluginOrder {
@@ -39,4 +40,16 @@ func FilterTrueKeys(h map[string]bool) []string {
 		}
 	}
 	return ret
+}
+
+func FilterNodeInfosByPodLauncher(allNodes []framework.NodeInfo, podLauncher podutil.PodLauncher) []framework.NodeInfo {
+	matchedNodeInfos := make([]framework.NodeInfo, 0, len(allNodes))
+	for _, nodeInfo := range allNodes {
+		if podLauncher == podutil.Kubelet && nodeInfo.GetNode() != nil {
+			matchedNodeInfos = append(matchedNodeInfos, nodeInfo)
+		} else if podLauncher == podutil.NodeManager && nodeInfo.GetNMNode() != nil {
+			matchedNodeInfos = append(matchedNodeInfos, nodeInfo)
+		}
+	}
+	return matchedNodeInfos
 }

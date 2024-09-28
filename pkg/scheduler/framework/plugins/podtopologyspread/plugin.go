@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/validation"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
@@ -72,7 +73,7 @@ func New(plArgs runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, 
 	if h.SnapshotSharedLister() == nil {
 		return nil, fmt.Errorf("SnapshotSharedlister is nil")
 	}
-	args, err := GetArgs(plArgs)
+	args, err := utils.GetArgs(plArgs)
 	if err != nil {
 		return nil, err
 	}
@@ -90,18 +91,6 @@ func New(plArgs runtime.Object, h handle.PodFrameworkHandle) (framework.Plugin, 
 		pl.setListers(h.SharedInformerFactory())
 	}
 	return pl, nil
-}
-
-func GetArgs(obj runtime.Object) (config.PodTopologySpreadArgs, error) {
-	if obj == nil {
-		return config.PodTopologySpreadArgs{}, nil
-	}
-
-	ptr, ok := obj.(*config.PodTopologySpreadArgs)
-	if !ok {
-		return config.PodTopologySpreadArgs{}, fmt.Errorf("want args to be of type PodTopologySpreadArgs, got %T", obj)
-	}
-	return *ptr, nil
 }
 
 func (pl *PodTopologySpread) setListers(factory informers.SharedInformerFactory) {

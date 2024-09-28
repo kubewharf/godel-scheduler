@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
@@ -42,7 +43,7 @@ var cmpOpts = []cmp.Option{
 	cmp.Comparer(func(s1 labels.Selector, s2 labels.Selector) bool {
 		return reflect.DeepEqual(s1, s2)
 	}),
-	cmp.Comparer(func(p1, p2 CriticalPaths) bool {
+	cmp.Comparer(func(p1, p2 utils.CriticalPaths) bool {
 		p1.Sort()
 		p2.Sort()
 		return p1[0] == p2[0] && p1[1] == p2[1]
@@ -73,17 +74,17 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     5,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Label("foo", "bar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 0}, {"zone2", 0}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(0),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(0),
 				},
@@ -108,17 +109,17 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 2}, {"zone1", 3}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
 				},
@@ -145,17 +146,17 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone3", 0}, {"zone2", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
 					{Key: "zone", Value: "zone3"}: pointer.Int32Ptr(0),
@@ -181,17 +182,17 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 1}, {"zone1", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(2),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(1),
 				},
@@ -219,7 +220,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -231,11 +232,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-x", 0}, {"node-b", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
@@ -268,7 +269,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -280,11 +281,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-b", 1}, {"node-a", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
@@ -309,7 +310,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-b").Node("node-b").Label("bar", "").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -321,11 +322,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, barSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 0}, {"zone1", 1}},
 					"node": {{"node-a", 0}, {"node-y", 0}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(1),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(0),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(0),
@@ -355,7 +356,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Label("bar", "").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -367,11 +368,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, barSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-b", 0}, {"node-a", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
@@ -403,7 +404,7 @@ func TestPreFilterState(t *testing.T) {
 				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -415,11 +416,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, fooSelector),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 3}, {"zone2", 4}},
 					"node": {{"node-b", 1}, {"node-a", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(4),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
@@ -440,7 +441,7 @@ func TestPreFilterState(t *testing.T) {
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": "bar"}}},
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     3,
 						TopologyKey: "node",
@@ -452,11 +453,11 @@ func TestPreFilterState(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Label("foo", "bar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"node": NewCriticalPaths(),
-					"rack": NewCriticalPaths(),
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
+					"node": utils.NewCriticalPaths(),
+					"rack": utils.NewCriticalPaths(),
 				},
-				TpPairToMatchNum: make(map[TopologyPair]*int32),
+				TpPairToMatchNum: make(map[utils.TopologyPair]*int32),
 			},
 		},
 		{
@@ -482,17 +483,17 @@ func TestPreFilterState(t *testing.T) {
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": "bar"}}},
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Label("baz", "tar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
-					"zone": NewCriticalPaths(),
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
+					"zone": utils.NewCriticalPaths(),
 				},
-				TpPairToMatchNum: make(map[TopologyPair]*int32),
+				TpPairToMatchNum: make(map[utils.TopologyPair]*int32),
 			},
 		},
 		{
@@ -538,7 +539,7 @@ func TestPreFilterState(t *testing.T) {
 }
 
 func TestPreFilterStateAddPod(t *testing.T) {
-	nodeConstraint := TopologySpreadConstraint{
+	nodeConstraint := utils.TopologySpreadConstraint{
 		MaxSkew:     1,
 		TopologyKey: "node",
 		Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Exists("foo").Obj()),
@@ -567,11 +568,11 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{nodeConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"node": {{"node-b", 0}, {"node-a", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
 					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(0),
 				},
@@ -592,11 +593,11 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{nodeConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"node": {{"node-a", 1}, {"node-b", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
 					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(1),
 				},
@@ -617,11 +618,11 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{nodeConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"node": {{"node-a", 0}, {"node-b", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(0),
 					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(1),
 				},
@@ -642,11 +643,11 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{nodeConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"node": {{"node-a", 0}, {"node-b", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(0),
 					{Key: "node", Value: "node-b"}: pointer.Int32Ptr(2),
 				},
@@ -666,12 +667,12 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint, nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{zoneConstraint, nodeConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 0}, {"zone1", 1}},
 					"node": {{"node-x", 0}, {"node-a", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(1),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(0),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
@@ -695,12 +696,12 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint, nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{zoneConstraint, nodeConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 1}, {"zone2", 1}},
 					"node": {{"node-a", 1}, {"node-x", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(1),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(1),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
@@ -727,12 +728,12 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint, nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{zoneConstraint, nodeConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 1}, {"zone1", 3}},
 					"node": {{"node-a", 1}, {"node-x", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(1),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
@@ -760,7 +761,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					zoneConstraint,
 					{
 						MaxSkew:     1,
@@ -768,11 +769,11 @@ func TestPreFilterStateAddPod(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Exists("bar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 1}, {"zone1", 2}},
 					"node": {{"node-a", 0}, {"node-b", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(2),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(1),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(0),
@@ -800,7 +801,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
 			},
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					zoneConstraint,
 					{
 						MaxSkew:     1,
@@ -808,11 +809,11 @@ func TestPreFilterStateAddPod(t *testing.T) {
 						Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Exists("bar").Obj()),
 					},
 				},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 1}, {"zone2", 1}},
 					"node": {{"node-a", 1}, {"node-b", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(1),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(1),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(1),
@@ -853,7 +854,7 @@ func TestPreFilterStateAddPod(t *testing.T) {
 }
 
 func TestPreFilterStateRemovePod(t *testing.T) {
-	nodeConstraint := TopologySpreadConstraint{
+	nodeConstraint := utils.TopologySpreadConstraint{
 		MaxSkew:     1,
 		TopologyKey: "node",
 		Selector:    mustConvertLabelSelectorAsSelector(t, testing_helper.MakeLabelSelector().Exists("foo").Obj()),
@@ -890,11 +891,11 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 			deletedPodIdx: 0, // remove pod "p-a1"
 			nodeIdx:       0, // node-a
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{zoneConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 1}, {"zone2", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(1),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(1),
 				},
@@ -920,11 +921,11 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 			deletedPodIdx: 0, // remove pod "p-a1"
 			nodeIdx:       0, // node-a
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{zoneConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 1}, {"zone2", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(1),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
 				},
@@ -951,11 +952,11 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 			deletedPodIdx: 0, // remove pod "p-a0"
 			nodeIdx:       0, // node-a
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{zoneConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 2}, {"zone2", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(2),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
 				},
@@ -982,11 +983,11 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 			deletedPod:    testing_helper.MakePod().Name("p-a0").Node("node-a").Label("bar", "").Obj(),
 			nodeIdx:       0, // node-a
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{zoneConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone1", 2}, {"zone2", 2}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}: pointer.Int32Ptr(2),
 					{Key: "zone", Value: "zone2"}: pointer.Int32Ptr(2),
 				},
@@ -1013,12 +1014,12 @@ func TestPreFilterStateRemovePod(t *testing.T) {
 			deletedPodIdx: 3, // remove pod "p-x1"
 			nodeIdx:       2, // node-x
 			want: &preFilterState{
-				Constraints: []TopologySpreadConstraint{zoneConstraint, nodeConstraint},
-				TpKeyToCriticalPaths: map[string]*CriticalPaths{
+				Constraints: []utils.TopologySpreadConstraint{zoneConstraint, nodeConstraint},
+				TpKeyToCriticalPaths: map[string]*utils.CriticalPaths{
 					"zone": {{"zone2", 1}, {"zone1", 3}},
 					"node": {{"node-b", 1}, {"node-x", 1}},
 				},
-				TpPairToMatchNum: map[TopologyPair]*int32{
+				TpPairToMatchNum: map[utils.TopologyPair]*int32{
 					{Key: "zone", Value: "zone1"}:  pointer.Int32Ptr(3),
 					{Key: "zone", Value: "zone2"}:  pointer.Int32Ptr(1),
 					{Key: "node", Value: "node-a"}: pointer.Int32Ptr(2),
@@ -1761,5 +1762,4 @@ func TestNMNodesFilter(t *testing.T) {
 			}
 		})
 	}
-
 }

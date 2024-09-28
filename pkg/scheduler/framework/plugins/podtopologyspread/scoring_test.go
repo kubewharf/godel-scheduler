@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
+	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	testing_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper"
 	framework_helper "github.com/kubewharf/godel-scheduler/pkg/testing-helper/framework-helper"
@@ -59,7 +60,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label(v1.LabelHostname, "node-x").Obj(),
 			},
 			want: &preScoreState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -72,7 +73,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 					},
 				},
 				IgnoredNodes: sets.NewString(),
-				TopologyPairToPodCounts: map[TopologyPair]*int64{
+				TopologyPairToPodCounts: map[utils.TopologyPair]*int64{
 					{Key: "zone", Value: "zone1"}: pointer.Int64Ptr(0),
 					{Key: "zone", Value: "zone2"}: pointer.Int64Ptr(0),
 				},
@@ -91,7 +92,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 				testing_helper.MakeNode().Name("node-x").Label(v1.LabelHostname, "node-x").Obj(),
 			},
 			want: &preScoreState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: "zone",
@@ -104,7 +105,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 					},
 				},
 				IgnoredNodes: sets.NewString("node-x"),
-				TopologyPairToPodCounts: map[TopologyPair]*int64{
+				TopologyPairToPodCounts: map[utils.TopologyPair]*int64{
 					{Key: "zone", Value: "zone1"}: pointer.Int64Ptr(0),
 				},
 				TopologyNormalizingWeight: []float64{topologyNormalizingWeight(1), topologyNormalizingWeight(2)},
@@ -125,7 +126,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 				&appsv1.ReplicaSet{Spec: appsv1.ReplicaSetSpec{Selector: testing_helper.MakeLabelSelector().Exists("foo").Obj()}},
 			},
 			want: &preScoreState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     1,
 						TopologyKey: v1.LabelHostname,
@@ -138,7 +139,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 					},
 				},
 				IgnoredNodes: sets.NewString(),
-				TopologyPairToPodCounts: map[TopologyPair]*int64{
+				TopologyPairToPodCounts: map[utils.TopologyPair]*int64{
 					{Key: "planet", Value: "mars"}: pointer.Int64Ptr(0),
 				},
 				TopologyNormalizingWeight: []float64{topologyNormalizingWeight(1), topologyNormalizingWeight(1)},
@@ -157,7 +158,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 				&appsv1.ReplicaSet{Spec: appsv1.ReplicaSetSpec{Selector: testing_helper.MakeLabelSelector().Exists("tar").Obj()}},
 			},
 			want: &preScoreState{
-				TopologyPairToPodCounts: make(map[TopologyPair]*int64),
+				TopologyPairToPodCounts: make(map[utils.TopologyPair]*int64),
 			},
 		},
 		{
@@ -175,7 +176,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 				&appsv1.ReplicaSet{Spec: appsv1.ReplicaSetSpec{Selector: testing_helper.MakeLabelSelector().Exists("foo").Obj()}},
 			},
 			want: &preScoreState{
-				Constraints: []TopologySpreadConstraint{
+				Constraints: []utils.TopologySpreadConstraint{
 					{
 						MaxSkew:     2,
 						TopologyKey: "planet",
@@ -183,7 +184,7 @@ func TestPreScoreStateEmptyNodes(t *testing.T) {
 					},
 				},
 				IgnoredNodes: sets.NewString(),
-				TopologyPairToPodCounts: map[TopologyPair]*int64{
+				TopologyPairToPodCounts: map[utils.TopologyPair]*int64{
 					{"planet", "mars"}: pointer.Int64Ptr(0),
 				},
 				TopologyNormalizingWeight: []float64{topologyNormalizingWeight(1)},
