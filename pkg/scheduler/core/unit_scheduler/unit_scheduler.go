@@ -472,6 +472,9 @@ func (gs *unitScheduler) constructSchedulingUnitInfo(ctx context.Context, queued
 	unitInfo.MinMember = minMember
 	unitInfo.EverScheduled = gs.Cache.GetUnitSchedulingStatus(unitInfo.UnitKey) == unitstatus.ScheduledStatus
 
+	// We write this into the cycle state to avoid modifying the UnitFramework interface.
+	framework.SetEverScheduledState(unitInfo.EverScheduled, unitInfo.UnitCycleState)
+
 	// run this before any potential error to make sure that all pods(queued pod info) are stored in RunningUnitInfo
 	gs.constructRunningUnitInfo(ctx, unit, unitInfo)
 	if !unitInfo.EverScheduled && unitInfo.MinMember > unitInfo.AllMember {
