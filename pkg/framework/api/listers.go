@@ -18,11 +18,8 @@ package api
 
 // NodeInfoLister interface represents anything that can list/get NodeInfo objects from node name.
 type NodeInfoLister interface {
+	ClusterNodeInfoGetter
 	ClusterNodeInfoLister
-	// InPartitionList Returns the list of NodeInfos in the partition of the scheduler
-	InPartitionList() []NodeInfo
-	// OutOfPartitionList Returns the list of NodeInfos out of the partition of the scheduler
-	OutOfPartitionList() []NodeInfo
 }
 
 // SharedLister groups scheduler-specific listers.
@@ -30,16 +27,20 @@ type SharedLister interface {
 	NodeInfos() NodeInfoLister
 }
 
-// ClusterNodeInfoLister interface represents anything that can list/get NodeInfo objects from node name.
+// ClusterNodeInfoLister interface represents anything that can list NodeInfo objects.
 type ClusterNodeInfoLister interface {
 	// List Returns the list of NodeInfos.
 	List() []NodeInfo
+	// Returns the list of NodeInfos in the partition of the scheduler
+	InPartitionList() []NodeInfo
+	// Returns the list of NodeInfos out of the partition of the scheduler
+	OutOfPartitionList() []NodeInfo
 	// HavePodsWithAffinityList Returns the list of NodeInfos of nodes with pods with affinity terms.
 	HavePodsWithAffinityList() []NodeInfo
 	// HavePodsWithRequiredAntiAffinityList Returns the list of NodeInfos of nodes with pods with required anti-affinity terms.
 	HavePodsWithRequiredAntiAffinityList() []NodeInfo
-	// Get Returns the NodeInfo of the given node name.
-	Get(nodeName string) (NodeInfo, error)
+
+	Len() int
 }
 
 type ClusterNodeInfoGetter interface {

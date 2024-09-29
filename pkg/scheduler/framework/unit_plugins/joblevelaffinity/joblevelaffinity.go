@@ -105,7 +105,11 @@ func (i *JobLevelAffinity) Grouping(ctx context.Context, unit framework.Schedule
 
 	assignedNodes := i.getAssignedNodesOfUnit(ctx, unit)
 
-	nodeGroups, err := i.findNodeGroups(ctx, unit, podLauncher, nodeGroup, assignedNodes)
+	everScheduled, err := framework.GetEverScheduledState(unitCycleState)
+	if err != nil {
+		return nil, framework.AsStatus(err)
+	}
+	nodeGroups, err := i.findNodeGroups(ctx, unit, podLauncher, nodeGroup, assignedNodes, everScheduled)
 	if err != nil {
 		return nil, framework.AsStatus(err)
 	}
@@ -119,60 +123,63 @@ func (i *JobLevelAffinity) findNodeGroups(
 	ctx context.Context,
 	unit framework.ScheduleUnit,
 	podLauncher podutil.PodLauncher,
-	originNodeGroup framework.NodeGroup,
+	originalNodeGroup framework.NodeGroup,
 	assignedNodes sets.String,
+	everScheduled bool,
 ) ([]framework.NodeGroup, error) {
-	nodeCircles := originNodeGroup.GetNodeCircles()
+	nodeCircles := originalNodeGroup.GetNodeCircles()
 	if len(nodeCircles) == 0 {
 		klog.InfoS("No available node circles found in findNodeGroups", "unitKey", unit.GetKey())
-		return []framework.NodeGroup{originNodeGroup}, nil
+		return []framework.NodeGroup{originalNodeGroup}, nil
 	}
-	originalNodeCircle := nodeCircles[0]
 
-	// nodeCircleTree is the result of reversing the real topology graph.
+	// topologyTree is the result of reversing the real topology graph.
 	// We build this tree to get the bottom-up level order traversal of the nodes in the original topology graph more easily.
-	var nodeCircleTree []*nodeCircleElem
-	nodeCircleTree = append(nodeCircleTree, newNodeCircleElem(originalNodeCircle))
+	var topologyTree []*topologyElem
+	topologyTree = append(topologyTree, newTopologyElem(nodeCircles[0]))
+
+	minRequest, err := computeUnitMinResourceRequest(unit, everScheduled)
+	if err != nil {
+		return nil, err
+	}
 
 	if required, err := unit.GetRequiredAffinity(); err == nil && len(required) != 0 {
-		nodeCircleTree, err = findNodeCirclesByRequireAffinity(ctx, podLauncher, unit, required, originalNodeCircle, assignedNodes, originalNodeCircle)
+		topologyTree, err = divideNodesByRequireAffinity(ctx, podLauncher, unit, required, assignedNodes, originalNodeGroup, minRequest)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	for _, n := range originNodeGroup.GetPreferredNodes().List() {
+	for _, n := range originalNodeGroup.GetPreferredNodes().List() {
 		assignedNodes.Insert(n.GetNodeName())
 	}
 
 	if preferred, err := unit.GetPreferredAffinity(); err == nil && len(preferred) != 0 {
 		startIndexOfNewElem := 0
-		nextStartIndex := len(nodeCircleTree)
+		nextStartIndex := len(topologyTree)
 		for _, term := range preferred {
-			nodeCircleTree, err = findNodeGroupsByPreferAffinity(ctx, podLauncher, unit, term, nodeCircleTree, startIndexOfNewElem, assignedNodes, originalNodeCircle)
+			topologyTree, err = divideNodesByPreferAffinity(ctx, podLauncher, unit, term, topologyTree, startIndexOfNewElem, assignedNodes, originalNodeGroup, minRequest)
 			if err != nil {
 				return nil, err
 			}
 			startIndexOfNewElem = nextStartIndex
-			if startIndexOfNewElem == len(nodeCircleTree) { // this happens only when there are running pods which are, however, in different preferred topology areas
+			if startIndexOfNewElem == len(topologyTree) { // no new topologyElems added
 				break
 			}
-			nextStartIndex = len(nodeCircleTree)
+			nextStartIndex = len(topologyTree)
 		}
 	}
 
-	nodeGroups, err := getNodeGroupsFromTree(nodeCircleTree)
+	nodeGroups, err := getNodeGroupsFromTree(topologyTree)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get node pools from tree")
+		return nil, errors.Wrap(err, "failed to get node groups from tree")
 	}
 
-	if originPreferredNodes := originNodeGroup.GetPreferredNodes(); originPreferredNodes != nil {
+	if originPreferredNodes := originalNodeGroup.GetPreferredNodes(); originPreferredNodes != nil {
 		for _, nodeGroup := range nodeGroups {
 			nodeGroup.SetPreferredNodes(framework.FilterPreferredNodes(originPreferredNodes, func(ni framework.NodeInfo) bool {
-				for _, nodeCircle := range nodeGroup.GetNodeCircles() {
-					if n, err := nodeCircle.Get(ni.GetNodeName()); err == nil && n != nil {
-						return true
-					}
+				if n, err := nodeGroup.Get(ni.GetNodeName()); err == nil && n != nil {
+					return true
 				}
 				return false
 			}))

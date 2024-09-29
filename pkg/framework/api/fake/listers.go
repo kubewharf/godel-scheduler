@@ -147,7 +147,7 @@ func (pvcs PersistentVolumeClaimLister) PersistentVolumeClaims(namespace string)
 	}
 }
 
-// NodeInfoLister declares a framework.NodeInfo type for testing.
+// NodeInfoLister declares a []framework.NodeInfo type for testing.
 type NodeInfoLister []framework.NodeInfo
 
 // Get returns a fake node object in the fake nodes.
@@ -185,6 +185,10 @@ func (nodes NodeInfoLister) HavePodsWithAffinityList() []framework.NodeInfo {
 // required anti-affinity. For the fake lister we just return everything.
 func (nodes NodeInfoLister) HavePodsWithRequiredAntiAffinityList() []framework.NodeInfo {
 	return nodes
+}
+
+func (nodes NodeInfoLister) Len() int {
+	return len(nodes)
 }
 
 // NewNodeInfoLister create a new fake NodeInfoLister from a slice of v1.Nodes.
