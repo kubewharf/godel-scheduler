@@ -7,7 +7,7 @@ This document uses a kind cluster as an example to introduce how to enable and u
 Please make sure that the Godel Controller Manager component has been deployed in the kind cluster along with other scheduler components as control plane components.
 
 ```shell
-$ k get po -n godel-system
+$ kubectl get po -n godel-system
 NAME                                  READY   STATUS    RESTARTS   AGE
 binder-68dc8bdf6b-v7m59               1/1     Running   0          2d20h
 controller-manager-5b8fcf5f48-mh2bg   1/1     Running   0          2d20h
@@ -28,6 +28,9 @@ godel.bytedance.com/reservation-ttl=7200
 ```
 
 For example, if you configure the above annotation on a Pod or Deployment, the scheduler will automatically release the reserved resources after 24 hours if there is no consumer for the reserved resources.
+
+- TTL configuration on Pod/Deployment annotation can override the controller manager's global parameter.
+- TTL configuration on Pod annotation can override the configuration on Deployment annotation.
 
 ### scheduler
 
@@ -76,7 +79,7 @@ spec:
 Make sure that the Pod can be scheduled.
 
 ```shell
-$ k get po res-pod -owide
+$ kubectl get po res-pod -owide
 
 NAME      READY   STATUS              RESTARTS   AGE   IP       NODE                        NOMINATED NODE   READINESS GATES
 res-pod   0/1     ContainerCreating   0          17s   <none>   godel-demo-default-worker   <none>           <none>
@@ -85,9 +88,9 @@ res-pod   0/1     ContainerCreating   0          17s   <none>   godel-demo-defau
 After deleting the Pod, you can see the corresponding Reservation CR object.
 
 ```shell
-$ k delete po res-pod
+$ kubectl delete po res-pod
 
-$ k get reservation
+$ kubectl get reservation
 NAME      NODENAME                    STATUS   AGE
 res-pod   godel-demo-default-worker            2024-09-20T09:59:30Z
 ```
@@ -123,7 +126,7 @@ spec:
 - `godel.bytedance.com/reservation-index: "res-pod"` requests the scheduler to prioritize matching the reserved resources of "res-pod". (Note that this rule is not mandatory; if the reserved resources are unavailable or unusable, the scheduler will still allocate other available resources.)
 
 ```shell
-$ k get po back-pod -owide
+$ kubectl get po back-pod -owide
 
 NAME       READY   STATUS    RESTARTS   AGE     IP           NODE                        NOMINATED NODE   READINESS GATES
 back-pod   1/1     Running   0          2m32s   10.244.2.3   godel-demo-default-worker   <none>           <none>
@@ -172,18 +175,18 @@ spec:
 After scaling down the deployment, scheduler will create corresponding Reservation CRs for the deleted Pods, indicating that resource reservation is successful.
 
 ```shell
-$ k create -f reservation-dp.yaml
+$ kubectl create -f reservation-dp.yaml
 
-$ k get po -o wide
+$ kubectl get po -o wide
 NAME                      READY   STATUS    RESTARTS   AGE    IP           NODE                         NOMINATED NODE   READINESS GATES
 res-dp-86cc776f54-h5nlf   1/1     Running   0          2m1s   10.244.2.4   godel-demo-default-worker    <none>           <none>
 res-dp-86cc776f54-ndbpg   1/1     Running   0          2m1s   10.244.1.9   godel-demo-default-worker2   <none>           <none>
 res-dp-86cc776f54-t5szm   1/1     Running   0          2m1s   10.244.2.5   godel-demo-default-worker    <none>           <none>
 
-$ k scale deploy --replicas=0 res-dp
+$ kubectl scale deploy --replicas=0 res-dp
 deployment.apps/res-dp scaled
 
-$ k get reservation  -o wide
+$ kubectl get reservation  -o wide
 NAME                      NODENAME                     STATUS   AGE
 res-dp-86cc776f54-h5nlf   godel-demo-default-worker             2024-09-23T03:36:21Z
 res-dp-86cc776f54-ndbpg   godel-demo-default-worker2            2024-09-23T03:36:21Z
@@ -194,10 +197,10 @@ res-dp-86cc776f54-t5szm   godel-demo-default-worker             2024-09-23T03:36
 During the resource reservation period, newly created Pods by scaling up the deployment will be preferentially matched.
 
 ```shell
-$ k scale deploy --replicas=5 res-dp                                                                                                       
+$ kubectl scale deploy --replicas=5 res-dp                                                                                                       
 deployment.apps/res-dp scaled
 
-$ k get po
+$ kubectl get po
 NAME                      READY   STATUS    RESTARTS   AGE
 res-dp-86cc776f54-4xhr8   1/1     Running   0          3s
 res-dp-86cc776f54-l2rh7   1/1     Running   0          3s
@@ -206,7 +209,7 @@ res-dp-86cc776f54-s44wb   1/1     Running   0          3s
 res-dp-86cc776f54-vpfv5   1/1     Running   0          3s
 
 
-$ k get po -oyaml | grep placeholder                                                                                                       
+$ kubectl get po -oyaml | grep placeholder                                                                                                       
 godel.bytedance.com/matched-reservation-placeholder: default/res-dp-86cc776f54-h5nlf-placeholder
 godel.bytedance.com/matched-reservation-placeholder: default/res-dp-86cc776f54-t5szm-placeholder
 godel.bytedance.com/matched-reservation-placeholder: default/res-dp-86cc776f54-ndbpg-placeholder
@@ -218,14 +221,14 @@ If you do not want to reserve resources when scaling down the deployment, you ca
 
 ```shell
 # remove annotation
-$ k annotate deployment res-dp godel.bytedance.com/reservation-
+$ kubectl annotate deployment res-dp godel.bytedance.com/reservation-
 
 # scale down
-$ k scale deploy --replicas=0 res-dp
+$ kubectl scale deploy --replicas=0 res-dp
 
-$ k get po
+$ kubectl get po
 No resources found in default namespace.
 
-$ k get reservation
+$ kubectl get reservation
 No resources found in default namespace.
 ```
