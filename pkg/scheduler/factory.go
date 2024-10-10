@@ -30,11 +30,13 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/coscheduling"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/interpodaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/nodeaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/nodeports"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/noderesources"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/podlauncher"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/tainttoleration"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/volumebinding"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/preemption-plugins/searching/newlystartedprotectionchecker"
@@ -58,6 +60,8 @@ func basePluginsForKubelet() *framework.PluginCollection {
 			framework.NewPluginSpec(nodeports.Name),
 			framework.NewPluginSpec(volumebinding.Name),
 			framework.NewPluginSpec(nodeaffinity.Name),
+			framework.NewPluginSpec(interpodaffinity.Name),
+			framework.NewPluginSpec(podtopologyspread.Name),
 			framework.NewPluginSpec(tainttoleration.Name),
 		},
 		Searchings: []*framework.VictimSearchingPluginCollectionSpec{
@@ -122,6 +126,8 @@ func basePluginsForNodeManager() *framework.PluginCollection {
 			framework.NewPluginSpec(nodeports.Name),
 			framework.NewPluginSpec(volumebinding.Name),
 			framework.NewPluginSpec(nodeaffinity.Name),
+			framework.NewPluginSpec(interpodaffinity.Name),
+			framework.NewPluginSpec(podtopologyspread.Name),
 			framework.NewPluginSpec(tainttoleration.Name),
 		},
 	}

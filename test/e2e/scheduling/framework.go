@@ -159,6 +159,11 @@ func WithSoftConstraints(anno map[string]string, constraintNames []string) map[s
 	return anno
 }
 
+func WithNMNodeLauncher(anno map[string]string) map[string]string {
+	anno[podutil.PodLauncherAnnotationKey] = string(podutil.NodeManager)
+	return anno
+}
+
 func GenerateLabelThatMatchNoNode(nodes []v1.Node) (key, value string) {
 	nodeLabels := make(map[string]string)
 	for _, n := range nodes {

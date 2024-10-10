@@ -31,10 +31,12 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/binder/apis"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/defaultbinder"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/interpodaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/nodeports"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/noderesources"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/nodevolumelimits"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/nonnativeresource"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/volumebinding"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/queue"
 	"github.com/kubewharf/godel-scheduler/pkg/features"
@@ -73,6 +75,8 @@ func NewBasePlugins(victimsCheckingPlugins []*framework.VictimCheckingPluginColl
 			nodevolumelimits.CSIName,
 			volumebinding.Name,
 			nodeports.Name,
+			interpodaffinity.Name,
+			podtopologyspread.Name,
 		},
 		Permits: []string{},
 		Binds: []string{
