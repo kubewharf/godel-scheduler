@@ -94,6 +94,7 @@ func TestSchedulerCreation(t *testing.T) {
 				katalystInformerFactory,
 				stopCh,
 				eventRecorder,
+				60*time.Second,
 			)
 			if len(tc.wantErr) != 0 {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
@@ -143,6 +144,7 @@ func TestInitSchedulerCRD(t *testing.T) {
 				katalystInformerFactory,
 				stopCh,
 				eventRecorder,
+				60*time.Second,
 			)
 			assert.Nil(t, err)
 
@@ -182,6 +184,7 @@ func TestSchedulerStatusErrors(t *testing.T) {
 		katalystInformerFactory,
 		stopCh,
 		eventRecorder,
+		60*time.Second,
 	)
 
 	expectedScheduler := &v1alpha1.Scheduler{
@@ -392,6 +395,7 @@ func TestScheduleUnitMultiScheduleSwitch(t *testing.T) {
 		katalystInformerFactory,
 		stop,
 		eventRecorder,
+		1*time.Second,
 	)
 	s.ScheduleSwitch.Process(
 		framework.SwitchTypeAll,
@@ -604,6 +608,7 @@ func TestScheduleUnit_Preemption(t *testing.T) {
 		katalystInformerFactory,
 		stop,
 		eventRecorder,
+		60*time.Second,
 		WithDefaultProfile(
 			&config.GodelSchedulerProfile{
 				DisablePreemption: &disablePodPreemption,
@@ -687,6 +692,7 @@ func TestScheduleByRescheduling(t *testing.T) {
 		katalystInformerFactory,
 		stopCh,
 		eventRecorder,
+		0,
 	)
 	if err != nil {
 		t.Errorf("failed to new scheduler: %v", err)
@@ -916,6 +922,7 @@ func TestScheduleUnit_RemoveVictims(t *testing.T) {
 		katalystInformerFactory,
 		stop,
 		eventRecorder,
+		60*time.Second,
 		WithDefaultProfile(
 			&config.GodelSchedulerProfile{
 				DisablePreemption: &disablePodPreemption,

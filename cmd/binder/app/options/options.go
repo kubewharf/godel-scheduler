@@ -125,6 +125,7 @@ func (o *Options) Flags() (nfs cliflag.NamedFlagSets) {
 
 	fs.StringVar(o.BinderConfig.SchedulerName, "scheduler-name", *o.BinderConfig.SchedulerName, "components will deal with pods that pod.Spec.SchedulerName is equal to scheduler-name / is default-scheduler or empty.")
 	fs.Int64Var(&o.BinderConfig.VolumeBindingTimeoutSeconds, "volume-binding-timeout-seconds", o.BinderConfig.VolumeBindingTimeoutSeconds, "timeout for binding pod volumes")
+	fs.Int64Var(&o.BinderConfig.ReservationTimeOutSeconds, "reservation-ttl", o.BinderConfig.ReservationTimeOutSeconds, "how long resources will be reserved (for resource reservation).")
 
 	o.CombinedInsecureServing.AddFlags(nfs.FlagSet("insecure serving"))
 	o.BinderConfig.Tracer.AddFlags(nfs.FlagSet("tracer"))
@@ -210,6 +211,9 @@ func (o *Options) ApplyTo(c *binderappconfig.Config) error {
 			}
 			if *o.BinderConfig.Tracer.IDCName != binderconfig.DefaultIDC {
 				toUse.Tracer.IDCName = o.BinderConfig.Tracer.IDCName
+			}
+			if o.BinderConfig.ReservationTimeOutSeconds != binderconfig.DefaultReservationTimeOutSeconds {
+				toUse.ReservationTimeOutSeconds = o.BinderConfig.ReservationTimeOutSeconds
 			}
 		}
 		// 5. Godel Profiles (Default)

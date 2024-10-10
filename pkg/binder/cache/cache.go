@@ -28,6 +28,7 @@ import (
 	deletedmarkerstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/deleted_marker_store"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/node_store"
 	podstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/pod_store"
+	reservationstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/reservation_store"
 	unitstatusstore "github.com/kubewharf/godel-scheduler/pkg/binder/cache/commonstores/unit_status_store"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
@@ -173,6 +174,12 @@ func (cache *binderCache) GetUnitSchedulingStatus(unitKey string) unitstatus.Sch
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 	return cache.CommonStoresSwitch.Find(unitstatusstore.Name).(*unitstatusstore.UnitStatusStore).GetUnitSchedulingStatus(unitKey)
+}
+
+func (cache *binderCache) GetAvailablePlaceholderPod(pod *v1.Pod) (fakePod *v1.Pod, err error) {
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+	return cache.CommonStoresSwitch.Find(reservationstore.Name).(*reservationstore.ReservationStore).GetAvailablePlaceholderPod(pod)
 }
 
 func (cache *binderCache) MarkPodToDelete(pod, preemptor *v1.Pod) error {

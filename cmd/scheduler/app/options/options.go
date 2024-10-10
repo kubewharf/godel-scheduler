@@ -188,6 +188,7 @@ func (o *Options) Flags() (nfs cliflag.NamedFlagSets) {
 		fs.Int64Var(&o.UnitInitialBackoffSeconds, "initial-backoff-seconds", o.UnitInitialBackoffSeconds, "initial backoff for units from backoffQ to enter activeQ, in seconds. If specified, it must be greater than 0. This parameter overrides the value defined in config file, which is specified in --config.")
 		fs.BoolVar(&o.DisablePreemption, "disable-preemption", o.DisablePreemption, "Flag to disable preemption. This parameter overrides the value defined in config file, which is specified in --config.")
 		fs.Float64Var(&o.AttemptImpactFactorOnPriority, "attempt-impact-factor-on-priority", o.AttemptImpactFactorOnPriority, "factor used in godel sort to get scheduling attempts impact, the bigger the factor is, the more impact one scheduling attempt will make, default value is 2.0. This parameter overrides the value defined in config file, which is specified in --config.")
+		fs.Int64Var(&o.ComponentConfig.ReservationTimeOutSeconds, "reservation-ttl", o.ComponentConfig.ReservationTimeOutSeconds, "how long resources will be reserved (for resource reservation).")
 	}
 
 	return nfs

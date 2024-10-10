@@ -22,6 +22,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
@@ -304,7 +305,7 @@ func (s *PodStore) CleanupExpiredAssumedPods(mu *sync.RWMutex, now time.Time) {
 		if now.After(*ps.Deadline) {
 			klog.InfoS("WARN: cached pod was expired", "pod", klog.KObj(ps.Pod))
 
-			s.handler.PodOp(ps.Pod, false, nil) // Need skip reservation.
+			s.handler.PodOp(ps.Pod, false, sets.NewString()) // Need skip reservation.
 		}
 	}
 }

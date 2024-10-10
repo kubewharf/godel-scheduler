@@ -6,3 +6,4 @@ resources:
   - scheduler.yaml
   - binder-config-demo.yaml
   - scheduler-config-demo.yaml
+  - controller-manager.yaml

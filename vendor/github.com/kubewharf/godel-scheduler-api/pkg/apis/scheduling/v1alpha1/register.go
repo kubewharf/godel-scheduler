@@ -51,6 +51,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&SchedulerList{},
 		&Movement{},
 		&MovementList{},
+		&Reservation{},
+		&ReservationList{},
 	)
 
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)

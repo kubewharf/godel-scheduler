@@ -24,11 +24,10 @@ package v1beta1
 import (
 	unsafe "unsafe"
 
-	conversion "k8s.io/apimachinery/pkg/conversion"
-	runtime "k8s.io/apimachinery/pkg/runtime"
-
 	config "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	tracing "github.com/kubewharf/godel-scheduler/pkg/util/tracing"
+	conversion "k8s.io/apimachinery/pkg/conversion"
+	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
 func init() {
@@ -72,6 +71,7 @@ func autoConvert_v1beta1_GodelSchedulerConfiguration_To_config_GodelSchedulerCon
 	out.SchedulerName = (*string)(unsafe.Pointer(in.SchedulerName))
 	out.SubClusterKey = (*string)(unsafe.Pointer(in.SubClusterKey))
 	out.Tracer = (*tracing.TracerConfiguration)(unsafe.Pointer(in.Tracer))
+	out.ReservationTimeOutSeconds = in.ReservationTimeOutSeconds
 	if in.DefaultProfile != nil {
 		in, out := &in.DefaultProfile, &out.DefaultProfile
 		*out = new(config.GodelSchedulerProfile)
@@ -111,6 +111,7 @@ func autoConvert_config_GodelSchedulerConfiguration_To_v1beta1_GodelSchedulerCon
 	out.SchedulerName = (*string)(unsafe.Pointer(in.SchedulerName))
 	out.Tracer = (*tracing.TracerConfiguration)(unsafe.Pointer(in.Tracer))
 	out.SubClusterKey = (*string)(unsafe.Pointer(in.SubClusterKey))
+	out.ReservationTimeOutSeconds = in.ReservationTimeOutSeconds
 	if in.DefaultProfile != nil {
 		in, out := &in.DefaultProfile, &out.DefaultProfile
 		*out = new(GodelSchedulerProfile)

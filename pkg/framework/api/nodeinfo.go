@@ -50,6 +50,7 @@ type NodeInfo interface {
 	GetGuaranteedRequested() *Resource
 	GetGuaranteedNonZeroRequested() *Resource
 	GetGuaranteedAllocatable() *Resource
+	GetGuaranteedReserved() *Resource
 	GetGuaranteedCapacity() *Resource
 	GetBestEffortRequested() *Resource
 	GetBestEffortNonZeroRequested() *Resource
@@ -94,6 +95,8 @@ type NodeInfo interface {
 	RemovePod(pod *v1.Pod, preempt bool) error
 	GetPods() []*PodInfo
 	NumPods() int
+	// NumPlaceholderPods the number of reservation placeholder pod
+	NumPlaceholderPods() int
 	GetVictimCandidates(partitionInfo *PodPartitionInfo) []*PodInfo
 	GetOccupiableResources(partitionInfo *PodPartitionInfo) *Resource
 
@@ -149,6 +152,8 @@ type NodeInfoImpl struct {
 	GuaranteedAllocatable *Resource
 	// GuaranteedCapacity is capacity resource of node
 	GuaranteedCapacity *Resource
+	// GuaranteedReserved is the total reserved resources of GT pods.
+	GuaranteedReserved *Resource
 
 	// Total requested resources of all best-effort pods on this node. This includes assumed
 	// pods, which scheduler has sent for binding, but may not be scheduled yet.
@@ -190,6 +195,7 @@ func NewNodeInfo(pods ...*v1.Pod) NodeInfo {
 		GuaranteedNonZeroRequested: &Resource{},
 		GuaranteedAllocatable:      &Resource{},
 		GuaranteedCapacity:         &Resource{},
+		GuaranteedReserved:         &Resource{},
 		BestEffortRequested:        &Resource{},
 		BestEffortNonZeroRequested: &Resource{},
 		BestEffortAllocatable:      &Resource{},
@@ -315,6 +321,12 @@ func (n *NodeInfoImpl) NumPods() int {
 	return n.PodInfoMaintainer.Len()
 }
 
+func (n *NodeInfoImpl) NumPlaceholderPods() int {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.PodInfoMaintainer.ReservedPodsNum()
+}
+
 // GetVictimCandidates returns all pods under the same PodResourceType that may be preempted.
 // Whether or not they are actually victims depends on the cluster state and the currently preemptor.
 func (n *NodeInfoImpl) GetVictimCandidates(partitionInfo *PodPartitionInfo) []*PodInfo {
@@ -359,6 +371,12 @@ func (n *NodeInfoImpl) GetGuaranteedAllocatable() *Resource {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return n.GuaranteedAllocatable
+}
+
+func (n *NodeInfoImpl) GetGuaranteedReserved() *Resource {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.GuaranteedReserved
 }
 
 func (n *NodeInfoImpl) GetGuaranteedCapacity() *Resource {
@@ -511,6 +529,7 @@ func (n *NodeInfoImpl) Clone() NodeInfo {
 		GuaranteedNonZeroRequested: n.GuaranteedNonZeroRequested.Clone(),
 		GuaranteedAllocatable:      n.GuaranteedAllocatable.Clone(),
 		GuaranteedCapacity:         n.GuaranteedCapacity.Clone(),
+		GuaranteedReserved:         n.GuaranteedReserved.Clone(),
 		BestEffortRequested:        n.BestEffortRequested.Clone(),
 		BestEffortNonZeroRequested: n.BestEffortNonZeroRequested.Clone(),
 		BestEffortAllocatable:      n.BestEffortAllocatable.Clone(),
@@ -596,6 +615,26 @@ func (n *NodeInfoImpl) update(podInfo *PodInfo, sign int64, preempt bool) {
 
 	// update non-native resources
 	n.NumaTopologyStatus.updateNonNativeResource(podInfo, sign > 0, preempt)
+
+	// update reserved resources information.
+	if utilfeature.DefaultFeatureGate.Enabled(godelfeatures.ResourceReservation) {
+		// placeholder pod, update reserved resources
+		if podutil.IsReservationPlaceholderPod(podInfo.Pod) {
+			n.updateReservedResource(podInfo, sign)
+		}
+	}
+}
+
+// TODO: only reserve CPU & Memory at first stage
+// The sign will be set to `+1` when AddPod and to `-1` when RemovePod.
+func (n *NodeInfoImpl) updateReservedResource(podInfo *PodInfo, sign int64) {
+	reserved := &n.GuaranteedReserved
+
+	(*reserved).MilliCPU += sign * podInfo.Res.MilliCPU
+	(*reserved).Memory += sign * podInfo.Res.Memory
+	for rName, rQuant := range podInfo.Res.ScalarResources {
+		(*reserved).AddScalar(rName, sign*rQuant)
+	}
 }
 
 // AddPod adds pod information to this NodeInfoImpl.

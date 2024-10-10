@@ -114,4 +114,8 @@ type ClusterEventsHandler interface {
 	AddMovement(movement *schedulingv1a1.Movement) error
 	UpdateMovement(oldMovement, newMovement *schedulingv1a1.Movement) error
 	DeleteMovement(movement *schedulingv1a1.Movement) error
+
+	AddReservation(request *schedulingv1a1.Reservation) error
+	UpdateReservation(oldRequest, newRequest *schedulingv1a1.Reservation) error
+	DeleteReservation(request *schedulingv1a1.Reservation) error
 }

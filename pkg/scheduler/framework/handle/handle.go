@@ -22,6 +22,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
+	corelister "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/events"
 
 	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
@@ -83,5 +84,7 @@ type UnitFrameworkHandle interface {
 
 	FindStore(commonstore.StoreName) commonstore.Store
 
+	// TODO: cleanup the following function methods.
 	GetMaxWaitingDeletionDuration() time.Duration
+	PvcLister() corelister.PersistentVolumeClaimLister
 }

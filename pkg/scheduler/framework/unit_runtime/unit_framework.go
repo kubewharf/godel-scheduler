@@ -417,7 +417,7 @@ func (f *UnitFramework) scheduleOneUnitInstance(ctx context.Context, scheduledIn
 	metrics.ObservePodEvaluatedNodes(podProperty.SubCluster, string(podProperty.Qos), f.handle.SchedulerName(), float64(scheduleResult.NumberOfEvaluatedNodes))
 	metrics.ObservePodFeasibleNodes(podProperty.SubCluster, string(podProperty.Qos), f.handle.SchedulerName(), float64(scheduleResult.NumberOfFeasibleNodes))
 
-	scheduleFailed := len(scheduleResult.SuggestedHost) == 0
+	scheduleFailed := len(scheduleResult.SuggestedHost) == 0 && scheduleResult.NominatedNode == nil
 	// scheduling failed
 	if scheduleFailed {
 		eventMsg := "Failed to schedule pod in node group: " + nodeGroup.GetKey() + ", error: " + errorStr(err)

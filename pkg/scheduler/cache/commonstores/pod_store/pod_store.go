@@ -299,7 +299,7 @@ func (s *PodStore) CleanupExpiredAssumedPods(mu *sync.RWMutex, now time.Time) {
 		if now.After(*ps.Deadline) {
 			klog.InfoS("WARN: cached pod was expired", "pod", klog.KObj(ps.Pod))
 
-			s.handler.PodOp(ps.Pod, false, sets.NewString()) // Need skip reservation.
+			s.handler.PodOp(ps.Pod, false, sets.NewString())
 		}
 	}
 }

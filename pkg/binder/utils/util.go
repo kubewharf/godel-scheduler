@@ -40,6 +40,7 @@ func CleanupPodAnnotations(client clientset.Interface, pod *v1.Pod) error {
 	delete(podCopy.Annotations, podutil.FailedSchedulersAnnotationKey)
 	delete(podCopy.Annotations, podutil.MicroTopologyKey)
 	delete(podCopy.Annotations, podutil.MovementNameKey)
+	delete(podCopy.Annotations, podutil.MatchedReservationPlaceholderKey)
 
 	// reset pod state to dispatched
 	podCopy.Annotations[podutil.PodStateAnnotationKey] = string(podutil.PodDispatched)

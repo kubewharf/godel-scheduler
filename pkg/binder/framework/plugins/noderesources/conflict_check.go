@@ -18,10 +18,16 @@ package noderesources
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder/apis/config"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/noderesources"
@@ -35,7 +41,10 @@ const (
 var _ framework.CheckConflictsPlugin = &ConflictCheck{}
 
 // Fit is a plugin that checks if a node has sufficient resources.
-type ConflictCheck struct{}
+type ConflictCheck struct {
+	ignoredResources      sets.String
+	ignoredResourceGroups sets.String
+}
 
 // Name returns name of the plugin. It is used in logs, etc.
 func (pl *ConflictCheck) Name() string {
@@ -43,23 +52,75 @@ func (pl *ConflictCheck) Name() string {
 }
 
 func (pl *ConflictCheck) CheckConflicts(_ context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
-	s := utils.ComputePodResourceRequest(state, pod)
-	if s.Err != nil {
-		return framework.NewStatus(framework.Error, s.Err.Error())
+	resourceRequest := utils.ComputePodResourceRequest(pod)
+	if resourceRequest.Err != nil {
+		return framework.NewStatus(framework.Error, resourceRequest.Err.Error())
 	}
-	insufficientResources := utils.FitsRequest(s, nodeInfo, nil, nil)
 
-	if len(insufficientResources) != 0 {
-		// We will keep all failure reasons.
-		failureReasons := make([]string, 0, len(insufficientResources))
-		for _, r := range insufficientResources {
-			failureReasons = append(failureReasons, r.Reason)
-		}
-		return framework.NewStatus(framework.Unschedulable, failureReasons...)
+	insufficientResource := utils.FitsRequest(resourceRequest, nodeInfo, nil, nil)
+
+	if insufficientResource != nil {
+		return framework.NewStatus(framework.Unschedulable, insufficientResource.Reason)
 	}
 	return nil
 }
 
-func NewConflictCheck(_ runtime.Object, _ handle.BinderFrameworkHandle) (framework.Plugin, error) {
+func NewConflictCheck(plArgs runtime.Object, _ handle.BinderFrameworkHandle) (framework.Plugin, error) {
+	args, err := getFitArgs(plArgs)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateFitArgs(args); err != nil {
+		return nil, err
+	}
+
 	return &ConflictCheck{}, nil
+}
+
+func getFitArgs(obj runtime.Object) (config.NodeResourcesCheckArgs, error) {
+	if obj == nil {
+		return config.NodeResourcesCheckArgs{}, nil
+	}
+	ptr, ok := obj.(*config.NodeResourcesCheckArgs)
+	if !ok {
+		return config.NodeResourcesCheckArgs{}, fmt.Errorf("want args to be  of type NodeResourcesCheckArgs, got %T", obj)
+	}
+	return *ptr, nil
+}
+
+// validateLabelName validates that the label name is correctly defined.
+func validateLabelName(labelName string, fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+	for _, msg := range validation.IsQualifiedName(labelName) {
+		allErrs = append(allErrs, field.Invalid(fldPath, labelName, msg))
+	}
+	return allErrs
+}
+
+func validateFitArgs(args config.NodeResourcesCheckArgs) error {
+	var allErrs field.ErrorList
+	resPath := field.NewPath("ignoredResources")
+	for i, res := range args.IgnoredResources {
+		path := resPath.Index(i)
+		if errs := validateLabelName(res, path); len(errs) != 0 {
+			allErrs = append(allErrs, errs...)
+		}
+	}
+
+	groupPath := field.NewPath("ignoredResourceGroups")
+	for i, group := range args.IgnoredResourceGroups {
+		path := groupPath.Index(i)
+		if strings.Contains(group, "/") {
+			allErrs = append(allErrs, field.Invalid(path, group, "resource group name can't contain '/'"))
+		}
+		if errs := validateLabelName(group, path); len(errs) != 0 {
+			allErrs = append(allErrs, errs...)
+		}
+	}
+
+	if len(allErrs) == 0 {
+		return nil
+	}
+	return allErrs.ToAggregate()
 }

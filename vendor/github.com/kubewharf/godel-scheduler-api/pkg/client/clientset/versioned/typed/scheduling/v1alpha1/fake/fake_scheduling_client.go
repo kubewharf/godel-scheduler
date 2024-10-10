@@ -36,6 +36,10 @@ func (c *FakeSchedulingV1alpha1) PodGroups(namespace string) v1alpha1.PodGroupIn
 	return &FakePodGroups{c, namespace}
 }
 
+func (c *FakeSchedulingV1alpha1) Reservations(namespace string) v1alpha1.ReservationInterface {
+	return &FakeReservations{c, namespace}
+}
+
 func (c *FakeSchedulingV1alpha1) Schedulers() v1alpha1.SchedulerInterface {
 	return &FakeSchedulers{c}
 }

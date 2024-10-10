@@ -46,10 +46,12 @@ type CacheHandler interface {
 
 	PodAssumedTTL() time.Duration
 	Period() time.Duration
+	ReservationTTL() time.Duration
 	StopCh() <-chan struct{}
 	Mutex() *sync.RWMutex
 
 	PodLister() corelister.PodLister
+	PvcLister() corelister.PersistentVolumeClaimLister
 	PodInformer() coreinformers.PodInformer
 
 	// GetNodeInfo return the NodeInfo before NodeStore handle the event.
@@ -72,34 +74,38 @@ type handler struct {
 
 	enabledStores sets.String
 
-	podAssumedTTL time.Duration
-	period        time.Duration
-	stop          <-chan struct{}
-	mu            *sync.RWMutex
+	ttl            time.Duration
+	period         time.Duration
+	reservationTTL time.Duration
+	stop           <-chan struct{}
+	mu             *sync.RWMutex
 
 	podLister   corelister.PodLister
 	podInformer coreinformers.PodInformer
+	pvcLister   corelister.PersistentVolumeClaimLister
 
 	nodeHandler NodeHandler
 	podHandler  PodHandler
 
-	// Trigger AddPod/RemovePod for other stores in PodStore.
+	// Trigger AddPod/RemovePod for other stores in PodStore/ReservationStore.
 	podOpFunc PodOpFunc
 }
 
 var _ CacheHandler = &handler{}
 
-func (h *handler) ComponentName() string                  { return h.componentName }
-func (h *handler) SchedulerType() string                  { return h.schedulerType }
-func (h *handler) SubCluster() string                     { return h.subCluster }
-func (h *handler) SwitchType() framework.SwitchType       { return h.switchType }
-func (h *handler) IsStoreEnabled(storeName string) bool   { return h.enabledStores.Has(storeName) }
-func (h *handler) PodAssumedTTL() time.Duration           { return h.podAssumedTTL }
-func (h *handler) Period() time.Duration                  { return h.period }
-func (h *handler) StopCh() <-chan struct{}                { return h.stop }
-func (h *handler) Mutex() *sync.RWMutex                   { return h.mu }
-func (h *handler) PodLister() corelister.PodLister        { return h.podLister }
-func (h *handler) PodInformer() coreinformers.PodInformer { return h.podInformer }
+func (h *handler) ComponentName() string                             { return h.componentName }
+func (h *handler) SchedulerType() string                             { return h.schedulerType }
+func (h *handler) SubCluster() string                                { return h.subCluster }
+func (h *handler) SwitchType() framework.SwitchType                  { return h.switchType }
+func (h *handler) IsStoreEnabled(storeName string) bool              { return h.enabledStores.Has(storeName) }
+func (h *handler) PodAssumedTTL() time.Duration                      { return h.ttl }
+func (h *handler) ReservationTTL() time.Duration                     { return h.reservationTTL }
+func (h *handler) Period() time.Duration                             { return h.period }
+func (h *handler) StopCh() <-chan struct{}                           { return h.stop }
+func (h *handler) Mutex() *sync.RWMutex                              { return h.mu }
+func (h *handler) PodLister() corelister.PodLister                   { return h.podLister }
+func (h *handler) PvcLister() corelister.PersistentVolumeClaimLister { return h.pvcLister }
+func (h *handler) PodInformer() coreinformers.PodInformer            { return h.podInformer }
 
 func (h *handler) GetNodeInfo(nodeName string) framework.NodeInfo          { return h.nodeHandler(nodeName) }
 func (h *handler) GetPodState(key string) (*framework.CachePodState, bool) { return h.podHandler(key) }
@@ -148,13 +154,18 @@ func (w *handlerWrapper) EnableStore(storeNames ...string) *handlerWrapper {
 	return w
 }
 
-func (w *handlerWrapper) PodAssumedTTL(podAssumedTTL time.Duration) *handlerWrapper {
-	w.obj.podAssumedTTL = podAssumedTTL
+func (w *handlerWrapper) PodAssumedTTL(ttl time.Duration) *handlerWrapper {
+	w.obj.ttl = ttl
 	return w
 }
 
 func (w *handlerWrapper) Period(period time.Duration) *handlerWrapper {
 	w.obj.period = period
+	return w
+}
+
+func (w *handlerWrapper) ReservationTTL(reservationTTL time.Duration) *handlerWrapper {
+	w.obj.reservationTTL = reservationTTL
 	return w
 }
 
@@ -170,6 +181,11 @@ func (w *handlerWrapper) Mutex(mu *sync.RWMutex) *handlerWrapper {
 
 func (w *handlerWrapper) PodLister(podLister corelister.PodLister) *handlerWrapper {
 	w.obj.podLister = podLister
+	return w
+}
+
+func (w *handlerWrapper) PVCLister(pvcLister corelister.PersistentVolumeClaimLister) *handlerWrapper {
+	w.obj.pvcLister = pvcLister
 	return w
 }
 

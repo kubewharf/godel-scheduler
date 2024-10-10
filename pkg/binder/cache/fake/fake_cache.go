@@ -17,6 +17,8 @@ limitations under the License.
 package fake
 
 import (
+	"fmt"
+
 	v1 "k8s.io/api/core/v1"
 	policy "k8s.io/api/policy/v1"
 
@@ -31,12 +33,13 @@ import (
 
 // BinderCache is used for testing
 type Cache struct {
-	AssumeFunc                  func(*v1.Pod) error
-	ForgetFunc                  func(*v1.Pod)
-	IsAssumedPodFunc            func(*v1.Pod) bool
-	GetPodFunc                  func(*v1.Pod) *v1.Pod
-	GetNodeInfoFunc             func(string) framework.NodeInfo
-	GetAvailablePlaceholderFunc func(pod *v1.Pod) (*v1.Pod, error)
+	AssumeFunc                        func(*v1.Pod) error
+	ForgetFunc                        func(*v1.Pod)
+	IsAssumedPodFunc                  func(*v1.Pod) bool
+	GetPodFunc                        func(*v1.Pod) *v1.Pod
+	GetNodeInfoFunc                   func(string) framework.NodeInfo
+	GetAvailablePlaceholderFunc       func(pod *v1.Pod) (*v1.Pod, error)
+	FindReservationPlaceHolderPodFunc func(pod *v1.Pod) (*v1.Pod, error)
 }
 
 // AssumePod is a fake method for testing.
@@ -215,4 +218,33 @@ func (c *Cache) UpdateMovement(oldMovement, newMovement *schedulingv1a1.Movement
 
 func (c *Cache) DeleteMovement(movement *schedulingv1a1.Movement) error {
 	return nil
+}
+func (c *Cache) FindReservationPlaceHolderPod(
+	pod *v1.Pod,
+) (*v1.Pod, error) {
+	if c.FindReservationPlaceHolderPodFunc != nil {
+		return c.FindReservationPlaceHolderPodFunc(pod)
+	}
+	return nil, fmt.Errorf("empty store")
+}
+
+func (c *Cache) AddReservation(request *schedulingv1a1.Reservation) error {
+	return nil
+}
+
+func (c *Cache) UpdateReservation(oldRequest, newRequest *schedulingv1a1.Reservation) error {
+	return nil
+}
+
+func (c *Cache) DeleteReservation(request *schedulingv1a1.Reservation) error {
+	return nil
+}
+
+func (c *Cache) GetAvailablePlaceholderPod(
+	pod *v1.Pod,
+) (*v1.Pod, error) {
+	if c.GetAvailablePlaceholderFunc != nil {
+		return c.GetAvailablePlaceholderFunc(pod)
+	}
+	return nil, fmt.Errorf("empty store")
 }

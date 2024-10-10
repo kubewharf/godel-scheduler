@@ -6,3 +6,4 @@ resources:
   - scheduling.godel.kubewharf.io_podgroups.yaml
   - scheduling.godel.kubewharf.io_schedulers.yaml
   - scheduling.godel.kubewharf.io_movements.yaml
+  - scheduling.godel.kubewharf.io_reservations.yaml

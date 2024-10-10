@@ -20,6 +20,7 @@ enableContentionProfiling: true
 enableProfiling: true
 schedulerRenewIntervalSeconds: 100        # This should be 30 by default
 subClusterKey: nodeLevel
+reservationTimeOutSeconds: 30
 defaultProfile:
   # unitQueueSortPlugin:
   #   name: {{FCFS|DefaultUnitQueueSort}} # This should be DefaultUnitQueueSort by default

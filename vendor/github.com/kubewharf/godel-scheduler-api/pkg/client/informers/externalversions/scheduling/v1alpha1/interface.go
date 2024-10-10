@@ -28,6 +28,8 @@ type Interface interface {
 	Movements() MovementInformer
 	// PodGroups returns a PodGroupInformer.
 	PodGroups() PodGroupInformer
+	// Reservations returns a ReservationInformer.
+	Reservations() ReservationInformer
 	// Schedulers returns a SchedulerInformer.
 	Schedulers() SchedulerInformer
 }
@@ -51,6 +53,11 @@ func (v *version) Movements() MovementInformer {
 // PodGroups returns a PodGroupInformer.
 func (v *version) PodGroups() PodGroupInformer {
 	return &podGroupInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// Reservations returns a ReservationInformer.
+func (v *version) Reservations() ReservationInformer {
+	return &reservationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Schedulers returns a SchedulerInformer.

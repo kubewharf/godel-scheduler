@@ -96,6 +96,9 @@ const (
 
 	// Pods with same request template share the same requirements.
 	PodRequestTemplateAnnotationKey = "godel.bytedance.com/request-template"
+	// reservation related
+	MatchedReservationPlaceholderKey = "godel.bytedance.com/matched-reservation-placeholder"
+	ReservationTTLKey                = "godel.bytedance.com/reservation-ttl"
 )
 
 type PodState string

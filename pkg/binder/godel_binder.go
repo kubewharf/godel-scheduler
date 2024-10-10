@@ -94,9 +94,10 @@ type Binder struct {
 	recorder   events.EventRecorder
 	reconciler *BinderTasksReconciler
 
-	podLister      corelisters.PodLister
-	pgLister       v1alpha1.PodGroupLister
-	movementLister v1alpha1.MovementLister
+	podLister         corelisters.PodLister
+	pgLister          v1alpha1.PodGroupLister
+	movementLister    v1alpha1.MovementLister
+	reservationLister v1alpha1.ReservationLister
 
 	// node partition doesn't make any effect for now, remove it from binder
 	// TODO: figure out if we need this and add back if necessary
@@ -118,6 +119,7 @@ func New(
 	recorder events.EventRecorder,
 	schedulerName *string,
 	volumeBindingTimeoutSeconds int64,
+	reservationTTL time.Duration,
 	opts ...Option,
 ) (*Binder, error) {
 	// register metrics before everything
@@ -131,10 +133,11 @@ func New(
 	options := renderOptions(opts...)
 
 	cacheHandler := commoncache.MakeCacheHandlerWrapper().
-		Period(10 * time.Second).PodAssumedTTL(5 * time.Minute).StopCh(stopEverything).
-		ComponentName("godel-binder").Obj()
-	binderCache := godelcache.New(cacheHandler)
+		Period(10 * time.Second).PodAssumedTTL(5 * time.Minute).ReservationTTL(reservationTTL).StopCh(stopEverything).
+		ComponentName("godel-binder").PodLister(informerFactory.Core().V1().Pods().Lister()).
+		Obj()
 
+	binderCache := godelcache.New(cacheHandler)
 	binderQueue := queue.NewBinderQueue(
 		DefaultUnitQueueSortFunc(),
 		crdInformerFactory.Scheduling().V1alpha1().PodGroups().Lister(),
@@ -174,6 +177,10 @@ func New(
 	)
 	debugger.ListenForSignal(stopEverything)
 	binder.initializeReschedulingModule(crdInformerFactory, stopEverything, crdClient)
+
+	if utilfeature.DefaultFeatureGate.Enabled(features.ResourceReservation) {
+		binder.reservationLister = crdInformerFactory.Scheduling().V1alpha1().Reservations().Lister()
+	}
 
 	// Add all event handlers
 	addAllEventHandlers(binder, informerFactory, crdInformerFactory, katalystCrdInformerFactory)
@@ -300,8 +307,9 @@ func (binder *Binder) CheckAndBindUnit(ctx context.Context) bool {
 		}
 
 		klog.V(4).InfoS("Finish to check stage for unit", "stageIndex", i, "stageName", stage.stageName, "unitKey", unit.GetKey())
-
 		if unitInfo.IsUnitFailed() {
+			klog.V(4).InfoS("Unit fails after stage", "stageIndex", i, "stageName", stage.stageName, "unitKey", unit.GetKey())
+
 			err := fmt.Errorf("unit fails after %v", stage.stageName)
 			unitInfo.MoveAllTasksToFailedList(err)
 			binder.FailAndRejectAllTasks(unitInfo, err)
@@ -333,15 +341,15 @@ func (binder *Binder) initializeTask(unitInfo *bindingUnitInfo, runningUnitInfo 
 	}()
 
 	queuedPod := runningUnitInfo.queuedPodInfo
-	framework, err := binder.handle.GetFrameworkForPod(queuedPod.Pod)
+	f, err := binder.handle.GetFrameworkForPod(queuedPod.Pod)
 	if err != nil {
 		returnErr = fmt.Errorf("fail to get framework for pod: %v/%v, error: %v", queuedPod.Pod.Namespace, queuedPod.Pod.Name, err)
 		return
 	}
-	runningUnitInfo.Framework = framework
-	initializeTraceContext.WithFields(tracing.WithPlugins(framework.ListPlugins())...)
+	runningUnitInfo.Framework = f
+	initializeTraceContext.WithFields(tracing.WithPlugins(f.ListPlugins())...)
 
-	state, err := framework.InitCycleState(queuedPod.Pod)
+	state, err := f.InitCycleState(queuedPod.Pod)
 	if err != nil {
 		returnErr = fmt.Errorf("fail to init cycle state for pod: %v/%v, error: %v", queuedPod.Pod.Namespace, queuedPod.Pod.Name, err)
 		return
@@ -353,7 +361,30 @@ func (binder *Binder) initializeTask(unitInfo *bindingUnitInfo, runningUnitInfo 
 		returnErr = fmt.Errorf("suggested node for pod: %v/%v is empty", queuedPod.Pod.Namespace, queuedPod.Pod.Name)
 		return
 	}
+
 	runningUnitInfo.suggestedNode = suggestedNode
+	// check for resource reservation
+	if utilfeature.DefaultFeatureGate.Enabled(features.ResourceReservation) {
+		var (
+			placeholderKey = podutil.GetMatchedReservationPlaceholderPod(queuedPod.Pod)
+			placeholder    = podutil.GetReservationPlaceholder(queuedPod.Pod)
+		)
+
+		if len(placeholderKey) > 0 && len(placeholder) > 0 {
+
+			fakePod, err := binder.BinderCache.GetAvailablePlaceholderPod(queuedPod.Pod)
+			if err != nil {
+				klog.V(4).InfoS("Failed to find available placeholder pod",
+					"unit", unitInfo.queuedUnitInfo.UnitKey, "pod", klog.KObj(queuedPod.Pod), "placeholder", placeholder, "placeholderKey", placeholderKey, "err", err)
+				// no need to continue, because reservation store will fail to assume the pod.
+				return err
+			}
+
+			klog.V(4).InfoS("Succeed to find available placeholder pod",
+				"unit", unitInfo.queuedUnitInfo.UnitKey, "pod", klog.KObj(queuedPod.Pod), "placeholder", placeholder, "placeholderKey", placeholderKey)
+			runningUnitInfo.SetMatchedReservationFakePod(fakePod)
+		}
+	}
 
 	// check if the queued pod is a preemptor
 	var victims []*v1.Pod
@@ -414,11 +445,12 @@ func (binder *Binder) InitializeUnit(unit *framework.QueuedUnitInfo) *bindingUni
 
 		// check if pod is being deleted or is assumed (shouldn't happen) before
 		if binder.skipCheckingPod(queuedPod.Pod) {
+			klog.V(4).InfoS("Skip checking pod, mark it as ignored task", "pod", klog.KObj(queuedPod.Pod), "unit", unitInfo.unitKey)
 			unitInfo.AddIgnoredTasks(queuedPod)
 			continue
 		}
-		runningUnitInfo := newRunningUnitInfo(queuedPod)
 
+		runningUnitInfo := newRunningUnitInfo(queuedPod)
 		err := binder.initializeTask(unitInfo, runningUnitInfo)
 		if err != nil {
 			unitInfo.AddFailedTask(runningUnitInfo, err, metrics.InitializationFailure, false)
@@ -626,6 +658,13 @@ func (binder *Binder) CheckSameNodeConflictsForUnit(ctx context.Context, unitInf
 
 		// check conflicts for new tasks on this node
 		for _, task := range unitInfo.GetNewTasksOnNode(nodeName) {
+			if utilfeature.DefaultFeatureGate.Enabled(features.ResourceReservation) {
+				fakePod := task.GetMatchedReservationFakePod()
+				if fakePod != nil {
+					clonedNodeInfo.RemovePod(fakePod, false)
+				}
+			}
+
 			status := CheckConflictPhase(ctx, task, clonedNodeInfo)
 			if status.IsSuccess() {
 				// check successfully, add this new task to cloned node info for following checks
@@ -633,6 +672,13 @@ func (binder *Binder) CheckSameNodeConflictsForUnit(ctx context.Context, unitInf
 				clonedNodeInfo.AddPod(task.queuedPodInfo.Pod)
 				cleanMicroTopology(task.queuedPodInfo.Pod)
 				continue
+			}
+
+			if utilfeature.DefaultFeatureGate.Enabled(features.ResourceReservation) {
+				fakePod := task.GetMatchedReservationFakePod()
+				if fakePod != nil {
+					clonedNodeInfo.AddPod(fakePod)
+				}
 			}
 
 			if len(task.victims) > 0 {
@@ -683,8 +729,7 @@ func (binder *Binder) MarkVictimsAndAssumeTasks(ctx context.Context, unitInfo *b
 		return fmt.Errorf("unit failed at MarkVictimsAndAssumeTasks")
 	}
 
-	err := binder.assumeNewTasks(unitInfo)
-	if err != nil {
+	if err := binder.assumeNewTasks(unitInfo); err != nil {
 		// this should be idempotent
 		binder.forgetNewAssumedTasks(unitInfo)
 		unitInfo.MoveAllNewTasksInReadyAndWaitingListToFailedList(err)
@@ -765,6 +810,7 @@ func (binder *Binder) assumeNewTasks(unitInfo *bindingUnitInfo) error {
 			}
 
 			cr.runningUnit.clonedPod.Spec.NodeName = cr.runningUnit.suggestedNode
+			cr.runningUnit.queuedPodInfo.ReservedPod = cr.runningUnit.clonedPod
 			podInfo := framework.MakeCachePodInfoWrapper().Pod(cr.runningUnit.clonedPod).CycleState(cr.runningUnit.State).Obj()
 			if err := binder.BinderCache.AssumePod(podInfo); err != nil {
 				return fmt.Errorf("fail to assume pod: %v/%v, error: %v", cr.runningUnit.clonedPod.Namespace, cr.runningUnit.clonedPod.Name, err)
@@ -773,7 +819,6 @@ func (binder *Binder) assumeNewTasks(unitInfo *bindingUnitInfo) error {
 			// set NewlyAssumedButStillInHandling to true, it will not affect the result even if we can bind these pods directly
 			cr.runningUnit.queuedPodInfo.NewlyAssumedButStillInHandling = true
 			cr.runningUnit.queuedPodInfo.AllVolumeBound = allBound
-			cr.runningUnit.queuedPodInfo.ReservedPod = cr.runningUnit.clonedPod
 			return nil
 		}(cr)
 		if err != nil {
@@ -795,6 +840,7 @@ func (binder *Binder) forgetNewAssumedTasks(unitInfo *bindingUnitInfo) {
 		if cr.assumed || !cr.runningUnit.queuedPodInfo.NewlyAssumedButStillInHandling {
 			continue
 		}
+
 		if cr.runningUnit.queuedPodInfo.ReservedPod != nil {
 			// this should be idempotent
 			podInfo := framework.MakeCachePodInfoWrapper().Pod(cr.runningUnit.queuedPodInfo.ReservedPod).Obj()
@@ -1073,6 +1119,15 @@ func (binder *Binder) bindTasks(ctx context.Context, unitInfo *bindingUnitInfo) 
 			if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
 				// update movement status if necessary
 				binder.movementController.AddPod(task.queuedPodInfo.ReservedPod)
+			}
+
+			if utilfeature.DefaultFeatureGate.Enabled(features.ResourceReservation) {
+				fakePod := task.GetMatchedReservationFakePod()
+				if fakePod != nil {
+					if err := binderutils.UpdateReservationStatus(binder.handle.CRDClientSet(), binder.reservationLister, task.queuedPodInfo.ReservedPod, fakePod, true); err != nil {
+						klog.ErrorS(err, "Error occured when update reservation for pod", "pod", podutil.GetPodKey(task.queuedPodInfo.ReservedPod))
+					}
+				}
 			}
 
 			return nil

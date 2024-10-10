@@ -68,5 +68,11 @@ type CompletedConfig struct {
 
 func (c *Config) Complete() CompletedConfig {
 	cc := completedConfig{c}
+	if c.InsecureServing != nil {
+		c.InsecureServing.Name = "healthz"
+	}
+	if c.InsecureMetricsServing != nil {
+		c.InsecureMetricsServing.Name = "metrics"
+	}
 	return CompletedConfig{&cc}
 }

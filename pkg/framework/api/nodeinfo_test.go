@@ -80,6 +80,7 @@ func TestNewNodeInfo(t *testing.T) {
 		TransientInfo:              NewTransientSchedulerInfo(),
 		GuaranteedAllocatable:      &Resource{},
 		GuaranteedCapacity:         &Resource{},
+		GuaranteedReserved:         &Resource{},
 		Generation:                 2,
 		UsedPorts: HostPortInfo{
 			"127.0.0.1": map[ProtocolPort]struct{}{
@@ -157,8 +158,8 @@ func TestNewNodeInfo(t *testing.T) {
 	ni := NewNodeInfo(pods...)
 	expected.Generation = ni.GetGeneration()
 
-	if !cmp.Equal(expected, ni, cmpopts.IgnoreUnexported(NodeInfoImpl{})) {
-		t.Errorf("expected: %#v, got: %#v", expected, ni)
+	if diff := cmp.Diff(expected, ni, cmpopts.IgnoreUnexported(NodeInfoImpl{})); len(diff) > 0 {
+		t.Errorf("diff between with expected nodeInfo and got nodeInfo: %s", diff)
 	}
 }
 
@@ -177,6 +178,7 @@ func TestNodeInfoClone(t *testing.T) {
 				BestEffortAllocatable:      &Resource{},
 				TransientInfo:              NewTransientSchedulerInfo(),
 				GuaranteedAllocatable:      &Resource{},
+				GuaranteedReserved:         &Resource{},
 				GuaranteedCapacity:         &Resource{},
 				Generation:                 2,
 				UsedPorts: HostPortInfo{
@@ -262,6 +264,7 @@ func TestNodeInfoClone(t *testing.T) {
 				TransientInfo:              NewTransientSchedulerInfo(),
 				GuaranteedAllocatable:      &Resource{},
 				GuaranteedCapacity:         &Resource{},
+				GuaranteedReserved:         &Resource{},
 				Generation:                 2,
 				UsedPorts: HostPortInfo{
 					"127.0.0.1": map[ProtocolPort]struct{}{
@@ -345,8 +348,8 @@ func TestNodeInfoClone(t *testing.T) {
 		// Modify the field to check if the result is a clone of the origin one.
 		test.nodeInfo.SetGeneration(test.nodeInfo.GetGeneration() + 10)
 		test.nodeInfo.GetUsedPorts().Remove("127.0.0.1", "TCP", 80)
-		if !cmp.Equal(test.expected, ni, cmpopts.IgnoreUnexported(NodeInfoImpl{})) {
-			t.Errorf("expected: %#v, got: %#v", test.expected, ni)
+		if diff := cmp.Diff(test.expected, ni, cmpopts.IgnoreUnexported(NodeInfoImpl{})); len(diff) > 0 {
+			t.Errorf("diff between with expected nodeInfo, and got nodeInfo: %v", diff)
 		}
 	}
 }
@@ -483,6 +486,7 @@ func TestNodeInfoAddPod(t *testing.T) {
 		TransientInfo:              NewTransientSchedulerInfo(),
 		GuaranteedAllocatable:      &Resource{},
 		GuaranteedCapacity:         &Resource{},
+		GuaranteedReserved:         &Resource{},
 		Generation:                 2,
 		UsedPorts: HostPortInfo{
 			"127.0.0.1": map[ProtocolPort]struct{}{
@@ -676,6 +680,7 @@ func TestNodeInfoRemovePod(t *testing.T) {
 				TransientInfo:              NewTransientSchedulerInfo(),
 				GuaranteedAllocatable:      &Resource{},
 				GuaranteedCapacity:         &Resource{},
+				GuaranteedReserved:         &Resource{},
 				Generation:                 2,
 				UsedPorts: HostPortInfo{
 					"127.0.0.1": map[ProtocolPort]struct{}{
@@ -821,6 +826,7 @@ func TestNodeInfoRemovePod(t *testing.T) {
 				TransientInfo:              NewTransientSchedulerInfo(),
 				GuaranteedAllocatable:      &Resource{},
 				GuaranteedCapacity:         &Resource{},
+				GuaranteedReserved:         &Resource{},
 				Generation:                 3,
 				UsedPorts: HostPortInfo{
 					"127.0.0.1": map[ProtocolPort]struct{}{
