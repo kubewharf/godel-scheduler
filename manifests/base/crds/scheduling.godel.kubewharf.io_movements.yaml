@@ -80,12 +80,57 @@ spec:
                 items:
                   type: string
                 type: array
-              ownerMovements:
+              owners:
                 description: A list of movement info for all owners
                 items:
                   description: Contain node suggestions for each owner
                   properties:
-                    nodeSuggestions:
+                    mismatchedTasks:
+                      description: Tasks scheduled successfully but not use suggestion
+                      items:
+                        description: Information of each task needs to be rescheduled
+                        properties:
+                          name:
+                            description: Task name, e.g. pod name
+                            type: string
+                          namespace:
+                            description: Task namespace, e.g. pod namespace
+                            type: string
+                          node:
+                            description: Node of this task
+                            type: string
+                          uid:
+                            description: Task uid, e.g. pod uid
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        - node
+                        - uid
+                        type: object
+                      type: array
+                    owner:
+                      description: Information of task owner
+                      properties:
+                        name:
+                          description: Owner name
+                          type: string
+                        namespace:
+                          description: Owner namespace
+                          type: string
+                        type:
+                          description: Owner type, e.g. ReplicaSet/StatefulSet...
+                          type: string
+                        uid:
+                          description: Owner uid
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      - type
+                      - uid
+                      type: object
+                    recommendedNodes:
                       description: Information of suggested nodes
                       items:
                         description: Contain desired state and actual state for node
@@ -121,51 +166,6 @@ spec:
                           node:
                             description: Node Name
                             type: string
-                        type: object
-                      type: array
-                    owner:
-                      description: Information of task owner
-                      properties:
-                        name:
-                          description: Owner name
-                          type: string
-                        namespace:
-                          description: Owner namespace
-                          type: string
-                        type:
-                          description: Owner type, e.g. ReplicaSet/StatefulSet...
-                          type: string
-                        uid:
-                          description: Owner uid
-                          type: string
-                      required:
-                      - name
-                      - namespace
-                      - type
-                      - uid
-                      type: object
-                    tasksBreakSuggestion:
-                      description: Tasks scheduled successfully but not use suggestion
-                      items:
-                        description: Information of each task needs to be rescheduled
-                        properties:
-                          name:
-                            description: Task name, e.g. pod name
-                            type: string
-                          namespace:
-                            description: Task namespace, e.g. pod namespace
-                            type: string
-                          node:
-                            description: Node of this task
-                            type: string
-                          uid:
-                            description: Task uid, e.g. pod uid
-                            type: string
-                        required:
-                        - name
-                        - namespace
-                        - node
-                        - uid
                         type: object
                       type: array
                   required:
