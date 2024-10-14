@@ -63,10 +63,9 @@ func NewEmptySnapshot(handler commoncache.CacheHandler) *Snapshot {
 }
 
 func (s *Snapshot) MakeBasicNodeGroup() framework.NodeGroup {
-	nodeGroup := framework.NewNodeGroup(
-		framework.DefaultNodeGroupName,
-		s,
-		[]framework.NodeCircle{framework.NewNodeCircle(framework.DefaultNodeCircleName, s)})
+	nodeCircle := framework.NewNodeCircle(framework.DefaultNodeCircleName, s)
+	nodeGroup := framework.NewNodeGroup(framework.DefaultNodeGroupName, s, []framework.NodeCircle{nodeCircle})
+	nodeGroup.SetPreferredNodes(framework.NewPreferredNodes())
 	return nodeGroup
 }
 
@@ -131,6 +130,10 @@ func (s *Snapshot) HavePodsWithAffinityList() []framework.NodeInfo {
 // are concurrent, write operations(AssumePod/ForgetPod/AddOneVictim) should always be serial.
 func (s *Snapshot) HavePodsWithRequiredAntiAffinityList() []framework.NodeInfo {
 	return s.nodeSlices.havePodsWithRequiredAntiAffinityNodeSlice.Nodes()
+}
+
+func (s *Snapshot) Len() int {
+	return len(s.nodeSlices.inPartitionNodeSlice.Nodes()) + len(s.nodeSlices.outOfPartitionNodeSlice.Nodes())
 }
 
 // Get returns the NodeInfo of the given node name.

@@ -7196,7 +7196,7 @@ func TestPreemptInSpecificNodeGroup(t *testing.T) {
 
 			var nodeCircles []framework.NodeCircle
 			for i, nodesInCircle := range nodesInNodeCircles {
-				lister := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
+				lister := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
 				for _, node := range nodesInCircle {
 					nodeInfo := snapshot.GetNodeInfo(node.Name)
 					lister.AddNodeInfo(nodeInfo)

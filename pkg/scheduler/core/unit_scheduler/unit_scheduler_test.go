@@ -1109,7 +1109,7 @@ func TestScheduleUnitInNodeGroup_SinglePod(t *testing.T) {
 			unitInfo, _ := gs.constructSchedulingUnitInfo(context.Background(), queuedUnitInfo)
 			unitFramework := unitruntime.NewUnitFramework(gs, gs, gs.PluginRegistry, nil, unitInfo.QueuedUnitInfo)
 
-			lister := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
+			lister := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
 			for _, n := range tt.nodes {
 				lister.AddNodeInfo(snapshot.GetNodeInfo(n.Name))
 			}
@@ -2190,7 +2190,7 @@ func TestScheduleUnitInNodeGroup_PodGroup(t *testing.T) {
 			unitInfo, _ := gs.constructSchedulingUnitInfo(context.Background(), queuedUnitInfo)
 			unitFramework := unitruntime.NewUnitFramework(gs, gs, gs.PluginRegistry, nil, unitInfo.QueuedUnitInfo)
 
-			lister := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
+			lister := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
 			for _, n := range tt.nodes {
 				lister.AddNodeInfo(snapshot.GetNodeInfo(n.Name))
 			}
@@ -4420,7 +4420,7 @@ func TestScheduleUnit_Rescheduling(t *testing.T) {
 				nodeGroup := snapshot.MakeBasicNodeGroup()
 				nodeGroup, _ = unitFramework.RunLocatingPlugins(context.Background(), unit, unitInfo.UnitCycleState, nodeGroup)
 
-				lister := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
+				lister := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
 				for _, n := range tt.nodesInNodeCircle {
 					lister.AddNodeInfo(snapshot.GetNodeInfo(n.Name))
 				}
@@ -5200,7 +5200,7 @@ func TestScheduleUnit_ReschedulingWithPreemption(t *testing.T) {
 			nodeGroup := snapshot.MakeBasicNodeGroup()
 			nodeGroup, _ = unitFramework.RunLocatingPlugins(context.Background(), unit, unitInfo.UnitCycleState, nodeGroup)
 
-			lister := framework.NewNodeInfoLister().(*framework.NodeInfoListerImpl)
+			lister := framework.NewClusterNodeInfoLister().(*framework.NodeInfoListerImpl)
 			for _, n := range tt.nodesInNodeCircle {
 				lister.AddNodeInfo(snapshot.GetNodeInfo(n.Name))
 			}

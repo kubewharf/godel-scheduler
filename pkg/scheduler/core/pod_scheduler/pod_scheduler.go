@@ -380,7 +380,7 @@ func (gs *podScheduler) findNodesThatFitPod(
 	f framework.SchedulerFramework,
 	state *framework.CycleState,
 	pod *v1.Pod,
-	nodeLister framework.NodeInfoLister,
+	nodeLister framework.ClusterNodeInfoLister,
 	usr *framework.UnitSchedulingRequest,
 	cachedStatusMap framework.NodeToStatusMap,
 ) ([]framework.NodeInfo, framework.NodeToStatusMap, error) {
@@ -415,7 +415,7 @@ func (gs *podScheduler) findNodesThatPassFilters(
 	f framework.SchedulerFramework,
 	state *framework.CycleState,
 	pod *v1.Pod, statuses, cachedStatuses framework.NodeToStatusMap,
-	nodeLister framework.NodeInfoLister,
+	nodeLister framework.ClusterNodeInfoLister,
 	usr *framework.UnitSchedulingRequest,
 ) ([]framework.NodeInfo, error) {
 	beginCheckNode := time.Now()
