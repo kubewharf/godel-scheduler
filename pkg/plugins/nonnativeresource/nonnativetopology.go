@@ -570,11 +570,6 @@ func allocate(node framework.NodeInfo, pod *v1.Pod, state *framework.CycleState)
 	}
 
 	resourcesRequests := podutil.GetPodRequests(pod)
-	numaReq := resourcesRequests[string(util.ResourceNuma)]
-	if numaReq != nil && !numaReq.IsZero() {
-		numaBinding = true
-		isExcusive = true
-	}
 
 	switch qosLevel {
 	case util.DedicatedCores:
