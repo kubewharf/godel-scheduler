@@ -26,6 +26,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/coscheduling"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/imagelocality"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/interpodaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/loadaware"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/nodeaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/nodelabel"
@@ -36,6 +37,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/nodevolumelimits"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/nonnativeresource"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/podlauncher"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/tainttoleration"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/volumebinding"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/preemption-plugins/searching/newlystartedprotectionchecker"
@@ -101,6 +103,8 @@ func NewInTreeRegistry() Registry {
 		nodepreferavoidpods.Name:                nodepreferavoidpods.New,
 		tainttoleration.Name:                    tainttoleration.New,
 		nodeaffinity.Name:                       nodeaffinity.New,
+		interpodaffinity.Name:                   interpodaffinity.New,
+		podtopologyspread.Name:                  podtopologyspread.New,
 		nodelabel.Name:                          nodelabel.New,
 		nodeports.Name:                          nodeports.New,
 		podlauncher.Name:                        podlauncher.New,

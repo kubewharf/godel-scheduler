@@ -25,10 +25,12 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/defaultbinder"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/defaultpreemption"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/interpodaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/nodeports"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/noderesources"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/nodevolumelimits"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/nonnativeresource"
+	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/plugins/volumebinding"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 )
@@ -57,6 +59,8 @@ func NewInTreeRegistry() Registry {
 		volumebinding.Name:              volumebinding.New,
 		nodeports.Name:                  nodeports.New,
 		nonnativeresource.Name:          nonnativeresource.New,
+		interpodaffinity.Name:           interpodaffinity.New,
+		podtopologyspread.Name:          podtopologyspread.New,
 	}
 }
 

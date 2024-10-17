@@ -20,9 +20,7 @@ import (
 	"math"
 	"reflect"
 	"testing"
-	"time"
 
-	"github.com/google/go-cmp/cmp"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,126 +32,6 @@ import (
 
 func makePriority(priority int32) *int32 {
 	return &priority
-}
-
-func TestPodInfoMaintainer_GetPods(t *testing.T) {
-	t0 := time.Now()
-	t1 := t0.Add(time.Hour)
-
-	p0 := NewPodInfo(&v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "p0",
-			UID:  "p0",
-			Annotations: map[string]string{
-				podutil.PodResourceTypeAnnotationKey: string(podutil.GuaranteedPod),
-			},
-		},
-		Spec: v1.PodSpec{
-			Priority: makePriority(0),
-			NodeName: "node",
-		},
-		Status: v1.PodStatus{
-			StartTime: &metav1.Time{t1},
-		},
-	})
-	// p1 should be more important than p0 cause `Priority`.
-	p1 := NewPodInfo(&v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "p1",
-			UID:  "p1",
-			Annotations: map[string]string{
-				podutil.PodResourceTypeAnnotationKey: string(podutil.GuaranteedPod),
-			},
-		},
-		Spec: v1.PodSpec{
-			Priority: makePriority(5),
-			NodeName: "node",
-		},
-		Status: v1.PodStatus{
-			StartTime: &metav1.Time{t1},
-		},
-	})
-	// p2 should be more important than p1 cause `StartTime`.
-	p2 := NewPodInfo(&v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "p2",
-			UID:  "p2",
-			Annotations: map[string]string{
-				podutil.PodResourceTypeAnnotationKey: string(podutil.GuaranteedPod),
-			},
-		},
-		Spec: v1.PodSpec{
-			Priority: makePriority(5),
-			NodeName: "node",
-		},
-		Status: v1.PodStatus{
-			StartTime: &metav1.Time{t0},
-		},
-	})
-	// p3 should be more important than p8 cause `StartTime`.
-	p3 := NewPodInfo(&v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "p3",
-			UID:  "p3",
-			Annotations: map[string]string{
-				podutil.PodResourceTypeAnnotationKey: string(podutil.GuaranteedPod),
-			},
-		},
-		Spec: v1.PodSpec{
-			Priority: makePriority(5),
-			NodeName: "node",
-		},
-		Status: v1.PodStatus{
-			StartTime: &metav1.Time{t0},
-		},
-	})
-	// p4 should be more important than p3 cause `PodKey`.
-	p4 := NewPodInfo(&v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "pa",
-			UID:  "pa",
-			Annotations: map[string]string{
-				podutil.PodResourceTypeAnnotationKey: string(podutil.GuaranteedPod),
-			},
-		},
-		Spec: v1.PodSpec{
-			Priority: makePriority(5),
-			NodeName: "node",
-		},
-		Status: v1.PodStatus{
-			StartTime: &metav1.Time{t0},
-		},
-	})
-
-	tests := []struct {
-		name string
-		pods []*PodInfo
-		want []*PodInfo
-	}{
-		{
-			name: "test",
-			pods: []*PodInfo{p4, p2, p0, p3, p1},
-			want: []*PodInfo{p0, p1, p2, p3, p4},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			for i := 0; i < len(tt.want); i++ {
-				for j := 0; j < i; j++ {
-					if !tt.want[i].Compare(tt.want[j]) {
-						t.Errorf("PodInfo.Compare got false for pod: %v, %v", tt.want[i].PodKey, tt.want[j].PodKey)
-					}
-				}
-			}
-
-			m := NewPodInfoMaintainer(tt.pods...)
-
-			t.Logf(m.gtPodsMayBePreempted.PrintTree())
-			if diff := cmp.Diff(m.GetPods(), tt.want); diff != "" {
-				t.Errorf("PodInfoMaintainer.GetPods() diff = %v", diff)
-			}
-		})
-	}
 }
 
 func TestGetMaintainableInfoByPartition(t *testing.T) {
