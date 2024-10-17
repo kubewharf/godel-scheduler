@@ -298,7 +298,7 @@ func (m *PodInfoMaintainer) Len() int {
 func (m *PodInfoMaintainer) GetPods() []*PodInfo {
 	pods := make([]*PodInfo, 0, m.bePodsMayBePreempted.Len()+m.gtPodsMayBePreempted.Len()+len(m.neverBePreempted))
 	rangeSplay := func(s splay.Splay) {
-		s.Range(func(so splay.StoredObj) {
+		s.RangeNoOrder(func(so splay.StoredObj) {
 			pods = append(pods, so.(*PodInfo))
 		})
 	}

@@ -85,6 +85,44 @@ func Test_Splay(t *testing.T) {
 		t.Logf("After j=%v got splay: %s\n", j, s)
 	}
 }
+func Test_Splay_No_Order_Range(t *testing.T) {
+	s := NewSplay()
+
+	for i := 1; i < 100; i++ {
+		s.Insert(makeObj(i, i))
+	}
+
+	var noOrderObjs []StoredObj
+	s.RangeNoOrder(func(so StoredObj) {
+		noOrderObjs = append(noOrderObjs, so)
+	})
+
+	var orderObjs []StoredObj
+	s.Range(func(so StoredObj) {
+		orderObjs = append(orderObjs, so)
+	})
+
+	if len(noOrderObjs) != len(orderObjs) {
+		t.Errorf("Length mismatch: List has %d items, Range has %d items", len(noOrderObjs), len(orderObjs))
+	}
+
+	// Tests if elements are identical (order doesn't matter)
+	counts := make(map[StoredObj]int)
+
+	for _, obj := range noOrderObjs {
+		counts[obj]++
+	}
+	for _, obj := range orderObjs {
+		counts[obj]--
+	}
+
+	for _, count := range counts {
+		if count != 0 {
+			t.Error("Mismatch between onOrderedObjs and rangeObjs elements")
+			return
+		}
+	}
+}
 
 func Test_Rotate(t *testing.T) {
 	s := NewSplay()

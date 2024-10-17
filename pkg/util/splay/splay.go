@@ -126,6 +126,8 @@ type Splay interface {
 	Clone() Splay
 	// PrintTree outputs splay in the form of a tree diagram.
 	PrintTree() string
+	// Range traverses the entire splay quickly. Note that the order of traversal is not guaranteed
+	RangeNoOrder(RangeFunc)
 }
 
 type splay struct {
@@ -385,6 +387,14 @@ func (s *splay) PrintTree() string {
 	output.WriteString("SplayRoot:" + "root=" + strconv.Itoa(s.root) + "\n")
 	dfs(s.root, &strings.Builder{}, true)
 	return output.String()
+}
+
+func (s *splay) RangeNoOrder(f RangeFunc) {
+	for i, node := range s.items {
+		if i != s.minv && i != s.maxv && i != 0 {
+			f(node.obj)
+		}
+	}
 }
 
 // getChildIndex indicates whether `x` is the right child of `y`.
