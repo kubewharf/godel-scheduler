@@ -63,27 +63,6 @@ type GenericControllerManagerConfiguration struct {
 	Controllers []string
 	// DebuggingConfiguration holds configuration for Debugging related features.
 	Debugging componentbaseconfigv1alpha1.DebuggingConfiguration
-	// LeaderMigrationEnabled indicates whether Leader Migration should be enabled for the controller manager.
-	LeaderMigrationEnabled bool
-	// LeaderMigration holds the configuration for Leader Migration.
-	LeaderMigration LeaderMigrationConfiguration
-}
-
-// LeaderMigrationConfiguration provides versioned configuration for all migrating leader locks.
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-type LeaderMigrationConfiguration struct {
-	metav1.TypeMeta
-
-	// LeaderName is the name of the leader election resource that protects the migration
-	// E.g. 1-20-KCM-to-1-21-CCM
-	LeaderName string
-
-	// ResourceLock indicates the resource object type that will be used to lock
-	// Should be "leases" or "endpoints"
-	ResourceLock string
-
-	// ControllerLeaders contains a list of migrating leader lock configurations
-	ControllerLeaders []ControllerLeaderConfiguration
 }
 
 // ControllerLeaderConfiguration provides the configuration for a migrating leader lock.

@@ -31,7 +31,6 @@ type GenericControllerManagerConfigurationOptions struct {
 	*cmconfig.GenericControllerManagerConfiguration
 	Debugging *DebuggingOptions
 	// LeaderMigration is the options for leader migration, a nil indicates default options should be applied.
-	LeaderMigration *LeaderMigrationOptions
 }
 
 // NewGenericControllerManagerConfigurationOptions returns generic configuration default values for both
@@ -41,7 +40,6 @@ func NewGenericControllerManagerConfigurationOptions(cfg *cmconfig.GenericContro
 	o := &GenericControllerManagerConfigurationOptions{
 		GenericControllerManagerConfiguration: cfg,
 		Debugging:                             RecommendedDebuggingOptions(),
-		LeaderMigration:                       &LeaderMigrationOptions{},
 	}
 
 	return o
@@ -54,7 +52,6 @@ func (o *GenericControllerManagerConfigurationOptions) AddFlags(fss *cliflag.Nam
 	}
 
 	o.Debugging.AddFlags(fss.FlagSet("debugging"))
-	o.LeaderMigration.AddFlags(fss.FlagSet("leader-migration"))
 	genericfs := fss.FlagSet("generic")
 	genericfs.DurationVar(&o.MinResyncPeriod.Duration, "min-resync-period", o.MinResyncPeriod.Duration, "The resync period in reflectors will be random between MinResyncPeriod and 2*MinResyncPeriod.")
 	genericfs.StringVar(&o.ClientConnection.ContentType, "kube-api-content-type", o.ClientConnection.ContentType, "Content type of requests sent to apiserver.")
@@ -78,9 +75,7 @@ func (o *GenericControllerManagerConfigurationOptions) ApplyTo(cfg *cmconfig.Gen
 	if err := o.Debugging.ApplyTo(&cfg.Debugging); err != nil {
 		return err
 	}
-	if err := o.LeaderMigration.ApplyTo(cfg); err != nil {
-		return err
-	}
+
 	cfg.Port = o.Port
 	cfg.Address = o.Address
 	cfg.MinResyncPeriod = o.MinResyncPeriod

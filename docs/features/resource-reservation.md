@@ -3,8 +3,7 @@
 This document uses a kind cluster as an example to introduce how to enable and use the resource reservation capability of the Godel Scheduler.
 
 ## Prerequisites
-
-Please make sure that the Godel Controller Manager component has been deployed in the kind cluster along with other scheduler components as control plane components.
+Follow the [setup](./kind-cluster-setup.md) guide, you  will find that the Godel Controller Manager component has been deployed in the kind cluster along with other scheduler components as control plane components.
 
 ```shell
 $ kubectl get po -n godel-system
