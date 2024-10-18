@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: res-pod
+  labels:
+    app: res-pod
+  annotations:
+    godel.bytedance.com/pod-resource-type: guaranteed
+    godel.bytedance.com/pod-launcher: kubelet
+    godel.bytedance.com/reservation: "true"                         # reservation requirement
+    godel.bytedance.com/reservation-index: "reservation-pod"        # identifier for back pod
+spec:
+  schedulerName: godel-scheduler
+  containers:
+    - name: res-pod
+      image: nginx
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "1"
+          memory: "100Mi"
+  restartPolicy: Always

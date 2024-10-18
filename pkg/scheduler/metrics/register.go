@@ -53,9 +53,11 @@ var metricsList = []metrics.Registerable{
 	preemptingStageLatency,
 	pendingPodsRequestedResource,
 
+	// cache related metrics
 	ClusterAllocatable,
 	ClusterPodRequested,
 	NodeCounter,
+	ClusterReservedResource,
 
 	podsUseMovement,
 	podEvaluatedNodes,
@@ -73,6 +75,10 @@ func RegisterSchedulerName(name string) {
 	SchedulerName = name
 }
 
+func AddMetrics(r ...metrics.Registerable) {
+	metricsList = append(metricsList, r...)
+}
+
 var registerMetrics sync.Once
 
 // Register all metrics.
@@ -83,6 +89,7 @@ func Register(schedulerName string) {
 			legacyregistry.MustRegister(metric)
 		}
 	})
+
 	info := version.Get()
 	buildInfo.WithLabelValues(info.Major, info.Minor, info.GitVersion, info.GitCommit, info.GitTreeState, info.BuildDate, info.GoVersion, info.Compiler, info.Platform).Set(1)
 	RegisterSchedulerName(schedulerName)

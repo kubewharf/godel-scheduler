@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	goruntime "runtime"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -170,6 +171,7 @@ func Run(ctx context.Context, cc schedulerserverconfig.CompletedConfig) error {
 		cc.KatalystCrdInformerFactory,
 		ctx.Done(),
 		eventRecorder,
+		time.Duration(cc.ComponentConfig.ReservationTimeOutSeconds)*time.Second,
 		godelscheduler.WithDefaultProfile(cc.ComponentConfig.DefaultProfile),
 		godelscheduler.WithSubClusterProfiles(cc.ComponentConfig.SubClusterProfiles),
 		godelscheduler.WithRenewInterval(cc.ComponentConfig.SchedulerRenewIntervalSeconds),

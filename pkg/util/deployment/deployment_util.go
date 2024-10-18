@@ -42,6 +42,7 @@ import (
 
 	"github.com/kubewharf/godel-scheduler/pkg/util/controller"
 	labelsutil "github.com/kubewharf/godel-scheduler/pkg/util/labels"
+	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
 const (
@@ -950,4 +951,38 @@ func GetDeploymentsForReplicaSet(deploymentLister appslisters.DeploymentLister, 
 	}
 
 	return deployments, nil
+}
+
+func DeployHasReservationRequirement(deploy *apps.Deployment) bool {
+	if deploy == nil {
+		return false
+	}
+
+	if value, ok := deploy.Annotations[podutil.PodResourceReservationAnnotationForGodel]; ok {
+		return value == podutil.PodHasReservationRequirement
+	} else {
+		return false
+	}
+}
+
+func GetReservationTtlFromDeploy(deploy *apps.Deployment) int64 {
+	if deploy == nil {
+		return 0
+	}
+	if value, ok := deploy.Annotations[podutil.ReservationTTLKey]; ok {
+		ttl, err := strconv.ParseInt(value, 10, 64)
+		if err == nil {
+			return ttl
+		}
+		return 0
+	} else {
+		return 0
+	}
+}
+
+func GetDeployKey(deploy *apps.Deployment) string {
+	if deploy == nil {
+		return ""
+	}
+	return deploy.Namespace + "/" + deploy.Name
 }

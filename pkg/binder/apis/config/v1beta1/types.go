@@ -62,6 +62,9 @@ type GodelBinderConfiguration struct {
 	// Tracer defines the configuration of tracer
 	Tracer *tracing.TracerConfiguration
 
+	// reserved resources will be released after a period of time.
+	ReservationTimeOutSeconds int64 `json:"reservationTimeOutSeconds,omitempty"`
+
 	Profile *GodelBinderProfile `json:"profile"`
 }
 

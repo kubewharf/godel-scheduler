@@ -145,6 +145,8 @@ rules:
       - schedulers/status
       - podgroups
       - podgroups/status
+      - reservations
+      - reservations/status
     verbs:
       - "*"
   - apiGroups:

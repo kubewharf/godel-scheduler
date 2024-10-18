@@ -36,8 +36,8 @@ spec:
             - "--v=5"
           resources:
             limits:
-              cpu: "1"
-              memory: 1G
+              cpu: "0.5"
+              memory: 500Mi
             requests:
-              cpu: "1"
-              memory: 1G
+              cpu: "0.5"
+              memory: 500Mi

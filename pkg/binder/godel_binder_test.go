@@ -20,25 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/stretchr/testify/assert"
-	v1 "k8s.io/api/core/v1"
-	policy "k8s.io/api/policy/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/informers"
-	clientsetfake "k8s.io/client-go/kubernetes/fake"
-	clienttesting "k8s.io/client-go/testing"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/events"
-
 	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
 	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/apis/config"
@@ -48,6 +35,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/binder/queue"
 	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
+	"github.com/kubewharf/godel-scheduler/pkg/features"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
@@ -57,6 +45,22 @@ import (
 	cmdutil "github.com/kubewharf/godel-scheduler/pkg/util/cmd"
 	"github.com/kubewharf/godel-scheduler/pkg/util/constraints"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
+	"github.com/stretchr/testify/assert"
+
+	v1 "k8s.io/api/core/v1"
+	policy "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/client-go/informers"
+	clientsetfake "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/events"
+	"k8s.io/component-base/featuregate"
 )
 
 const (
@@ -114,6 +118,184 @@ func deletingPod(id string) *v1.Pod {
 			NodeName:      "",
 			SchedulerName: testSchedulerName,
 		},
+	}
+}
+
+func podWithAnnotationsAndLabels(id string, annotations, labels map[string]string) *v1.Pod {
+	return &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        id,
+			Namespace:   id,
+			UID:         types.UID(id),
+			Annotations: annotations,
+			Labels:      labels,
+		},
+		Spec: v1.PodSpec{
+			SchedulerName: testSchedulerName,
+		},
+	}
+}
+
+func TestBinderResolveReservationConflict(t *testing.T) {
+	testNode := v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "machine1", UID: types.UID("machine1")}}
+	testNode.Status.Allocatable = v1.ResourceList{v1.ResourcePods: resource.MustParse("1")}
+	client := clientsetfake.NewSimpleClientset(&testNode)
+	stop := make(chan struct{})
+	defer close(stop)
+
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	informerFactory.Start(stop)
+	informerFactory.WaitForCacheSync(stop)
+	gate := utilfeature.DefaultFeatureGate.(featuregate.MutableFeatureGate)
+	if err := gate.SetFromMap(map[string]bool{string(features.ResourceReservation): true}); err != nil {
+		t.Errorf("failed to set featuregate %s", features.ResourceReservation)
+	}
+	if !utilfeature.DefaultFeatureGate.Enabled(features.ResourceReservation) {
+		t.Errorf("failed to set featuregate %s", features.ResourceReservation)
+	}
+
+	nameLabel := "name"
+	deployName := "reservation-test-deploy"
+
+	table := []struct {
+		name             string
+		sendPod          *v1.Pod
+		expectErrorPod   *v1.Pod
+		expectForgetPod  *v1.Pod
+		expectAssumedPod *v1.Pod
+		expectError      error
+		eventReason      string
+	}{
+		{
+			name:             "nil pod",
+			sendPod:          nil,
+			expectAssumedPod: nil,
+			eventReason:      "FailedScheduling",
+		},
+		{
+			name: "pod scheduled successfully",
+			sendPod: podWithAnnotationsAndLabels("foo", map[string]string{
+				podutil.AssumedNodeAnnotationKey:         testNode.Name,
+				constraints.HardConstraintsAnnotationKey: "a",
+				podutil.PodResourceTypeAnnotationKey:     string(podutil.GuaranteedPod),
+				podutil.PodLauncherAnnotationKey:         string(podutil.Kubelet),
+			},
+				map[string]string{
+					nameLabel: deployName,
+				},
+			),
+			expectAssumedPod: podAssumed(testNode.Name, podWithAnnotationsAndLabels("foo", map[string]string{
+				podutil.AssumedNodeAnnotationKey:         testNode.Name,
+				constraints.HardConstraintsAnnotationKey: "a",
+				podutil.PodResourceTypeAnnotationKey:     string(podutil.GuaranteedPod),
+				podutil.PodLauncherAnnotationKey:         string(podutil.Kubelet),
+			},
+				map[string]string{
+					nameLabel: deployName,
+				},
+			)),
+			eventReason: "Scheduled",
+		},
+	}
+
+	for _, item := range table {
+		t.Run(item.name, func(t *testing.T) {
+			var gotError error
+			var gotPod *v1.Pod
+			var gotForgetPod *v1.Pod
+			var gotAssumedPod *v1.Pod
+			pCache := &fakecache.Cache{
+				ForgetFunc: func(pod *v1.Pod) {
+					if _, ok := pod.Annotations[podutil.TraceContext]; ok {
+						delete(pod.Annotations, podutil.TraceContext)
+					}
+					gotForgetPod = pod
+				},
+				AssumeFunc: func(pod *v1.Pod) error {
+					if _, ok := pod.Annotations[podutil.TraceContext]; ok {
+						delete(pod.Annotations, podutil.TraceContext)
+					}
+					gotAssumedPod = pod
+					return nil
+				},
+				IsAssumedPodFunc: func(pod *v1.Pod) bool {
+					if pod == nil || gotAssumedPod == nil {
+						return false
+					}
+					return pod.UID == gotAssumedPod.UID
+				},
+				GetNodeInfoFunc: func(s string) framework.NodeInfo {
+					nInfo := framework.NewNodeInfo()
+					nInfo.SetNode(&testNode)
+					return nInfo
+				},
+				FindReservationPlaceHolderPodFunc: func(pod *v1.Pod) (*v1.Pod, error) {
+					return podutil.CreateReservationFakePod(pod), nil
+				},
+			}
+
+			var client *clientsetfake.Clientset
+			if item.sendPod != nil {
+				client = clientsetfake.NewSimpleClientset(item.sendPod)
+			} else {
+				client = clientsetfake.NewSimpleClientset()
+			}
+			crdClient := godelclientfake.NewSimpleClientset()
+
+			broadcaster := cmdutil.NewEventBroadcasterAdapter(client)
+			eventRecorder := broadcaster.NewRecorder(testSchedulerName)
+
+			binder := &Binder{
+				NextUnit: func() *framework.QueuedUnitInfo {
+					return &framework.QueuedUnitInfo{
+						ScheduleUnit: &framework.SinglePodUnit{
+							Pod: &framework.QueuedPodInfo{Pod: item.sendPod},
+						},
+						InitialAttemptTimestamp: time.Now(),
+					}
+				},
+				Error: func(p *framework.QueuedPodInfo, err error) {
+					gotPod = p.Pod
+					if _, ok := gotPod.Annotations[podutil.TraceContext]; ok {
+						delete(gotPod.Annotations, podutil.TraceContext)
+					}
+					gotError = err
+				},
+				BinderCache: pCache,
+				handle: NewFrameworkHandle(
+					client, crdClient,
+					informerFactory, crdinformers.NewSharedInformerFactory(crdClient, 0),
+					binderOptions{},
+					pCache, volumeBindingTimeoutSeconds,
+				),
+				recorder: eventRecorder,
+			}
+
+			// TODO: we added a rescheduled sleep here to avoid failure due to timing issue.
+			// However, to resolve this timing issue completely, we need to check if all the
+			// data is correctly populated and this needs further discussion in the future.
+			utils.SchedSleep(100 * time.Millisecond)
+			binder.CheckAndBindUnit(context.Background())
+			if e, a := item.expectAssumedPod, gotAssumedPod; !reflect.DeepEqual(e, a) {
+				t.Errorf("assumed pod: wanted %v, got %v", e, a)
+			}
+			if e, a := item.expectErrorPod, gotPod; !reflect.DeepEqual(e, a) {
+				t.Errorf("error pod: wanted %v, got %v", e, a)
+			}
+			if e, a := item.expectForgetPod, gotForgetPod; !reflect.DeepEqual(e, a) {
+				t.Errorf("forget pod: wanted %v, got %v", e, a)
+			}
+			if e, a := item.expectError, gotError; !reflect.DeepEqual(e, a) {
+				t.Errorf("error: wanted %v, got %v", e, a)
+			}
+		})
+	}
+
+	if err := gate.SetFromMap(map[string]bool{string(features.ResourceReservation): false}); err != nil {
+		t.Errorf("failed to set featuregate %s", features.ResourceReservation)
+	}
+	if utilfeature.DefaultFeatureGate.Enabled(features.ResourceReservation) {
+		t.Errorf("failed to set featuregate %s", features.ResourceReservation)
 	}
 }
 

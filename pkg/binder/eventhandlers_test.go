@@ -21,6 +21,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/informers"
+	clientsetfake "k8s.io/client-go/kubernetes/fake"
+
 	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	godelclientfake "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned/fake"
 	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
@@ -30,12 +37,6 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	podAnnotation "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
-	"github.com/stretchr/testify/assert"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/informers"
-	clientsetfake "k8s.io/client-go/kubernetes/fake"
 )
 
 var testSchedulerName = "test-scheduler"

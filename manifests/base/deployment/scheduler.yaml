@@ -36,13 +36,15 @@ spec:
             - "--v=4"
             - "--disable-preemption=false"
             - "--config=/config/scheduler.config"
+            - "--reservation-ttl=60"
+            - "--feature-gates=ResourceReservation=true"
           resources:
             limits:
-              cpu: "1"
-              memory: 1G
+              cpu: "0.5"
+              memory: 500Mi
             requests:
-              cpu: "1"
-              memory: 1G
+              cpu: "0.5"
+              memory: 500Mi
           volumeMounts:
             - mountPath: /config
               name: scheduler-config

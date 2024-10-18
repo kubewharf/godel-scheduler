@@ -27,6 +27,8 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/handle"
 	unitstatus "github.com/kubewharf/godel-scheduler/pkg/util/unitstatus"
+
+	corelister "k8s.io/client-go/listers/core/v1"
 )
 
 type MockUnitFrameworkHandle struct {
@@ -91,4 +93,8 @@ func (gs *MockUnitFrameworkHandle) IsAssumedPod(pod *v1.Pod) (bool, error) {
 
 func (gs *MockUnitFrameworkHandle) GetMaxWaitingDeletionDuration() time.Duration {
 	return 10 * time.Second
+}
+
+func (gs *MockUnitFrameworkHandle) PvcLister() corelister.PersistentVolumeClaimLister {
+	return nil
 }

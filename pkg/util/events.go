@@ -85,4 +85,6 @@ const (
 	PodGroupAdd = "PodGroupAdd"
 	// PodGroupUpdate is the event when a pod group is updated in the cluster.
 	PodGroupUpdate = "PodGroupUpdate"
+	// ReservationDelete is the event when a reservation is deleted in the cluster.
+	ReservationDelete = "ReservationDelete"
 )

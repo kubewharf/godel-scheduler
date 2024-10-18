@@ -30,6 +30,14 @@ type PodGroupListerExpansion interface{}
 // PodGroupNamespaceLister.
 type PodGroupNamespaceListerExpansion interface{}
 
+// ReservationListerExpansion allows custom methods to be added to
+// ReservationLister.
+type ReservationListerExpansion interface{}
+
+// ReservationNamespaceListerExpansion allows custom methods to be added to
+// ReservationNamespaceLister.
+type ReservationNamespaceListerExpansion interface{}
+
 // SchedulerListerExpansion allows custom methods to be added to
 // SchedulerLister.
 type SchedulerListerExpansion interface{}

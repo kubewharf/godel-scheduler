@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/clock"
 	clientset "k8s.io/client-go/kubernetes"
+	corelister "k8s.io/client-go/listers/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
@@ -277,6 +278,10 @@ func (gs *unitScheduler) FindStore(storeName commonstore.StoreName) commonstore.
 
 func (gs *unitScheduler) IsAssumedPod(pod *v1.Pod) (bool, error) {
 	return gs.Cache.IsAssumedPod(pod)
+}
+
+func (gs *unitScheduler) PvcLister() corelister.PersistentVolumeClaimLister {
+	return gs.pvcLister
 }
 
 // --------------------------------------------------- UnitScheduler ---------------------------------------------------

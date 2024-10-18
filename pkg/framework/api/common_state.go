@@ -19,9 +19,10 @@ package api
 import (
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/pkg/util/tracing"
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (

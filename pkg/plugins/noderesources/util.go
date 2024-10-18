@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 
@@ -62,7 +63,7 @@ type PodRequest struct {
 //	    Memory: 1G
 //
 // Result: CPU: 3, Memory: 3G
-func ComputePodResourceRequest(state *framework.CycleState, pod *v1.Pod) *PodRequest {
+func ComputePodResourceRequest(pod *v1.Pod) *PodRequest {
 	result := &PodRequest{}
 	for _, container := range pod.Spec.Containers {
 		result.Add(container.Resources.Requests)
@@ -78,7 +79,7 @@ func ComputePodResourceRequest(state *framework.CycleState, pod *v1.Pod) *PodReq
 		result.Add(pod.Spec.Overhead)
 	}
 
-	result.ResourceType, _ = framework.GetPodResourceType(state)
+	result.ResourceType, _ = podutil.GetPodResourceType(pod)
 	result.IgnorePodsLimit = podutil.IgnorePodsLimit(pod)
 	return result
 }
@@ -94,15 +95,22 @@ type InsufficientResource struct {
 	Capacity  int64
 }
 
-func FitsRequest(podRequest *PodRequest, nodeInfo framework.NodeInfo, ignoredExtendedResources, ignoredResourceGroups sets.String) []InsufficientResource {
+func FitsRequest(podRequest *PodRequest, nodeInfo framework.NodeInfo, ignoredExtendedResources, ignoredResourceGroups sets.String) *InsufficientResource {
 	switch podRequest.ResourceType {
 	case podutil.GuaranteedPod:
 		return fitsRequestCore(podRequest, nodeInfo.NumPods(), nodeInfo.GetGuaranteedAllocatable(), nodeInfo.GetGuaranteedRequested(), ignoredExtendedResources, ignoredResourceGroups)
+
 	case podutil.BestEffortPod:
 		return fitsRequestCore(podRequest, nodeInfo.NumPods(), nodeInfo.GetBestEffortAllocatable(), nodeInfo.GetBestEffortRequested(), ignoredExtendedResources, ignoredResourceGroups)
 	default:
 		return nil
 	}
+}
+
+const ErrReasonTooManyPods = "node(s) had too many pods"
+
+func ErrReasonRequestNotFitMessageFunc(request, resource string) string {
+	return "node(s) could not satisfy " + request + " " + resource + " " + "request"
 }
 
 func fitsRequestCore(
@@ -112,53 +120,56 @@ func fitsRequestCore(
 	requested *framework.Resource,
 	ignoredExtendedResources,
 	ignoredResourceGroups sets.String,
-) []InsufficientResource {
-	insufficientResources := make([]InsufficientResource, 0, 4)
-
+) *InsufficientResource {
 	allowedPodNumber := allocatable.AllowedPodNumber
 	if !podRequest.IgnorePodsLimit && podNumber+1 > allowedPodNumber {
-		insufficientResources = append(insufficientResources, InsufficientResource{
-			v1.ResourcePods,
-			"Too many pods",
-			1,
-			int64(podNumber),
-			int64(allowedPodNumber),
-		})
+		return &InsufficientResource{
+			ResourceName: v1.ResourcePods,
+			Reason:       ErrReasonTooManyPods,
+			Requested:    1,
+			Used:         int64(podNumber),
+			Capacity:     int64(allowedPodNumber),
+		}
 	}
 
 	if podRequest.MilliCPU == 0 &&
 		podRequest.Memory == 0 &&
 		podRequest.EphemeralStorage == 0 &&
 		len(podRequest.ScalarResources) == 0 {
-		return insufficientResources
+		return nil
 	}
 
 	if allocatable.MilliCPU < podRequest.MilliCPU+requested.MilliCPU {
-		insufficientResources = append(insufficientResources, InsufficientResource{
-			v1.ResourceCPU,
-			"Insufficient cpu",
-			podRequest.MilliCPU,
-			requested.MilliCPU,
-			allocatable.MilliCPU,
-		})
+		q := resource.NewMilliQuantity(podRequest.MilliCPU, resource.DecimalSI)
+		return &InsufficientResource{
+			ResourceName: v1.ResourceCPU,
+			Reason:       ErrReasonRequestNotFitMessageFunc(q.String(), string(v1.ResourceCPU)),
+			Requested:    podRequest.MilliCPU,
+			Used:         requested.MilliCPU,
+			Capacity:     allocatable.MilliCPU,
+		}
 	}
+
 	if allocatable.Memory < podRequest.Memory+requested.Memory {
-		insufficientResources = append(insufficientResources, InsufficientResource{
-			v1.ResourceMemory,
-			"Insufficient memory",
-			podRequest.Memory,
-			requested.Memory,
-			allocatable.Memory,
-		})
+		q := resource.NewQuantity(podRequest.Memory, resource.BinarySI)
+		return &InsufficientResource{
+			ResourceName: v1.ResourceMemory,
+			Reason:       ErrReasonRequestNotFitMessageFunc(q.String(), string(v1.ResourceMemory)),
+			Requested:    podRequest.Memory,
+			Used:         requested.Memory,
+			Capacity:     allocatable.Memory,
+		}
 	}
+
 	if allocatable.EphemeralStorage < podRequest.EphemeralStorage+requested.EphemeralStorage {
-		insufficientResources = append(insufficientResources, InsufficientResource{
-			v1.ResourceEphemeralStorage,
-			"Insufficient ephemeral-storage",
-			podRequest.EphemeralStorage,
-			requested.EphemeralStorage,
-			allocatable.EphemeralStorage,
-		})
+		q := resource.NewQuantity(podRequest.EphemeralStorage, resource.BinarySI)
+		return &InsufficientResource{
+			ResourceName: v1.ResourceEphemeralStorage,
+			Reason:       ErrReasonRequestNotFitMessageFunc(q.String(), string(v1.ResourceEphemeralStorage)),
+			Requested:    podRequest.EphemeralStorage,
+			Used:         requested.EphemeralStorage,
+			Capacity:     allocatable.EphemeralStorage,
+		}
 	}
 
 	for rName, rQuant := range podRequest.ScalarResources {
@@ -173,16 +184,20 @@ func fitsRequestCore(
 				continue
 			}
 		}
+
 		if allocatable.ScalarResources[rName] < rQuant+requested.ScalarResources[rName] {
-			insufficientResources = append(insufficientResources, InsufficientResource{
-				rName,
-				"Insufficient " + string(rName),
-				podRequest.ScalarResources[rName],
-				requested.ScalarResources[rName],
-				allocatable.ScalarResources[rName],
-			})
+			q := resource.NewQuantity(podRequest.ScalarResources[rName], resource.DecimalSI)
+			if v1helper.IsHugePageResourceName(rName) {
+				q = resource.NewQuantity(podRequest.ScalarResources[rName], resource.BinarySI)
+			}
+			return &InsufficientResource{
+				ResourceName: rName,
+				Reason:       ErrReasonRequestNotFitMessageFunc(q.String(), string(rName)),
+				Requested:    podRequest.ScalarResources[rName],
+				Used:         requested.ScalarResources[rName],
+				Capacity:     allocatable.ScalarResources[rName],
+			}
 		}
 	}
-
-	return insufficientResources
+	return nil
 }

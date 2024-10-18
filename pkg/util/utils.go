@@ -52,9 +52,7 @@ const (
 	PreemptionPolicyKey         = "godel.bytedance.com/preemption-policy"
 	ObjectNameField             = "metadata.name"
 	// hardcode GPU name here
-	// TODO: support more GPU names
-	ResourceGPU  v1.ResourceName = "nvidia.com/gpu"
-	ResourceNuma v1.ResourceName = "numa"
+
 	// Debug Level
 	DebugModeAnnotationKey = "godel.bytedance.com/debug-mode"
 	// Debug Mode ON
@@ -63,8 +61,6 @@ const (
 	DebugModeOff = "off"
 	// Node that the pod want to watch by node labels
 	WatchNodeNameLabelName = "godel.bytedance.com/watch-node-label"
-
-	ResourceSriov v1.ResourceName = "bytedance.com/sriov.nic"
 
 	SemicolonSeperator = ";"
 	CommaSeperator     = ","
@@ -140,12 +136,12 @@ func GetPodStartTime(pod *v1.Pod) *metav1.Time {
 }
 
 const (
-	deployNameKeyInPodLabels = "name"
+	DeployNameKeyInPodLabels = "name"
 )
 
 // TODO: if we support multiple controller kinds later, we need to get the controller name
 func GetDeployNameFromPod(pod *v1.Pod) string {
-	return pod.Labels[deployNameKeyInPodLabels]
+	return pod.Labels[DeployNameKeyInPodLabels]
 }
 
 // GetPodAffinityTerms gets pod affinity terms by a pod affinity object.

@@ -198,6 +198,24 @@ func (s *CommonStoresSwitchImpl) UpdatePodGroup(oldPodGroup, newPodGroup *schedu
 	return s.Range(func(s Store) error { return s.UpdatePodGroup(oldPodGroup, newPodGroup) })
 }
 
+func (s *CommonStoresSwitchImpl) AddReservation(prr *schedulingv1a1.Reservation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Range(func(s Store) error { return s.AddReservation(prr) })
+}
+
+func (s *CommonStoresSwitchImpl) UpdateReservation(oldPrr, newPrr *schedulingv1a1.Reservation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Range(func(s Store) error { return s.UpdateReservation(oldPrr, newPrr) })
+}
+
+func (s *CommonStoresSwitchImpl) DeleteReservation(prr *schedulingv1a1.Reservation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Range(func(s Store) error { return s.DeleteReservation(prr) })
+}
+
 func (s *CommonStoresSwitchImpl) AddPDB(pdb *policy.PodDisruptionBudget) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

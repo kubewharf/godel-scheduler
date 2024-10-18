@@ -146,6 +146,8 @@ type QueuedPodInfo struct {
 	QueueSpan *tracing.SpanInfo
 
 	OwnerReferenceKey string // TODO: revisit this.
+	// if this is true, we will remove fake pod and check conflicts.
+	ReservationFakePod *v1.Pod
 }
 
 // DeepCopy returns a deep copy of the QueuedPodInfo object.
