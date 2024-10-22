@@ -126,6 +126,8 @@ const (
 	DefaultAttemptImpactFactorOnPriority = 10.0
 
 	DefaultMaxWaitingDeletionDuration = 120
+
+	DefaultReservationTimeOutSeconds = 60
 )
 
 var DefaultBindAddress = net.JoinHostPort(DefaultGodelSchedulerAddress, strconv.Itoa(DefaultInsecureSchedulerPort))
@@ -168,6 +170,8 @@ type GodelSchedulerConfiguration struct {
 	Tracer *tracing.TracerConfiguration
 
 	SubClusterKey *string
+	// reserved resources will be released after a period of time.
+	ReservationTimeOutSeconds int64
 
 	// TODO: update the comment
 	// Profiles are scheduling profiles that kube-scheduler supports. Pods can

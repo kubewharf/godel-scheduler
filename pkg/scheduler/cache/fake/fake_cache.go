@@ -225,9 +225,13 @@ func (c *Cache) UpdateOwner(ownerType, ownerKey string, oldLabels, newLabels map
 	return nil
 }
 
-func (c *Cache) ScrapeCollectable(_ generationstore.RawStore) {
-}
+func (c *Cache) ScrapeCollectable(_ generationstore.RawStore) {}
 
 func (c *Cache) AddMovement(movement *schedulingv1a1.Movement) error                    { return nil }
 func (c *Cache) UpdateMovement(oldMovement, newMovement *schedulingv1a1.Movement) error { return nil }
 func (c *Cache) DeleteMovement(movement *schedulingv1a1.Movement) error                 { return nil }
+func (c *Cache) AddReservation(request *schedulingv1a1.Reservation) error               { return nil }
+func (c *Cache) UpdateReservation(oldRequest, newRequest *schedulingv1a1.Reservation) error {
+	return nil
+}
+func (c *Cache) DeleteReservation(request *schedulingv1a1.Reservation) error { return nil }

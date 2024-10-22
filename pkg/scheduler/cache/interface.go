@@ -19,6 +19,7 @@ package cache
 import (
 	v1 "k8s.io/api/core/v1"
 
+	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
@@ -117,4 +118,9 @@ type SchedulerCache interface {
 
 	// ScrapeCollectable updates store with cache.nodeStore incrementally
 	ScrapeCollectable(store generationstore.RawStore)
+
+	// for resource reservation.
+	AddReservation(request *schedulingv1a1.Reservation) error
+	UpdateReservation(oldRequest, newRequest *schedulingv1a1.Reservation) error
+	DeleteReservation(request *schedulingv1a1.Reservation) error
 }

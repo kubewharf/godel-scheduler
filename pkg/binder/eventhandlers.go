@@ -22,21 +22,23 @@ import (
 	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
-	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
-	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
-	v1 "k8s.io/api/core/v1"
-	policy "k8s.io/api/policy/v1"
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog/v2"
-
+	godelfeatures "github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	frameworkutils "github.com/kubewharf/godel-scheduler/pkg/framework/utils"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/pkg/util/tracing"
+	katalystv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
+
+	v1 "k8s.io/api/core/v1"
+	policy "k8s.io/api/policy/v1"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 )
 
 func (binder *Binder) addNodeToCache(obj interface{}) {
@@ -513,6 +515,49 @@ func (binder *Binder) onPdbDelete(obj interface{}) {
 	}
 }
 
+func (binder *Binder) addReservation(obj interface{}) {
+	req, ok := obj.(*schedulingv1a1.Reservation)
+	if !ok {
+		klog.InfoS("cannot convert to *scheduling.Reservation", "object", obj)
+		return
+	}
+	klog.V(4).InfoS("add event for Reservation", "reservation", podutil.GetReservationKey(req))
+	if err := binder.BinderCache.AddReservation(req); err != nil {
+		klog.InfoS("binder cache AddReservation failed", "reservation", podutil.GetReservationKey(req))
+		// TODO: set pod reservation request status to failed.
+	}
+}
+
+func (binder *Binder) updateReservation(oldObj, newObj interface{}) {
+	oldReq, ok := oldObj.(*schedulingv1a1.Reservation)
+	if !ok {
+		klog.InfoS("cannot convert to *scheduling.Reservation", "oldObj", oldObj)
+		return
+	}
+
+	newReq, ok := newObj.(*schedulingv1a1.Reservation)
+	if !ok {
+		klog.InfoS("cannot convert to *scheduling.Reservation", "newObj", newObj)
+		return
+	}
+	klog.V(4).InfoS("update event for Reservation", "reservation", podutil.GetReservationKey(newReq))
+	if err := binder.BinderCache.UpdateReservation(oldReq, newReq); err != nil {
+		klog.InfoS("binder cache UpdateReservation failed", "oldReservation", podutil.GetReservationKey(oldReq), "newReservation", podutil.GetReservationKey(newReq))
+	}
+}
+
+func (binder *Binder) deleteReservation(obj interface{}) {
+	req, ok := obj.(*schedulingv1a1.Reservation)
+	if !ok {
+		klog.InfoS("cannot convert to *scheduling.Reservation", "object", obj)
+		return
+	}
+	klog.V(4).InfoS("delete event for Reservation", "reservation", podutil.GetReservationKey(req))
+	if err := binder.BinderCache.DeleteReservation(req); err != nil {
+		klog.InfoS("binder cache DeleteReservation failed", "reservation", podutil.GetReservationKey(req))
+	}
+}
+
 // addAllEventHandlers is a helper function used in tests and in Prebinder
 // to add event handlers for various informers.
 func addAllEventHandlers(
@@ -580,4 +625,15 @@ func addAllEventHandlers(
 			DeleteFunc: binder.deletePodGroup,
 		},
 	)
+
+	// pod reservation request event.
+	if utilfeature.DefaultFeatureGate.Enabled(godelfeatures.ResourceReservation) {
+		crdInformerFactory.Scheduling().V1alpha1().Reservations().Informer().AddEventHandler(
+			cache.ResourceEventHandlerFuncs{
+				AddFunc:    binder.addReservation,
+				UpdateFunc: binder.updateReservation,
+				DeleteFunc: binder.deleteReservation,
+			},
+		)
+	}
 }

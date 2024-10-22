@@ -56,6 +56,13 @@ var (
 			Help:      "The capacity of one instance observed from node status.",
 		}, []string{pkgmetrics.SubClusterLabel, pkgmetrics.QosLabel, pkgmetrics.ResourceLabel, pkgmetrics.SchedulerLabel})
 
+	ClusterReservedResource = metrics.NewGaugeVec(
+		&metrics.GaugeOpts{
+			Subsystem: SchedulerSubsystem,
+			Name:      "cluster_reserved_resource",
+			Help:      "The capacity of reserved resource of node.",
+		}, []string{pkgmetrics.SubClusterLabel, pkgmetrics.QosLabel, pkgmetrics.ResourceLabel, pkgmetrics.SchedulerLabel})
+
 	NodeCounter = metrics.NewGaugeVec(
 		&metrics.GaugeOpts{
 			Subsystem: SchedulerSubsystem,

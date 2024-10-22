@@ -470,3 +470,152 @@ type MovementList struct {
 	// Items is the list of Movement
 	Items []Movement `json:"items"`
 }
+
+// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="NodeName",type=string,JSONPath=`.spec.nodename`
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Age",type=string,JSONPath=`.metadata.creationTimestamp`
+
+// Reservation details for a single Pod. It's also regarded as
+// a basic scheduling unit (like a pod) in a certain scenario.
+type Reservation struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// Standard object's metadata.
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// Spec defines the desired behavior of a Reservation.
+	// +optional
+	Spec ReservationSpec `json:"spec,omitempty"`
+
+	// Status describes the current status of a Reservation.
+	Status ReservationStatus `json:"status,omitempty"`
+}
+
+// ReservationList is a collection of ReservationLists.
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+type ReservationList struct {
+	metav1.TypeMeta `json:",inline"`
+	// Standard list metadata
+	// +optional
+	metav1.ListMeta `json:"metadata,omitempty"`
+
+	// Items is the list of Reservation
+	Items []Reservation `json:"items"`
+}
+
+// ReservationSpec defines the desired behavior of a Reservation.
+type ReservationSpec struct {
+	// Template is the template of Reservation.
+	Template Template `json:"template,omitempty"`
+
+	// NodeName indicates the node name which has been reserved.
+	NodeName string `json:"nodename,omitempty"`
+
+	// TimeToLive indicates the reservation time to live.
+	// When ttl is set, the reservation will be expired after ttl seconds.
+	TimeToLive *int64 `json:"ttl,omitempty"`
+}
+
+// Template is the template of Reservation.
+type Template struct {
+	// Spec the specification of desired behavior of Reservation.
+	Spec TemplateSpec `json:"spec,omitempty"`
+}
+
+// TemplateSpec reservation template indicates the reservation schedule requirement.
+// It's a subset of PodSpec.
+type TemplateSpec struct {
+	// SchedulerName indicates the scheduler name.
+	SchedulerName string `json:"schedulerName,omitempty"`
+
+	// Priority indicates the reservation schedule priority.
+	Priority *int32 `json:"priority,omitempty"`
+
+	// PriorityClassName indicates the priority class name.
+	PriorityClassName string `json:"priorityClassName,omitempty"`
+
+	// NodeSelector is a selector which must be true for the reservation to fit on a node.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// HostNetwork indicates whether the reservation is using host network.
+	HostNetwork bool `json:"hostNetwork,omitempty"`
+
+	// Affinity is a group of affinity scheduling rules.
+	Affinity *v1.Affinity `json:"affinity,omitempty"`
+
+	// Tolerations is a list of tolerations applied to reservation.
+	Tolerations []*v1.Toleration `json:"tolerations,omitempty"`
+
+	// InitContainers is a list of init containers belonging to the reservation.
+	InitContainers []*v1.Container `json:"initContainers,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+
+	// Containers is a list of containers belonging to the reservation.
+	Containers []*v1.Container `json:"containers" patchStrategy:"merge" patchMergeKey:"name"`
+}
+
+// ReservationStatus describes the current status of a Reservation.
+type ReservationStatus struct {
+	// Phase is the current phase of Reservation
+	Phase ReservationPhase `json:"phase,omitempty"`
+
+	// The conditions of Reservation.
+	// +optional
+	Conditions []ReservationCondition `json:"conditions,omitempty"`
+
+	// CurrentOwners marks the pod information that occupy the Reservation.
+	CurrentOwners CurrentOwners `json:"currentOwners,omitempty"`
+}
+
+// CurrentOwners indicate the owner pod information that occupy the Reservation.
+// When Reservation is matched, currentOwners is metadata of matched pod.
+type CurrentOwners struct {
+	// Name is the name of owner pod.
+	Name string `json:"name,omitempty"`
+	// Namespace is the namespace of owner pod.
+	Namespace string `json:"namespace,omitempty"`
+	// UID is the uid of owner pod.
+	UID types.UID `json:"uid,omitempty"`
+}
+
+// ReservationPhase is the current phase of Reservation
+type ReservationPhase string
+
+const (
+	// ResourceReserved resources reserved, only specific pods can get resources from reservation。
+	ResourceReserved ReservationPhase = "Reserved"
+	// ReservationMatched indicates that the pod has obtained reserved resources.
+	// and reservation no longer takes up resources anymore.
+	ReservationMatched ReservationPhase = "Matched"
+	// PendingForReserve pending, waiting for scheduling, resource will be reserved.
+	PendingForReserve ReservationPhase = "Pending"
+	// ReservationTimeOut if reservation is timeout, reserved resources will be released.
+	ReservationTimeOut ReservationPhase = "TimeOut"
+)
+
+// ReservationCondition contains details for the current state of this pod group.
+type ReservationCondition struct {
+	// Phase is the current phase of Reservation
+	Phase ReservationPhase `json:"phase,omitempty"`
+
+	// Status is the status of the condition.
+	Status v1.ConditionStatus `json:"status,omitempty"`
+
+	// Last time the phase transitioned from another to current phase.
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
+
+	// Unique, one-word, CamelCase reason for the phase's last transition.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// Human-readable message indicating details about last transition.
+	// +optional
+	Message string `json:"message,omitempty"`
+}

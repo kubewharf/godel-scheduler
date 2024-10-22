@@ -58,6 +58,9 @@ func ValidateGodelSchedulerConfiguration(cc *config.GodelSchedulerConfiguration)
 		if cc.SchedulerName == nil {
 			errs = append(errs, field.Required(field.NewPath("schedulerName"), ""))
 		}
+		if cc.ReservationTimeOutSeconds <= 0 {
+			errs = append(errs, field.Invalid(field.NewPath("ReservationTimeOutSeconds"), cc.ReservationTimeOutSeconds, "ReservationTimeOutSeconds == 0"))
+		}
 		// TODO: Restore the following logic.
 		// if cc.SubClusterKey == nil || len(*cc.SubClusterKey) == 0 {
 		// 	errs = append(errs, field.Required(field.NewPath("subClusterKey"), ""))

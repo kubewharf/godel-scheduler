@@ -17,6 +17,7 @@ limitations under the License.
 package pod
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -35,8 +36,10 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
+	schedulingv1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	"github.com/kubewharf/godel-scheduler/pkg/util/features"
+	volumeutil "github.com/kubewharf/godel-scheduler/pkg/volume/persistentvolume/util"
 )
 
 var applicationKind = "Application"
@@ -584,6 +587,14 @@ func maxResourceList(list, new v1.ResourceList) {
 	}
 }
 
+func GetPodUID(pod *v1.Pod) (string, error) {
+	uid := string(pod.UID)
+	if len(uid) == 0 {
+		return "", errors.New("empty pod uid")
+	}
+	return uid, nil
+}
+
 func GetPodKey(pod *v1.Pod) string {
 	return pod.Namespace + "/" + pod.Name
 }
@@ -785,31 +796,6 @@ func FilteringUpdate(
 	}
 }
 
-const PvcSelectedNodeAnnotation = "volume.kubernetes.io/selected-node"
-
-func IsPvcVolumeLocalPV(pvcLister corelisters.PersistentVolumeClaimLister, pvc string, pod *v1.Pod) (bool, string) {
-	if pod == nil {
-		return false, ""
-	}
-
-	claim, err := pvcLister.PersistentVolumeClaims(pod.GetNamespace()).Get(pvc)
-	if err != nil {
-		klog.InfoS("Failed to get pvc", "pvcName", pvc, "err", err)
-		return false, ""
-	}
-
-	if anno, ok := claim.Annotations[PvcSelectedNodeAnnotation]; !ok {
-		klog.InfoS("WARN: No selected-node annotation found on pvc", "pvcName", pvc)
-		return false, ""
-	} else if pod.Spec.NodeName != "" && anno != pod.Spec.NodeName {
-		// how to deal with this case?
-		klog.InfoS("WARN: PVC SelectedNode did not match with the current node")
-		return false, ""
-	} else {
-		return true, anno
-	}
-}
-
 func GetSchedulerNameForPod(pod *v1.Pod) string {
 	return pod.GetAnnotations()[SchedulerAnnotationKey]
 }
@@ -908,4 +894,346 @@ func CleanupPodAnnotations(client clientset.Interface, pod *v1.Pod) error {
 	podCopy.Annotations[PodStateAnnotationKey] = string(PodDispatched)
 
 	return util.PatchPod(client, pod, podCopy)
+}
+
+// --------------------- reservation related ---------------------
+
+const (
+	PodResourceReservationAnnotationForGodel = "godel.bytedance.com/reservation"
+	PodHasReservationRequirement             = "true"
+	PodResourceReservationAnnotation         = "pod.tce.kubernetes.io/reservation"
+	// In memory object annotation for reservation placeholderPod.
+	ReservationPlaceHolderPodAnnotation = "godel.bytedance.com/reservation-placeholder"
+	IsReservationPlaceHolderPods        = "true"
+	ReservationIndexAnnotation          = "godel.bytedance.com/reservation-index"
+	PlaceholderPodUIDAnno               = "godel.bytedance.com/placeholder-uid"
+	ReservationOwnerTypeAnno            = "godel.bytedance.com/reservation-owner-type"
+	ReservationOwnerNameAnno            = "godel.bytedance.com/reservation-owner"
+	ReservationOriginalPodNameAnno      = "godel.bytedance.com/reservation-original-pod"
+)
+
+func GetReservationIndex(pod *v1.Pod) string {
+	if pod == nil {
+		return ""
+	}
+
+	if pod.Annotations != nil && len(pod.Annotations[ReservationIndexAnnotation]) != 0 {
+		return pod.Annotations[ReservationIndexAnnotation]
+	}
+
+	return ""
+}
+
+// TODO: re-implement this, can not get deployment name from annotation
+func GetReservationPlaceholder(pod *v1.Pod) string {
+	if index := GetReservationIndex(pod); len(index) > 0 {
+		return index
+	}
+
+	// for different ownerreference, choose different placeholder.
+	var ph string
+	owner := metav1.GetControllerOf(pod)
+	// statefulset extension.
+	if owner != nil && owner.Kind == StatefulSetExtension {
+		// use owner name as placeholder.
+		ph = owner.Name
+		return ph
+	}
+
+	// deployment
+	ph = util.GetDeployNameFromPod(pod)
+	return ph
+}
+
+func IsPvcVolumeLocalPV(pvcLister corelisters.PersistentVolumeClaimLister, pvc string, pod *v1.Pod) (bool, string) {
+	if pod == nil {
+		return false, ""
+	}
+
+	claim, err := pvcLister.PersistentVolumeClaims(pod.GetNamespace()).Get(pvc)
+	if err != nil {
+		klog.InfoS("Failed to get pvc", "pvcName", pvc, "err", err)
+		return false, ""
+	}
+
+	if anno, ok := claim.Annotations[volumeutil.AnnSelectedNode]; !ok {
+		klog.InfoS("WARN: No selected-node annotation found on pvc", "pvcName", pvc)
+		return false, ""
+	} else if pod.Spec.NodeName != "" && anno != pod.Spec.NodeName {
+		// how to deal with this case?
+		klog.InfoS("WARN: PVC SelectedNode did not match with the current node")
+		return false, ""
+	} else {
+		return true, anno
+	}
+}
+
+func HasReservationRequirement(pod *v1.Pod) bool {
+	if pod == nil || pod.Annotations == nil {
+		return false
+	}
+	if val, ok := pod.Annotations[PodResourceReservationAnnotationForGodel]; ok && val == PodHasReservationRequirement {
+		return true
+	}
+	if val, ok := pod.Annotations[PodResourceReservationAnnotation]; ok && val == PodHasReservationRequirement {
+		return true
+	}
+
+	return false
+}
+
+func HasMatchedReservationPlaceholder(pod *v1.Pod) bool {
+	if pod == nil || pod.Annotations == nil {
+		return false
+	}
+	if val, ok := pod.Annotations[MatchedReservationPlaceholderKey]; ok && val != "" {
+		return true
+	}
+	return false
+}
+
+func IsReservationPlaceholderPod(pod *v1.Pod) bool {
+	if pod == nil || pod.Annotations == nil {
+		return false
+	}
+	if val, ok := pod.Annotations[ReservationPlaceHolderPodAnnotation]; ok && val == IsReservationPlaceHolderPods {
+		return true
+	}
+
+	return false
+}
+
+func GetSelectedNodeOfLpv(pvcLister corelisters.PersistentVolumeClaimLister, pod *v1.Pod) (nodename string) {
+	// pod with lpv
+	for _, volume := range pod.Spec.Volumes {
+		if volume.PersistentVolumeClaim == nil {
+			continue
+		}
+
+		// whether the volumes is localPV
+		ok, nodename := IsPvcVolumeLocalPV(pvcLister, volume.PersistentVolumeClaim.ClaimName, pod)
+		if !ok {
+			continue
+		}
+
+		return nodename
+	}
+	// pod without lpv
+	return nodename
+}
+
+func CreateReservationFakePodForAssume(pod *v1.Pod) *v1.Pod {
+	fakePod := CreateReservationFakePod(pod)
+	fakePod.Annotations[PodStateAnnotationKey] = string(PodAssumed)
+	fakePod.Annotations[AssumedNodeAnnotationKey] = fakePod.Spec.NodeName
+	// fakePod.Spec.NodeName = ""
+	return fakePod
+}
+
+func CreateReservationFakePod(pod *v1.Pod) *v1.Pod {
+	if pod == nil {
+		klog.InfoS("WARN: pod was nil")
+		return nil
+	}
+
+	fakePod := pod.DeepCopy()
+	removeTopologyInfoOnPlaceholder(fakePod)
+	injectPlaceholderInfo(fakePod, ReservationPlaceholderPostFix)
+	return fakePod
+}
+
+// TODO: make Reservation & fakepod relationship simple & clean.
+func ConstructReservationAccordingToPod(pod *v1.Pod, defaultTTL int64) (res *schedulingv1alpha1.Reservation, err error) {
+	if pod == nil {
+		return nil, fmt.Errorf("failed to construct podReservation request for nil pod")
+	}
+
+	// 1. set res spec
+	res = &schedulingv1alpha1.Reservation{
+		Spec: schedulingv1alpha1.ReservationSpec{
+			Template: schedulingv1alpha1.Template{
+				Spec: schedulingv1alpha1.TemplateSpec{
+					SchedulerName:     pod.Spec.SchedulerName,
+					PriorityClassName: pod.Spec.PriorityClassName,
+				},
+			},
+			NodeName: pod.Spec.NodeName,
+		},
+	}
+
+	templateSpec := &res.Spec.Template.Spec
+
+	templateSpec.Priority = new(int32)
+	if pod.Spec.Priority != nil {
+		*templateSpec.Priority = *pod.Spec.Priority
+	}
+	ttl := GetPodReservationTimeoutPeriod(pod)
+	if ttl == 0 {
+		ttl = defaultTTL
+	}
+	res.Spec.TimeToLive = &ttl
+
+	// resource in Spec
+	for _, c := range pod.Spec.Containers {
+		templateSpec.Containers = append(templateSpec.Containers, c.DeepCopy())
+	}
+
+	for _, ic := range pod.Spec.InitContainers {
+		templateSpec.InitContainers = append(templateSpec.InitContainers, ic.DeepCopy())
+	}
+
+	// 2.set annotations
+	res.Annotations = map[string]string{
+		ReservationIndexAnnotation:     GetReservationPlaceholder(pod),
+		PlaceholderPodUIDAnno:          string(pod.UID),
+		ReservationOriginalPodNameAnno: pod.Name,
+	}
+	// for model reservation
+	owner := metav1.GetControllerOf(pod)
+	if owner != nil {
+		res.Annotations[ReservationOwnerTypeAnno] = owner.Kind
+		res.Annotations[ReservationOwnerNameAnno] = owner.Name
+	}
+
+	// 3.set name & namespace
+	res.Name = pod.Name
+	res.Namespace = pod.Namespace
+
+	// TODO: owner\selector\mode\OriginalPod
+
+	return res, nil
+}
+
+func ConvertReservationToPod(res *schedulingv1alpha1.Reservation) *v1.Pod {
+	if res == nil {
+		return nil
+	}
+
+	// 1.set spec info
+	pc := *res.Spec.Template.Spec.Priority
+	templateSpec := res.Spec.Template.Spec
+	pod := &v1.Pod{
+		Spec: v1.PodSpec{
+			Containers:        make([]v1.Container, len(templateSpec.Containers)),
+			InitContainers:    make([]v1.Container, len(templateSpec.InitContainers)),
+			NodeName:          res.Spec.NodeName,
+			PriorityClassName: res.Spec.Template.Spec.PriorityClassName,
+			Priority:          &pc,
+			SchedulerName:     res.Spec.Template.Spec.SchedulerName,
+		},
+	}
+
+	// 2.set resources
+	for i, c := range templateSpec.Containers {
+		pod.Spec.Containers[i] = *c.DeepCopy()
+	}
+
+	for i, ic := range templateSpec.InitContainers {
+		pod.Spec.InitContainers[i] = *ic.DeepCopy()
+	}
+
+	// 3.set annotations
+	pod.Annotations = make(map[string]string, len(res.Annotations))
+
+	for k, v := range res.Annotations {
+		pod.Annotations[k] = v
+	}
+
+	// 4.UID, name & namespace
+	pod.Name = res.Name
+	pod.Namespace = res.Namespace
+	if res.Annotations != nil && len(res.Annotations[PlaceholderPodUIDAnno]) != 0 {
+		pod.UID = types.UID(res.Annotations[PlaceholderPodUIDAnno])
+	}
+
+	// 5.set placeholder information
+	injectPlaceholderInfo(pod, ReservationPlaceholderPostFix)
+	// TODO: queue information?
+
+	// TODO: add validation.
+	return pod
+}
+
+const ReservationPlaceholderPostFix = "-placeholder"
+
+func removeTopologyInfoOnPlaceholder(placeholder *v1.Pod) {
+	if placeholder == nil || placeholder.Annotations == nil {
+		return
+	}
+
+	delete(placeholder.Annotations, util.QoSLevelKey)
+	delete(placeholder.Annotations, util.MemoyEnhancementKey)
+	delete(placeholder.Annotations, util.NumaBindingKey)
+	delete(placeholder.Annotations, util.NumaExclusiveKey)
+}
+
+func injectPlaceholderInfo(pod *v1.Pod, ReservationPlaceholderPostFix string) {
+	pod.Name = pod.Name + ReservationPlaceholderPostFix
+	pod.UID = pod.UID + types.UID(ReservationPlaceholderPostFix)
+	pod.Annotations[ReservationPlaceHolderPodAnnotation] = "true"
+}
+
+func ShouldOccupyResources(res *schedulingv1alpha1.Reservation) bool {
+	if res == nil {
+		return false
+	}
+	if res.Spec.NodeName == "" {
+		return false
+	}
+	switch res.Status.Phase {
+	case schedulingv1alpha1.ReservationTimeOut:
+		return false
+	case schedulingv1alpha1.ReservationMatched:
+		return false
+	default:
+		return true
+	}
+}
+
+func GetPodReservationTimeoutPeriod(pod *v1.Pod) int64 {
+	if pod == nil || len(pod.Annotations) == 0 {
+		return 0
+	}
+
+	if value, ok := pod.Annotations[ReservationTTLKey]; ok {
+		ttl, err := strconv.ParseInt(value, 10, 64)
+		if err == nil {
+			return ttl
+		}
+	}
+
+	return 0
+}
+
+func GetMatchedReservationPlaceholderPod(pod *v1.Pod) string {
+	if len(pod.Annotations) == 0 {
+		return ""
+	}
+	if key, ok := pod.Annotations[MatchedReservationPlaceholderKey]; ok {
+		return key
+	} else {
+		return ""
+	}
+}
+
+func GetReservationKey(res *schedulingv1alpha1.Reservation) string {
+	if res == nil {
+		return ""
+	}
+	return res.Namespace + "/" + res.Name
+}
+
+func IsPlaceholderPod(p *v1.Pod) bool {
+	if p == nil || p.Annotations == nil {
+		return false
+	}
+	return p.Annotations[ReservationPlaceHolderPodAnnotation] == "true"
+}
+
+func GetPlaceholderFromReservation(res *schedulingv1alpha1.Reservation) string {
+	if res == nil || res.Annotations == nil {
+		return ""
+	}
+
+	return res.Annotations[ReservationIndexAnnotation]
 }

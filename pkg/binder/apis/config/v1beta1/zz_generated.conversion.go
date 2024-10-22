@@ -119,6 +119,7 @@ func autoConvert_v1beta1_GodelBinderConfiguration_To_config_GodelBinderConfigura
 	out.MetricsBindAddress = in.MetricsBindAddress
 	out.VolumeBindingTimeoutSeconds = in.VolumeBindingTimeoutSeconds
 	out.Tracer = (*tracing.TracerConfiguration)(unsafe.Pointer(in.Tracer))
+	out.ReservationTimeOutSeconds = in.ReservationTimeOutSeconds
 	out.Profile = (*config.GodelBinderProfile)(unsafe.Pointer(in.Profile))
 	return nil
 }
@@ -137,6 +138,7 @@ func autoConvert_config_GodelBinderConfiguration_To_v1beta1_GodelBinderConfigura
 	out.MetricsBindAddress = in.MetricsBindAddress
 	out.VolumeBindingTimeoutSeconds = in.VolumeBindingTimeoutSeconds
 	out.Tracer = (*tracing.TracerConfiguration)(unsafe.Pointer(in.Tracer))
+	out.ReservationTimeOutSeconds = in.ReservationTimeOutSeconds
 	out.Profile = (*GodelBinderProfile)(unsafe.Pointer(in.Profile))
 	return nil
 }

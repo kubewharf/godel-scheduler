@@ -34,14 +34,15 @@ spec:
             - "--leader-elect=false"
             - "--tracer=noop"
             - "--v=5"
-            - "--config=/config/binder.config"
+            - "--feature-gates=ResourceReservation=true"
+            - "--reservation-ttl=60"
           resources:
             limits:
-              cpu: "1"
-              memory: 1G
+              cpu: "0.5"
+              memory: 500Mi
             requests:
-              cpu: "1"
-              memory: 1G
+              cpu: "0.5"
+              memory: 500Mi
           volumeMounts:
             - mountPath: /config
               name: binder-config

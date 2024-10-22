@@ -71,6 +71,7 @@ type pausePodConfig struct {
 	PriorityClassName                 string
 	DeletionGracePeriodSeconds        *int64
 	TopologySpreadConstraints         []v1.TopologySpreadConstraint
+	SchedulerName                     string
 }
 
 var _ = SIGDescribe("SchedulingHardConstraints [Serial]", func() {

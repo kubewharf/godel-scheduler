@@ -657,3 +657,28 @@ func (rui *runningUnitInfo) getSchedulingTrace() tracing.SchedulingTrace {
 	)
 	return rui.trace
 }
+
+func (rui *runningUnitInfo) GetMatchedReservationFakePod() *v1.Pod {
+	podInfo := rui.queuedPodInfo
+	if podInfo == nil {
+		return nil
+	}
+
+	return podInfo.ReservationFakePod
+}
+
+func (rui *runningUnitInfo) SetMatchedReservationFakePod(fakePod *v1.Pod) {
+	podInfo := rui.queuedPodInfo
+	if podInfo == nil {
+		return
+	}
+	podInfo.ReservationFakePod = fakePod
+}
+
+func (rui *runningUnitInfo) ResetReservationFakePod() {
+	podInfo := rui.queuedPodInfo
+	if podInfo == nil {
+		return
+	}
+	podInfo.ReservationFakePod = nil
+}

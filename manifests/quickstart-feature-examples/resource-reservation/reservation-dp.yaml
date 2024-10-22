@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: res-dp
+  annotations:
+    godel.bytedance.com/reservation: "true"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      name: res-dp
+  template:
+    metadata:
+      labels:
+        name: res-dp
+      annotations:
+        godel.bytedance.com/pod-resource-type: guaranteed
+        godel.bytedance.com/pod-launcher: kubelet
+    spec:
+      terminationGracePeriodSeconds: 0
+      schedulerName: godel-scheduler
+      containers:
+        - name: nginx
+          image: nginx:1.14.2
+          resources:
+            requests:
+              cpu: 1
+              memory: 500Mi
+            limits:
+              cpu: 1
+              memory: 500Mi

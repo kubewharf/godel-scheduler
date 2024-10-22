@@ -22,7 +22,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 
+	godelfeatures "github.com/kubewharf/godel-scheduler/pkg/features"
 	"github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/pkg/util/splay"
@@ -258,6 +260,8 @@ type PodInfoMaintainer struct {
 	prioritiesSliceForGTPodsMayBePreempted []int64
 	// neverBePreempted holds all the pods that will never be preempted, whether it belongs to BE or GT.
 	neverBePreempted map[string]*PodInfo
+	// reserved for resource reservation feature.
+	reserved map[string]*PodInfo
 	// All pods that cannot pass the filter functions will never be preempted.
 	podFilters []podFilterFunc
 
@@ -270,6 +274,7 @@ func NewPodInfoMaintainer(pods ...*PodInfo) *PodInfoMaintainer {
 		bePodsMayBePreempted: splay.NewSplay(),
 		gtPodsMayBePreempted: splay.NewSplay(),
 		neverBePreempted:     make(map[string]*PodInfo),
+		reserved:             make(map[string]*PodInfo),
 
 		podsWithAffinity:             NewPodInfoSlice(),
 		podsWithRequiredAntiAffinity: NewPodInfoSlice(),
@@ -284,6 +289,10 @@ func NewPodInfoMaintainer(pods ...*PodInfo) *PodInfoMaintainer {
 		func(pi *PodInfo) bool {
 			return podutil.BoundPod(pi.Pod)
 		},
+		func(pi *PodInfo) bool {
+			// pod has reservation requirement should not be preempted.
+			return !podutil.IsReservationPlaceholderPod(pi.Pod)
+		},
 	}
 	for i := range pods {
 		m.AddPodInfo(pods[i])
@@ -293,6 +302,10 @@ func NewPodInfoMaintainer(pods ...*PodInfo) *PodInfoMaintainer {
 
 func (m *PodInfoMaintainer) Len() int {
 	return m.bePodsMayBePreempted.Len() + m.gtPodsMayBePreempted.Len() + len(m.neverBePreempted)
+}
+
+func (m *PodInfoMaintainer) ReservedPodsNum() int {
+	return len(m.reserved)
 }
 
 func (m *PodInfoMaintainer) GetPods() []*PodInfo {
@@ -318,6 +331,10 @@ func (m *PodInfoMaintainer) AddPodInfo(p *PodInfo) {
 		m.podsWithRequiredAntiAffinity.Add(p)
 	}
 
+	if utilfeature.DefaultFeatureGate.Enabled(godelfeatures.ResourceReservation) && podutil.IsReservationPlaceholderPod(p.Pod) {
+		m.reserved[p.PodKey] = p
+	}
+
 	for i := range m.podFilters {
 		if !m.podFilters[i](p) {
 			m.neverBePreempted[p.PodKey] = p
@@ -339,6 +356,10 @@ func (m *PodInfoMaintainer) RemovePodInfo(p *PodInfo) {
 	}
 	if podsWithRequiredAntiAffinity(p.Pod) {
 		m.podsWithRequiredAntiAffinity.Del(p)
+	}
+
+	if utilfeature.DefaultFeatureGate.Enabled(godelfeatures.ResourceReservation) && podutil.IsReservationPlaceholderPod(p.Pod) {
+		delete(m.reserved, p.PodKey)
 	}
 
 	if _, ok := m.neverBePreempted[p.PodKey]; ok {
@@ -364,6 +385,7 @@ func (m *PodInfoMaintainer) GetPodInfo(key string) *PodInfo {
 	if p, ok := m.neverBePreempted[key]; ok {
 		return p
 	}
+
 	obj := splay.NewStoredObjForLookup(key)
 	if o := m.gtPodsMayBePreempted.Get(obj); o != nil {
 		return o.(*PodInfo)
@@ -442,11 +464,17 @@ func (m *PodInfoMaintainer) Clone() *PodInfoMaintainer {
 	clone.prioritiesForBEPodsMayBePreempted = make(map[int64]int, len(m.prioritiesForBEPodsMayBePreempted))
 	clonePrioritiesForPodsMayBePreempted(clone.prioritiesSliceForBEPodsMayBePreempted, clone.prioritiesForBEPodsMayBePreempted, m.prioritiesForBEPodsMayBePreempted)
 
+	reserved := make(map[string]*PodInfo, len(m.reserved))
+	for k, v := range m.reserved {
+		reserved[k] = v
+	}
+
 	neverBePreempted := make(map[string]*PodInfo, len(m.neverBePreempted))
 	for k, v := range m.neverBePreempted {
 		neverBePreempted[k] = v
 	}
 	clone.neverBePreempted = neverBePreempted
+	clone.reserved = reserved
 	clone.podsWithAffinity = m.podsWithAffinity.Clone()
 	clone.podsWithRequiredAntiAffinity = m.podsWithRequiredAntiAffinity.Clone()
 	return clone

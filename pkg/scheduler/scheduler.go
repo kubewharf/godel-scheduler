@@ -78,6 +78,7 @@ type Scheduler struct {
 
 	podLister corelisters.PodLister
 	pgLister  v1alpha1.PodGroupLister
+	pvcLister corelisters.PersistentVolumeClaimLister
 
 	commonCache    godelcache.SchedulerCache
 	ScheduleSwitch ScheduleSwitch
@@ -103,6 +104,7 @@ func New(
 	katalystCrdInformerFactory katalystinformers.SharedInformerFactory,
 	stopCh <-chan struct{},
 	recorder events.EventRecorder,
+	reservationTTL time.Duration,
 	opts ...Option) (*Scheduler, error,
 ) {
 	// 1. Prepare Dependencies
@@ -118,13 +120,15 @@ func New(
 
 	podLister := informerFactory.Core().V1().Pods().Lister()
 	podInformer := informerFactory.Core().V1().Pods()
+	pvcLister := informerFactory.Core().V1().PersistentVolumeClaims().Lister()
+	pgLister := crdInformerFactory.Scheduling().V1alpha1().PodGroups().Lister()
 
 	mayHasPreemption := parseProfilesBoolConfiguration(options, profileNeedPreemption)
 
 	handlerWrapper := commoncache.MakeCacheHandlerWrapper().
 		ComponentName(godelSchedulerName).SchedulerType(*schedulerName).SubCluster(framework.DefaultSubCluster).
-		PodAssumedTTL(15 * time.Minute).Period(10 * time.Second).StopCh(stopEverything).
-		PodLister(podLister).PodInformer(podInformer)
+		PodAssumedTTL(15 * time.Minute).Period(10 * time.Second).ReservationTTL(reservationTTL).StopCh(stopEverything).
+		PodLister(podLister).PodInformer(podInformer).PVCLister(pvcLister)
 	if mayHasPreemption {
 		handlerWrapper.EnableStore(string(preemptionstore.Name))
 	}
@@ -143,7 +147,8 @@ func New(
 		options:                options,
 
 		podLister: podLister,
-		pgLister:  crdInformerFactory.Scheduling().V1alpha1().PodGroups().Lister(),
+		pgLister:  pgLister,
+		pvcLister: pvcLister,
 
 		commonCache: godelcache.New(handlerWrapper.Obj()),
 
@@ -248,6 +253,7 @@ func (sched *Scheduler) createDataSet(idx int, subCluster string, switchType fra
 		SubCluster(subCluster).SwitchType(switchType).
 		EnableStore(schedulerutil.FilterTrueKeys(subClusterConfig.EnableStore)...).
 		PodLister(sched.podLister).
+		PVCLister(sched.pvcLister).
 		Obj()
 	snapshot := godelcache.NewEmptySnapshot(handler)
 	podScheduler := podscheduler.NewPodScheduler(
@@ -291,7 +297,7 @@ func (sched *Scheduler) createDataSet(idx int, subCluster string, switchType fra
 		sched.client,
 		sched.crdClient,
 		sched.podLister,
-		sched.informerFactory.Core().V1().PersistentVolumeClaims().Lister(),
+		sched.pvcLister,
 		sched.pgLister,
 		sched.commonCache,
 		snapshot,

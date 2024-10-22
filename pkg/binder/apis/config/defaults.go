@@ -35,7 +35,8 @@ const (
 	// VolumeBindingTimeoutSeconds defines the default bind timeout
 	VolumeBindingTimeoutSeconds = 100
 
-	BinderDefaultLockObjectName = "binder"
+	BinderDefaultLockObjectName      = "binder"
+	DefaultReservationTimeOutSeconds = 60
 
 	// DefaultGodelBinderAddress is the default address for the scheduler status server.
 	// May be overridden by a flag at startup.
@@ -139,4 +140,7 @@ func SetDefaults_GodelBinderConfiguration(cfg *GodelBinderConfiguration) {
 	}
 
 	cfg.VolumeBindingTimeoutSeconds = VolumeBindingTimeoutSeconds
+	if cfg.ReservationTimeOutSeconds == 0 {
+		cfg.ReservationTimeOutSeconds = DefaultReservationTimeOutSeconds
+	}
 }

@@ -140,6 +140,9 @@ func SetDefaults_GodelSchedulerConfiguration(obj *GodelSchedulerConfiguration) {
 		if obj.Tracer == nil {
 			obj.Tracer = tracing.DefaultNoopOptions()
 		}
+		if obj.ReservationTimeOutSeconds <= 0 {
+			obj.ReservationTimeOutSeconds = config.DefaultReservationTimeOutSeconds
+		}
 	}
 	// 5. Godel Profiles
 	{

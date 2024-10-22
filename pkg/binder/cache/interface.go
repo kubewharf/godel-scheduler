@@ -100,4 +100,7 @@ type BinderCache interface {
 	RemoveDeletePodMarkerByKey(podKey, preemptorKey string) error
 	// check is pod is marked to delete
 	IsPodMarkedToDelete(pod *v1.Pod) (bool, error)
+
+	// for resource reservation
+	GetAvailablePlaceholderPod(pod *v1.Pod) (*v1.Pod, error)
 }

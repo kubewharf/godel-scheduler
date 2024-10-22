@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: godel-system
+  labels:
+    component: controller-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: controller-manager
+  template:
+    metadata:
+      labels:
+        app: controller-manager
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      serviceAccountName: godel
+      tolerations:
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: controller-manager
+          image: godel-local:latest
+          imagePullPolicy: Never
+          command: ["/usr/local/bin/controller"]
+          args:
+            - "--leader-elect=false"
+            - "--v=5"
+            - "--reservation-ttl=60"
+          resources:
+            limits:
+              cpu: "0.5"
+              memory: 500Mi
+            requests:
+              cpu: "0.5"
+              memory: 500Mi
