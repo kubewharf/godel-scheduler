@@ -24,6 +24,7 @@ Please refer to the below links for quick start guides on key features. Please n
 - [Preemption](./docs/features/preemption.md)
 - [Job Level Affinity](./docs/features/job-level-affinity.md)
 - [SubCluster Concurrent Scheduling](./docs/features/concurrent-scheduling.md)
+- [Resource Reservation](./docs/features/resource-reservation.md)
 
 ## Contribution Guide
 Please refer to [Contribution](CONTRIBUTING.md).
