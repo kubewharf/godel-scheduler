@@ -80,6 +80,10 @@ func (mfh *MockBinderFrameworkHandle) GetNodeInfo(nodeName string) framework.Nod
 	return mfh.cache.GetNodeInfo(nodeName)
 }
 
+func (mfh *MockBinderFrameworkHandle) ListNodeInfos() []framework.NodeInfo {
+	return mfh.cache.List()
+}
+
 func NewBinderFramework(pluginRegistry, preemptionPluginRegistry framework.PluginMap, basePlugins *apis.BinderPluginCollection) framework.BinderFramework {
 	return binderruntime.New(pluginRegistry, preemptionPluginRegistry, basePlugins)
 }

@@ -54,8 +54,6 @@ func init() {
 
 // ---------------------------------------------------------------------------------------
 
-var GlobalNodeInfoPlaceHolder = framework.NewNodeInfo()
-
 func nodeInfoBelongToSubCluster(n framework.NodeInfo, matchedSubCluster string) bool {
 	return matchedSubCluster == framework.DefaultSubCluster ||
 		n.GetNode() != nil && n.GetNode().Labels[framework.GetGlobalSubClusterKey()] == matchedSubCluster ||
@@ -413,7 +411,7 @@ func (cacheStore *NodeStore) UpdateSnapshot(store commonstore.Store) error {
 
 				if subClusterConcurrentSchedulingEnabled && !nodeInfoBelongToSubCluster(nodeInfo, subCluster) {
 					// ATTENTION: We should ensure that the `globalNodeInfoPlaceHolder` will not be added to nodeslice.
-					snapshotStore.Add(nodeName, GlobalNodeInfoPlaceHolder)
+					snapshotStore.Add(nodeName, framework.GlobalNodeInfoPlaceHolder)
 				} else {
 					// Use `s.Add` instead of `snapshot.Add` to maintain nodeSlices.
 					snapshotStore.Add(nodeName, nodeInfo.Clone())

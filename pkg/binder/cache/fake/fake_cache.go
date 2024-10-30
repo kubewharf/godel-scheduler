@@ -248,3 +248,7 @@ func (c *Cache) GetAvailablePlaceholderPod(
 	}
 	return nil, fmt.Errorf("empty store")
 }
+
+func (c *Cache) List() []framework.NodeInfo {
+	return nil
+}

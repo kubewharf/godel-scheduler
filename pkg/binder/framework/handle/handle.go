@@ -45,4 +45,6 @@ type BinderFrameworkHandle interface {
 	FindStore(storeName commonstore.StoreName) commonstore.Store
 
 	GetNodeInfo(string) framework.NodeInfo
+
+	ListNodeInfos() []framework.NodeInfo
 }

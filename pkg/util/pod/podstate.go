@@ -130,7 +130,8 @@ const (
 )
 
 var (
-	PodLauncherUnsupportError = fmt.Errorf("pod launcher only allow %v", []PodLauncher{Kubelet, NodeManager})
+	PodLanucherTypes          = []PodLauncher{Kubelet, NodeManager}
+	PodLauncherUnsupportError = fmt.Errorf("pod launcher only allow %v", PodLanucherTypes)
 	PodLauncherMissedError    = fmt.Errorf("missing pod launcher")
 )
 

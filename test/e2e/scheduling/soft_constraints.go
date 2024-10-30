@@ -33,8 +33,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 
+	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/interpodaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/nodeaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/nodepreferavoidpods"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/tainttoleration"
 	schedutil "github.com/kubewharf/godel-scheduler/pkg/util"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -43,6 +46,7 @@ import (
 	e2enode "github.com/kubewharf/godel-scheduler/test/e2e/framework/node"
 	e2epod "github.com/kubewharf/godel-scheduler/test/e2e/framework/pod"
 	e2erc "github.com/kubewharf/godel-scheduler/test/e2e/framework/rc"
+	e2eskipper "github.com/kubewharf/godel-scheduler/test/e2e/framework/skipper"
 	testutils "github.com/kubewharf/godel-scheduler/test/utils"
 	imageutils "github.com/kubewharf/godel-scheduler/test/utils/image"
 )
@@ -130,16 +134,22 @@ func removeAvoidPodsOffNode(c clientset.Interface, nodeName string) {
 // This test suite is used to verifies scheduler soft constraints functions
 var _ = SIGDescribe("SchedulingSoftConstraints [Serial]", func() {
 	var cs clientset.Interface
+	var fs godelclient.Interface
 	var nodeList *v1.NodeList
 	var systemPodsNo int
 	var ns string
 	f := framework.NewDefaultFramework("sched-priority")
 
 	ginkgo.AfterEach(func() {
+		for _, node := range nodeList.Items {
+			err := fs.NodeV1alpha1().NMNodes().Delete(context.TODO(), node.Name, metav1.DeleteOptions{})
+			framework.ExpectNoError(err)
+		}
 	})
 
 	ginkgo.BeforeEach(func() {
 		cs = f.ClientSet
+		fs = f.Godelclient
 		ns = f.Namespace.Name
 		nodeList = &v1.NodeList{}
 		var err error
@@ -151,97 +161,225 @@ var _ = SIGDescribe("SchedulingSoftConstraints [Serial]", func() {
 		}
 		framework.ExpectNoErrorWithOffset(0, err)
 
+		for _, node := range nodeList.Items {
+			nmnode := GetNMNodeTemplateByNode(&node)
+			_, err := fs.NodeV1alpha1().NMNodes().Create(context.TODO(), nmnode, metav1.CreateOptions{})
+			framework.ExpectNoError(err)
+		}
+
 		err = framework.CheckTestingNSDeletedExcept(cs, ns)
 		framework.ExpectNoError(err)
 		err = e2epod.WaitForPodsRunningReady(cs, metav1.NamespaceSystem, int32(systemPodsNo), 0, framework.PodReadyBeforeTimeout, map[string]string{})
 		framework.ExpectNoError(err)
 	})
 
-	// TODO interpodaffinity plugin should be supported
-	// ginkgo.It("Pod should be scheduled to node that don't match the PodAntiAffinity terms", func() {
+	// Create a pod with a label and then create a pod with preferred podAntiAffinity terms that match the label.
+	// Verify that the pod is not scheduled to the node that the first pod is scheduled to.
+	ginkgo.It("Pod should be scheduled to node that don't match the PodAntiAffinity terms", func() {
 
-	// 	e2eskipper.SkipUnlessNodeCountIsAtLeast(2)
+		e2eskipper.SkipUnlessNodeCountIsAtLeast(2)
 
-	// 	ginkgo.By("Trying to launch a pod with a label to get a node which can launch it.")
-	// 	pod := runPausePod(f, pausePodConfig{
-	// 		Name:        "pod-with-label-security-s1",
-	// 		Annotations: GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet),
-	// 		Labels:      map[string]string{"security": "S1"},
-	// 	})
-	// 	nodeName := pod.Spec.NodeName
+		ginkgo.By("Trying to launch a pod with a label to get a node which can launch it.")
+		pod := runPausePod(f, pausePodConfig{
+			Name:        "pod-with-label-security-s1",
+			Annotations: GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet),
+			Labels:      map[string]string{"security": "S1"},
+		})
+		nodeName := pod.Spec.NodeName
 
-	// 	k := v1.LabelHostname
-	// 	ginkgo.By("Verifying the node has a label " + k)
-	// 	node, err := cs.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
-	// 	framework.ExpectNoError(err)
-	// 	if _, hasLabel := node.Labels[k]; !hasLabel {
-	// 		// If the label is not exists, label all nodes for testing.
+		k := v1.LabelHostname
+		ginkgo.By("Verifying the node has a label " + k)
+		node, err := cs.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+		framework.ExpectNoError(err)
+		if _, hasLabel := node.Labels[k]; !hasLabel {
+			// If the label is not exists, label all nodes for testing.
 
-	// 		ginkgo.By("Trying to apply a label on the found node.")
-	// 		k = "kubernetes.io/e2e-node-topologyKey"
-	// 		v := "topologyvalue1"
-	// 		framework.AddOrUpdateLabelOnNode(cs, nodeName, k, v)
-	// 		framework.ExpectNodeHasLabel(cs, nodeName, k, v)
-	// 		defer framework.RemoveLabelOffNode(cs, nodeName, k)
+			ginkgo.By("Trying to apply a label on the found node.")
+			k = "kubernetes.io/e2e-node-topologyKey"
+			v := "topologyvalue1"
+			framework.AddOrUpdateLabelOnNode(cs, nodeName, k, v)
+			framework.ExpectNodeHasLabel(cs, nodeName, k, v)
+			defer framework.RemoveLabelOffNode(cs, nodeName, k)
 
-	// 		ginkgo.By("Trying to apply a label on other nodes.")
-	// 		v = "topologyvalue2"
-	// 		for _, node := range nodeList.Items {
-	// 			if node.Name != nodeName {
-	// 				framework.AddOrUpdateLabelOnNode(cs, node.Name, k, v)
-	// 				framework.ExpectNodeHasLabel(cs, node.Name, k, v)
-	// 				defer framework.RemoveLabelOffNode(cs, node.Name, k)
-	// 			}
-	// 		}
-	// 	}
+			ginkgo.By("Trying to apply a label on other nodes.")
+			v = "topologyvalue2"
+			for _, node := range nodeList.Items {
+				if node.Name != nodeName {
+					framework.AddOrUpdateLabelOnNode(cs, node.Name, k, v)
+					framework.ExpectNodeHasLabel(cs, node.Name, k, v)
+					defer framework.RemoveLabelOffNode(cs, node.Name, k)
+				}
+			}
+		}
 
-	// 	// make the nodes have balanced cpu,mem usage
-	// 	err = createBalancedPodForNodes(f, cs, ns, nodeList.Items, podRequestedResource, 0.6)
-	// 	framework.ExpectNoError(err)
-	// 	ginkgo.By("Trying to launch the pod with podAntiAffinity.")
-	// 	labelPodName := "pod-with-pod-antiaffinity"
-	// 	pod = createPausePod(f, pausePodConfig{
-	// 		Resources:   podRequestedResource,
-	// 		Name:        labelPodName,
-	// 		Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{nodeaffinity.Name}),
-	// 		Affinity: &v1.Affinity{
-	// 			PodAntiAffinity: &v1.PodAntiAffinity{
-	// 				PreferredDuringSchedulingIgnoredDuringExecution: []v1.WeightedPodAffinityTerm{
-	// 					{
-	// 						PodAffinityTerm: v1.PodAffinityTerm{
-	// 							LabelSelector: &metav1.LabelSelector{
-	// 								MatchExpressions: []metav1.LabelSelectorRequirement{
-	// 									{
-	// 										Key:      "security",
-	// 										Operator: metav1.LabelSelectorOpIn,
-	// 										Values:   []string{"S1", "value2"},
-	// 									},
-	// 									{
-	// 										Key:      "security",
-	// 										Operator: metav1.LabelSelectorOpNotIn,
-	// 										Values:   []string{"S2"},
-	// 									}, {
-	// 										Key:      "security",
-	// 										Operator: metav1.LabelSelectorOpExists,
-	// 									},
-	// 								},
-	// 							},
-	// 							TopologyKey: k,
-	// 							Namespaces:  []string{ns},
-	// 						},
-	// 						Weight: 10,
-	// 					},
-	// 				},
-	// 			},
-	// 		},
-	// 	})
-	// 	ginkgo.By("Wait the pod becomes running")
-	// 	framework.ExpectNoError(e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name))
-	// 	labelPod, err := cs.CoreV1().Pods(ns).Get(context.TODO(), labelPodName, metav1.GetOptions{})
-	// 	framework.ExpectNoError(err)
-	// 	ginkgo.By("Verify the pod was scheduled to the expected node.")
-	// 	framework.ExpectNotEqual(labelPod.Spec.NodeName, nodeName)
-	// })
+		// make the nodes have balanced cpu,mem usage
+		ginkgo.By("Trying to create balanced pods for all nodes.")
+		err = createBalancedPodForNodes(f, cs, ns, nodeList.Items, podRequestedResource, 0.6)
+		framework.ExpectNoError(err)
+		ginkgo.By("Trying to launch the pod with podAntiAffinity.")
+		labelPodName := "pod-with-pod-antiaffinity"
+		pod = createPausePod(f, pausePodConfig{
+			Resources: podRequestedResource,
+			Name:      labelPodName,
+			Annotations: WithSoftConstraints(
+				WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet),
+					[]string{interpodaffinity.Name}), []string{interpodaffinity.Name}),
+			Affinity: &v1.Affinity{
+				PodAntiAffinity: &v1.PodAntiAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: []v1.WeightedPodAffinityTerm{
+						{
+							PodAffinityTerm: v1.PodAffinityTerm{
+								LabelSelector: &metav1.LabelSelector{
+									MatchExpressions: []metav1.LabelSelectorRequirement{
+										{
+											Key:      "security",
+											Operator: metav1.LabelSelectorOpIn,
+											Values:   []string{"S1", "value2"},
+										},
+										{
+											Key:      "security",
+											Operator: metav1.LabelSelectorOpNotIn,
+											Values:   []string{"S2"},
+										}, {
+											Key:      "security",
+											Operator: metav1.LabelSelectorOpExists,
+										},
+									},
+								},
+								TopologyKey: k,
+								Namespaces:  []string{ns},
+							},
+							Weight: 10,
+						},
+					},
+				},
+			},
+		})
+		ginkgo.By("Wait the pod becomes running")
+		framework.ExpectNoError(e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name))
+		labelPod, err := cs.CoreV1().Pods(ns).Get(context.TODO(), labelPodName, metav1.GetOptions{})
+		framework.ExpectNoError(err)
+		ginkgo.By("Verify the pod was scheduled to the expected node.")
+		framework.ExpectNotEqual(labelPod.Spec.NodeName, nodeName)
+	})
+
+	// Create a pod[node-manager] with a label and then create a pod[kubelet] with preferred podAntiAffinity terms that match the label.
+	// Verify that the pod is not scheduled to the node that the first pod is scheduled to.
+	ginkgo.It("Pod should be scheduled to node that don't match the PodAntiAffinity terms for mix of nmnodes and nodes", func() {
+
+		e2eskipper.SkipUnlessNodeCountIsAtLeast(2)
+
+		ginkgo.By("Trying to launch a pod with a label to get a node which can launch it.")
+		pod := runPausePod(f, pausePodConfig{
+			Name:        "pod-with-label-security-s1",
+			Annotations: GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager),
+			Labels:      map[string]string{"security": "S1"},
+		})
+		nodeName := pod.Spec.NodeName
+
+		// make the nodes have balanced cpu,mem usage
+		ginkgo.By("Trying to create balanced pods for all nodes.")
+		err := createBalancedPodForNodes(f, cs, ns, nodeList.Items, podRequestedResource, 0.6)
+		framework.ExpectNoError(err)
+		ginkgo.By("Trying to launch the pod with podAntiAffinity.")
+		labelPodName := "pod-with-pod-antiaffinity"
+		pod = createPausePod(f, pausePodConfig{
+			Resources: podRequestedResource,
+			Name:      labelPodName,
+			Annotations: WithSoftConstraints(
+				WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet),
+					[]string{interpodaffinity.Name}), []string{interpodaffinity.Name}),
+			Affinity: &v1.Affinity{
+				PodAntiAffinity: &v1.PodAntiAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: []v1.WeightedPodAffinityTerm{
+						{
+							PodAffinityTerm: v1.PodAffinityTerm{
+								LabelSelector: &metav1.LabelSelector{
+									MatchExpressions: []metav1.LabelSelectorRequirement{
+										{
+											Key:      "security",
+											Operator: metav1.LabelSelectorOpIn,
+											Values:   []string{"S1", "value2"},
+										},
+										{
+											Key:      "security",
+											Operator: metav1.LabelSelectorOpNotIn,
+											Values:   []string{"S2"},
+										}, {
+											Key:      "security",
+											Operator: metav1.LabelSelectorOpExists,
+										},
+									},
+								},
+								TopologyKey: v1.LabelHostname,
+								Namespaces:  []string{ns},
+							},
+							Weight: 10,
+						},
+					},
+				},
+			},
+		})
+		ginkgo.By("Wait the pod becomes running")
+		framework.ExpectNoError(e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name))
+		labelPod, err := cs.CoreV1().Pods(ns).Get(context.TODO(), labelPodName, metav1.GetOptions{})
+		framework.ExpectNoError(err)
+		ginkgo.By("Verify the pod was scheduled to the expected node.")
+		framework.ExpectNotEqual(labelPod.Spec.NodeName, nodeName)
+	})
+
+	// Create as many pods as the number of nodes with pod topology sprea constrain (MaxSkew = 1) and check whether they are evenly scheduled on each node.
+	ginkgo.It("Pod should be evenly scheduled to node that match the preferred pod topology spread constraint", func() {
+
+		e2eskipper.SkipUnlessNodeCountIsAtLeast(2)
+
+		testLabelKey := "godel.bytedance.com/test-label-preferred-pod-topology"
+		testLabelValue := "test-value-pod-topology"
+		nodeListNames := make([]string, 0, len(nodeList.Items))
+		for _, node := range nodeList.Items {
+			nodeListNames = append(nodeListNames, node.Name)
+			ginkgo.By(fmt.Sprintf("node %s has label %s=%s", node.Name, v1.LabelHostname, node.Labels[v1.LabelHostname]))
+		}
+		scheduledNodeNames := make([]string, 0, len(nodeListNames))
+
+		// make the nodes have balanced cpu,mem usage
+		ginkgo.By("Trying to create balanced pods for all nodes.")
+		err := createBalancedPodForNodes(f, cs, ns, nodeList.Items, podRequestedResource, 0.6)
+		framework.ExpectNoError(err)
+		ginkgo.By(fmt.Sprintf("Trying to launch %d pod with preferred pod topology spread constraints evenly.", len(nodeList.Items)))
+		for i := 0; i < len(nodeListNames); i++ {
+			pod := createPausePod(f, pausePodConfig{
+				// Because the github ci machine has limited resources, the kind-control-plane node does not have enough resources
+				// So we don't set the resource requests and limits for the pod
+				// Resources: podRequestedResource,
+				Name:   "topology-spread-pod-" + string(uuid.NewUUID()),
+				Labels: map[string]string{testLabelKey: testLabelValue},
+				Annotations: WithSoftConstraints(
+					WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet),
+						[]string{podtopologyspread.Name}), []string{podtopologyspread.Name}),
+				TopologySpreadConstraints: []v1.TopologySpreadConstraint{
+					{
+						MaxSkew:           1,
+						TopologyKey:       v1.LabelHostname,
+						WhenUnsatisfiable: v1.ScheduleAnyway,
+						LabelSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{testLabelKey: testLabelValue},
+						},
+					},
+				},
+			})
+
+			ginkgo.By("Wait the pod becomes running")
+			framework.ExpectNoError(e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name))
+			scheduledPod, err := cs.CoreV1().Pods(ns).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+			framework.ExpectNoError(err)
+			scheduledNodeNames = append(scheduledNodeNames, scheduledPod.Spec.NodeName)
+			ginkgo.By(fmt.Sprintf("Pod %s was scheduled to node %s", pod.Name, scheduledPod.Spec.NodeName))
+		}
+
+		ginkgo.By("Verify the pod was evenly scheduled to the nodes.")
+		framework.ExpectConsistOf(scheduledNodeNames, nodeListNames)
+	})
 
 	ginkgo.It("Pod should avoid nodes that have avoidPod annotation", func() {
 		nodeName := nodeList.Items[0].Name
@@ -304,6 +442,69 @@ var _ = SIGDescribe("SchedulingSoftConstraints [Serial]", func() {
 		for _, pod := range testPods.Items {
 			framework.ExpectNotEqual(pod.Spec.NodeName, nodeName)
 		}
+	})
+
+	// Create as many pods as the number of nodes with pod topology sprea constrain (MaxSkew = 1) and check whether they are evenly scheduled on each node.
+	ginkgo.It("Pod that match the preferred pod topology spread constraint should be evenly scheduled to nmnodes and nodes", func() {
+
+		e2eskipper.SkipUnlessNodeCountIsAtLeast(2)
+
+		testLabelKey := "godel.bytedance.com/test-label-preferred-pod-topology"
+		testLabelValue := "test-value-pod-topology"
+		nodeListNames := make([]string, 0, len(nodeList.Items))
+		for _, node := range nodeList.Items {
+			nodeListNames = append(nodeListNames, node.Name)
+			ginkgo.By(fmt.Sprintf("node %s has label %s=%s", node.Name, v1.LabelHostname, node.Labels[v1.LabelHostname]))
+		}
+		scheduledNodeNames := make([]string, 0, len(nodeListNames))
+
+		// make the nodes have balanced cpu,mem usage
+		ginkgo.By("Trying to create balanced pods for all nodes.")
+		err := createBalancedPodForNodes(f, cs, ns, nodeList.Items, podRequestedResource, 0.6)
+		framework.ExpectNoError(err)
+		ginkgo.By(fmt.Sprintf("Trying to launch %d pod with preferred pod topology spread constraints evenly.", len(nodeList.Items)))
+		for i := 0; i < len(nodeListNames); i++ {
+			pod := createPausePod(f, pausePodConfig{
+				// Because the github ci machine has limited resources, the kind-control-plane node does not have enough resources
+				// So we don't set the resource requests and limits for the pod
+				// Resources: podRequestedResource,
+				Name:   "topology-spread-pod-" + string(uuid.NewUUID()),
+				Labels: map[string]string{testLabelKey: testLabelValue},
+				Annotations: WithSoftConstraints(
+					WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet),
+						[]string{podtopologyspread.Name}), []string{podtopologyspread.Name}),
+				TopologySpreadConstraints: []v1.TopologySpreadConstraint{
+					{
+						MaxSkew:           1,
+						TopologyKey:       v1.LabelHostname,
+						WhenUnsatisfiable: v1.ScheduleAnyway,
+						LabelSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{testLabelKey: testLabelValue},
+						},
+					},
+				},
+			})
+
+			if i%2 == 0 {
+				pod.Annotations = WithSoftConstraints(
+					WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager),
+						[]string{podtopologyspread.Name}), []string{podtopologyspread.Name})
+			} else {
+				pod.Annotations = WithSoftConstraints(
+					WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet),
+						[]string{podtopologyspread.Name}), []string{podtopologyspread.Name})
+			}
+
+			ginkgo.By("Wait the pod becomes running")
+			framework.ExpectNoError(e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name))
+			scheduledPod, err := cs.CoreV1().Pods(ns).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+			framework.ExpectNoError(err)
+			scheduledNodeNames = append(scheduledNodeNames, scheduledPod.Spec.NodeName)
+			ginkgo.By(fmt.Sprintf("Pod %s was scheduled to node %s", pod.Name, scheduledPod.Spec.NodeName))
+		}
+
+		ginkgo.By("Verify the pod was evenly scheduled to the nodes.")
+		framework.ExpectConsistOf(scheduledNodeNames, nodeListNames)
 	})
 
 	ginkgo.It("Pod should be preferably scheduled to nodes pod can tolerate[Tolerate]", func() {

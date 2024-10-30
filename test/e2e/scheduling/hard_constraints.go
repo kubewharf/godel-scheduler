@@ -22,6 +22,7 @@ import (
 	"time"
 
 	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
+	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
 	"github.com/onsi/ginkgo"
 	_ "github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
@@ -34,8 +35,11 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	k8utilnet "k8s.io/utils/net"
 
+	nodev1alpha1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/config"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/interpodaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/nodeaffinity"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/podtopologyspread"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/plugins/tainttoleration"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/test/e2e/framework"
@@ -76,6 +80,7 @@ type pausePodConfig struct {
 
 var _ = SIGDescribe("SchedulingHardConstraints [Serial]", func() {
 	var cs clientset.Interface
+	var fs godelclient.Interface
 	var nodeList *v1.NodeList
 	var RCName string
 	var ns string
@@ -92,6 +97,7 @@ var _ = SIGDescribe("SchedulingHardConstraints [Serial]", func() {
 
 	ginkgo.BeforeEach(func() {
 		cs = f.ClientSet
+		fs = f.Godelclient
 		ns = f.Namespace.Name
 		nodeList = &v1.NodeList{}
 		var err error
@@ -781,21 +787,450 @@ var _ = SIGDescribe("SchedulingHardConstraints [Serial]", func() {
 		verifyResult(cs, 0, 1, ns)
 	})
 
-	// TODO InterPodAffinity plugin is needed
+	// Test scenario:
+	// 1. Find 2 nodes to run pods, add same extra resource to the nodes.
+	// 2. Create one basicPod with two label and set its node name to the first node that needs 20% of the extra resource.
+	// 3. Wait for the pods to be scheduled.
+	// 4. Create one affinityPod with inter-pod affinity to the basicPod by label[0] that needs 20% of the extra resource.
+	// 5. Make sure the affinityPod is scheduled to the first node as same as basicPod.
+	// 6. Create one antiAffinityPod with inter-pod anti affinity to the basicPod by label[1] that needs 20% of the extra resource.
+	// 7. Make sure the antiAffinityPod is scheduled to the second node.
+	// 8. Create one failedPod with label[1] that needs 70% of the extra resource.
+	// 9. Make sure the failedPod is not scheduled becaues it only can be scheduled to the node1 due to antiAffinityPod's anti affinity.
+	//    But the node1 haven't enough resource.
+	// 10. Create one successPod with label[0] that needs 70% of the extra resource.
+	// 11. Make sure the successPod is scheduled to the second node, because it isn't affected by any inter-pod affinity.
 	/*
 		Testname: Scheduling pods with inter-pod affinity matching
-		Description: TODO
+		Description: Scheduling MUST meet inter-pod affinity requirements and scheduling pods MUST fail if no resource meets the specified pod
 	*/
-	//framework.ConformanceIt("", func() {
-	//})
+	ginkgo.Context("validates pod scheduling fits inter-pod affinity[requiredDuringSchedulingIgnoredDuringExecution]", func() {
+		testLabelKeys := []string{"godel.bytedance.com/test-label1", "godel.bytedance.com/test-label2"}
+		testLabelValues := []string{"test", "foo"}
+		var beardsecond v1.ResourceName = "example.com/beardsecond"
+		var nodeNames []string
 
-	// TODO InterPodAffinity plugin is needed
+		ginkgo.BeforeEach(func() {
+			WaitForStableCluster(cs, workerNodes)
+			ginkgo.By("cluster is stable")
+			nodeNames = Get2NodesThatCanRunPod(f)
+
+			ginkgo.By("Set fake resource-" + nodeNames[0] + "-" + nodeNames[1])
+			// Get node object:
+			for _, testNodeName := range nodeNames {
+				node, err := cs.CoreV1().Nodes().Get(context.TODO(), testNodeName, metav1.GetOptions{})
+				framework.ExpectNoError(err, "unable to get node object for node %v", testNodeName)
+
+				nodeCopy := node.DeepCopy()
+				nodeCopy.ResourceVersion = "0"
+
+				nodeCopy.Status.Capacity[beardsecond] = resource.MustParse("1000")
+				_, err = cs.CoreV1().Nodes().UpdateStatus(context.TODO(), nodeCopy, metav1.UpdateOptions{})
+				framework.ExpectNoError(err, "unable to apply fake resource to %v", testNodeName)
+			}
+		})
+
+		ginkgo.AfterEach(func() {
+			ginkgo.By("Remove fake resource")
+			for _, testNodeName := range nodeNames {
+				// remove fake resource:
+				if testNodeName != "" {
+					// Get node object:
+					node, err := cs.CoreV1().Nodes().Get(context.TODO(), testNodeName, metav1.GetOptions{})
+					framework.ExpectNoError(err, "unable to get node object for node %v", testNodeName)
+
+					nodeCopy := node.DeepCopy()
+					// force it to update
+					nodeCopy.ResourceVersion = "0"
+					delete(nodeCopy.Status.Capacity, beardsecond)
+					_, err = cs.CoreV1().Nodes().UpdateStatus(context.TODO(), nodeCopy, metav1.UpdateOptions{})
+					framework.ExpectNoError(err, "unable to update node %v", testNodeName)
+				}
+			}
+		})
+
+		ginkgo.It("verify inter-pod affinity matches pod labels", func() {
+			ginkgo.By("Trying to create basicPod, ns: " + ns)
+			basicPodConf := pausePodConfig{
+				Name:        "basic-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{interpodaffinity.Name}),
+				Labels:      map[string]string{testLabelKeys[0]: testLabelValues[0], testLabelKeys[1]: testLabelValues[1]},
+				NodeName:    nodeNames[0],
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("200")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("200")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, basicPodConf), ns, basicPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, basicPodConf.Name, ns, framework.PollShortTimeout))
+			framework.ExpectEqual(GetPod(f, ns, basicPodConf.Name).Spec.NodeName, nodeNames[0])
+
+			ginkgo.By("Trying to create affinityPod")
+			affinityPodConf := pausePodConfig{
+				Name:        "affinity-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{interpodaffinity.Name}),
+				Affinity:    getInterPodAffinity(map[string]string{testLabelKeys[0]: testLabelValues[0]}, nil),
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("200")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("200")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, affinityPodConf), ns, affinityPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, affinityPodConf.Name, ns, framework.PollShortTimeout))
+			framework.ExpectEqual(GetPod(f, ns, affinityPodConf.Name).Spec.NodeName, nodeNames[0])
+
+			ginkgo.By("Trying to create antiAffinityPod")
+			antiAffinityPodConf := pausePodConfig{
+				Name:        "anti-affinity-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{nodeaffinity.Name}),
+				Affinity:    getInterPodAffinity(nil, map[string]string{testLabelKeys[1]: testLabelValues[1]}),
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("200")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("200")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, antiAffinityPodConf), ns, antiAffinityPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, antiAffinityPodConf.Name, ns, framework.PollShortTimeout))
+			framework.ExpectEqual(GetPod(f, ns, antiAffinityPodConf.Name).Spec.NodeName, nodeNames[1])
+
+			ginkgo.By("Trying to create failedPod")
+			failedPodConf := pausePodConfig{
+				Name:        "failed-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{interpodaffinity.Name}),
+				Labels:      map[string]string{testLabelKeys[1]: testLabelValues[1]},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("700")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("700")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, failedPodConf), ns, failedPodConf.Name, false)
+			verifyResult(cs, 3, 1, ns)
+
+			ginkgo.By("Trying to create successpod")
+			successPodConf := pausePodConfig{
+				Name:        "success-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{interpodaffinity.Name}),
+				Labels:      map[string]string{testLabelKeys[0]: testLabelValues[0]},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("700")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("700")},
+				},
+			}
+			framework.ExpectEqual(runPodAndGetNodeName(f, successPodConf), nodeNames[1])
+		})
+	})
+
+	// Test scenario:
+	// 1. Find 2 nodes to run pods, then create nmnodes as same as the 2 nodes and set same extra resource to the nmnodes.
+	// 2. Create one basicPod with two label and set its node name to the first nmnode that needs 20% of the extra resource.
+	// 3. Wait for the pods to be scheduled.
+	// 4. Create one affinityPod with inter-pod affinity to the basicPod by label[0] that needs 20% of the extra resource.
+	// 5. Make sure the affinityPod is scheduled to the first nmnode as same as basicPod.
+	// 6. Create one antiAffinityPod with inter-pod anti affinity to the basicPod by label[1] that needs 20% of the extra resource.
+	// 7. Make sure the antiAffinityPod is scheduled to the second nmnode.
+	// 8. Create one failedPod with label[1] that needs 70% of the extra resource.
+	// 9. Make sure the failedPod is not scheduled becaues it only can be scheduled to the first nmnode due to antiAffinityPod's anti affinity.
+	//    But the first nmnode haven't enough resource.
+	// 10. Create one successPod with label[0] that needs 70% of the extra resource.
+	// 11. Make sure the successPod is scheduled to the second nmnode, because it isn't affected by any inter-pod affinity.
+	/*
+		Testname: Scheduling pods with inter-pod affinity matching for nmnodes
+		Description: Scheduling MUST meet inter-pod affinity requirements and scheduling pods MUST fail if no resource meets the specified pod
+	*/
+	ginkgo.Context("validates pod scheduling fits inter-pod affinity[requiredDuringSchedulingIgnoredDuringExecution] for nmnodes", func() {
+		testLabelKeys := []string{"godel.bytedance.com/test-label1", "godel.bytedance.com/test-label2"}
+		testLabelValues := []string{"test", "foo"}
+		var beardsecond v1.ResourceName = "example.com/beardsecond"
+		var nodeNames []string
+
+		ginkgo.BeforeEach(func() {
+			WaitForStableCluster(cs, workerNodes)
+			ginkgo.By("cluster is stable")
+			nodeNames = Get2NodesThatCanRunPod(f)
+
+			ginkgo.By("Create nmnodes and set fake resource for " + nodeNames[0] + " and " + nodeNames[1])
+			// Get node object:
+			for _, testNodeName := range nodeNames {
+				node, err := cs.CoreV1().Nodes().Get(context.TODO(), testNodeName, metav1.GetOptions{})
+				framework.ExpectNoError(err, "unable to get node object for node %v", testNodeName)
+
+				nmnodeTemplate := GetNMNodeTemplateByNode(node)
+				(*nmnodeTemplate.Status.ResourceCapacity)[beardsecond] = resource.MustParse("1000")
+				(*nmnodeTemplate.Status.ResourceAllocatable)[beardsecond] = resource.MustParse("1000")
+				_, err = fs.NodeV1alpha1().NMNodes().Create(context.TODO(), nmnodeTemplate, metav1.CreateOptions{})
+				framework.ExpectNoError(err, "unable to create NM node for node %v", testNodeName)
+			}
+		})
+
+		ginkgo.AfterEach(func() {
+			ginkgo.By("Remove nmnodes")
+			for _, testNodeName := range nodeNames {
+				// remove nmnodes:
+				if testNodeName != "" {
+					err := fs.NodeV1alpha1().NMNodes().Delete(context.TODO(), testNodeName, metav1.DeleteOptions{})
+					framework.ExpectNoError(err, "unable to remove nmnode %v", testNodeName)
+				}
+			}
+		})
+
+		ginkgo.It("verify inter-pod affinity matches pod labels for nmnodes", func() {
+			ginkgo.By("Trying to create basicPod, ns: " + ns)
+			basicPodConf := pausePodConfig{
+				Name:        "basic-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{interpodaffinity.Name}),
+				Labels:      map[string]string{testLabelKeys[0]: testLabelValues[0], testLabelKeys[1]: testLabelValues[1]},
+				NodeName:    nodeNames[0],
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("200")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("200")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, basicPodConf), ns, basicPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, basicPodConf.Name, ns, framework.PollShortTimeout))
+			framework.ExpectEqual(GetPod(f, ns, basicPodConf.Name).Spec.NodeName, nodeNames[0])
+
+			ginkgo.By("Trying to create affinityPod")
+			affinityPodConf := pausePodConfig{
+				Name:        "affinity-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{interpodaffinity.Name}),
+				Affinity:    getInterPodAffinity(map[string]string{testLabelKeys[0]: testLabelValues[0]}, nil),
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("200")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("200")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, affinityPodConf), ns, affinityPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, affinityPodConf.Name, ns, framework.PollShortTimeout))
+			framework.ExpectEqual(GetPod(f, ns, affinityPodConf.Name).Spec.NodeName, nodeNames[0])
+
+			ginkgo.By("Trying to create antiAffinityPod")
+			antiAffinityPodConf := pausePodConfig{
+				Name:        "anti-affinity-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{nodeaffinity.Name}),
+				Affinity:    getInterPodAffinity(nil, map[string]string{testLabelKeys[1]: testLabelValues[1]}),
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("200")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("200")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, antiAffinityPodConf), ns, antiAffinityPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, antiAffinityPodConf.Name, ns, framework.PollShortTimeout))
+			framework.ExpectEqual(GetPod(f, ns, antiAffinityPodConf.Name).Spec.NodeName, nodeNames[1])
+
+			ginkgo.By("Trying to create failedPod")
+			failedPodConf := pausePodConfig{
+				Name:        "failed-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{interpodaffinity.Name}),
+				Labels:      map[string]string{testLabelKeys[1]: testLabelValues[1]},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("700")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("700")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, failedPodConf), ns, failedPodConf.Name, false)
+			verifyResult(cs, 3, 1, ns)
+
+			ginkgo.By("Trying to create successpod")
+			successPodConf := pausePodConfig{
+				Name:        "success-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{interpodaffinity.Name}),
+				Labels:      map[string]string{testLabelKeys[0]: testLabelValues[0]},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("700")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("700")},
+				},
+			}
+			framework.ExpectEqual(runPodAndGetNodeName(f, successPodConf), nodeNames[1])
+		})
+	})
+
+	// Test scenario:
+	// 1. Find 2 nodes to run pods, then create nmnodes as same as the 2 nodes and set same extra resource to the 2 nmnodes and 2 nodes.
+	//    Note that nmnode and node on the same host share the same extra resource.
+	//    The scenario looks like this:
+	// ┌────────────┐   ┌────────────┐
+	// │   host 1   │   │   host 2   │
+	// │┌──────────┐│   │┌──────────┐│
+	// ││  node 1  ││   ││  node 2  ││
+	// │└──────────┘│   │└──────────┘│
+	// │┌──────────┐│   │┌──────────┐│
+	// ││ nmnode 1 ││   ││ nmnode 2 ││
+	// │└──────────┘│   │└──────────┘│
+	// │ extra 100% │   │ extra 100% │
+	// └────────────┘   └────────────┘
+	// 2. Create one basicPod[kubelet] with two label and set its node name to the node 1 that needs 20% of the extra resource.
+	// 3. Wait for the pods to be scheduled.
+	// 4. Create one affinityPod[node-manager] with inter-pod affinity to the basicPod[kubelet] by label[0] that needs 20% of the extra resource.
+	// 5. Make sure the affinityPod is scheduled to the nmnode 1 as same as basicPod.
+	// 6. Create one antiAffinityPod[node-manager] with inter-pod anti affinity to the basicPod[kubelet] by label[1] that needs 20% of the extra resource.
+	// 7. Make sure the antiAffinityPod is scheduled to the nmnode 2.
+	// 8. Create one failedPod[kubelet] with label[1] that needs 70% of the extra resource.
+	// 9. Make sure the failedPod[kubelet]  is not scheduled becaues it only can be scheduled to the node 1 due to antiAffinityPod[node-manager]'s anti affinity.
+	//    But the node 1 haven't enough resource, the host 1 only has 60% of the extra resource.
+	// 10. Create one successPod[kubelet] with label[0] that needs 70% of the extra resource.
+	// 11. Make sure the successPod[kubelet] is scheduled to the node 2, because it isn't affected by any inter-pod affinity.
+	/*
+		Testname: Scheduling pods with inter-pod affinity matching for the mix of nodes and nmnodes
+		Description: Scheduling MUST meet inter-pod affinity requirements and scheduling pods MUST fail if no resource meets the specified pod
+	*/
+	ginkgo.Context("validates pod scheduling fits inter-pod affinity[requiredDuringSchedulingIgnoredDuringExecution] for the mix of nodes and nmnodes", func() {
+		testLabelKeys := []string{"godel.bytedance.com/test-label1", "godel.bytedance.com/test-label2"}
+		testLabelValues := []string{"test", "foo"}
+		var beardsecond v1.ResourceName = "example.com/beardsecond"
+		var nodeNames []string
+
+		ginkgo.BeforeEach(func() {
+			WaitForStableCluster(cs, workerNodes)
+			ginkgo.By("cluster is stable")
+			nodeNames = Get2NodesThatCanRunPod(f)
+
+			ginkgo.By("Create NMNodes and set fake resource for " + nodeNames[0] + " and " + nodeNames[1])
+			// Get node object:
+			for _, testNodeName := range nodeNames {
+				node, err := cs.CoreV1().Nodes().Get(context.TODO(), testNodeName, metav1.GetOptions{})
+				framework.ExpectNoError(err, "unable to get node object for node %v", testNodeName)
+
+				nmnodeTemplate := GetNMNodeTemplateByNode(node)
+				(*nmnodeTemplate.Status.ResourceCapacity)[beardsecond] = resource.MustParse("1000")
+				(*nmnodeTemplate.Status.ResourceAllocatable)[beardsecond] = resource.MustParse("1000")
+				_, err = fs.NodeV1alpha1().NMNodes().Create(context.TODO(), nmnodeTemplate, metav1.CreateOptions{})
+				framework.ExpectNoError(err, "unable to create NM node for node %v", testNodeName)
+
+				nodeCopy := node.DeepCopy()
+				nodeCopy.ResourceVersion = "0"
+
+				nodeCopy.Status.Capacity[beardsecond] = resource.MustParse("1000")
+				_, err = cs.CoreV1().Nodes().UpdateStatus(context.TODO(), nodeCopy, metav1.UpdateOptions{})
+				framework.ExpectNoError(err, "unable to apply fake resource to %v", testNodeName)
+			}
+		})
+
+		ginkgo.AfterEach(func() {
+			ginkgo.By("Remove nmnodes and fake resource")
+			for _, testNodeName := range nodeNames {
+				// remove fake resource:
+				if testNodeName != "" {
+					// Get node object:
+					err := fs.NodeV1alpha1().NMNodes().Delete(context.TODO(), testNodeName, metav1.DeleteOptions{})
+					framework.ExpectNoError(err, "unable to remove nmnode %v", testNodeName)
+
+					// Get node object:
+					node, err := cs.CoreV1().Nodes().Get(context.TODO(), testNodeName, metav1.GetOptions{})
+					framework.ExpectNoError(err, "unable to get node object for node %v", testNodeName)
+
+					nodeCopy := node.DeepCopy()
+					// force it to update
+					nodeCopy.ResourceVersion = "0"
+					delete(nodeCopy.Status.Capacity, beardsecond)
+					_, err = cs.CoreV1().Nodes().UpdateStatus(context.TODO(), nodeCopy, metav1.UpdateOptions{})
+					framework.ExpectNoError(err, "unable to update node %v", testNodeName)
+				}
+			}
+		})
+
+		ginkgo.It("verify inter-pod affinity matches pod labels for the mix of nodes and nmnodes", func() {
+			ginkgo.By("Trying to create basicPod, ns: " + ns)
+			basicPodConf := pausePodConfig{
+				Name:        "basic-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{interpodaffinity.Name}),
+				Labels:      map[string]string{testLabelKeys[0]: testLabelValues[0], testLabelKeys[1]: testLabelValues[1]},
+				NodeName:    nodeNames[0],
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("200")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("200")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, basicPodConf), ns, basicPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, basicPodConf.Name, ns, framework.PollShortTimeout))
+			framework.ExpectEqual(GetPod(f, ns, basicPodConf.Name).Spec.NodeName, nodeNames[0])
+
+			ginkgo.By("Trying to create affinityPod")
+			affinityPodConf := pausePodConfig{
+				Name:        "affinity-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{interpodaffinity.Name}),
+				Affinity:    getInterPodAffinity(map[string]string{testLabelKeys[0]: testLabelValues[0]}, nil),
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("200")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("200")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, affinityPodConf), ns, affinityPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, affinityPodConf.Name, ns, framework.PollShortTimeout))
+			framework.ExpectEqual(GetPod(f, ns, affinityPodConf.Name).Spec.NodeName, nodeNames[0])
+
+			ginkgo.By("Trying to create antiAffinityPod")
+			antiAffinityPodConf := pausePodConfig{
+				Name:        "anti-affinity-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{nodeaffinity.Name}),
+				Affinity:    getInterPodAffinity(nil, map[string]string{testLabelKeys[1]: testLabelValues[1]}),
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("200")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("200")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, antiAffinityPodConf), ns, antiAffinityPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, antiAffinityPodConf.Name, ns, framework.PollShortTimeout))
+			framework.ExpectEqual(GetPod(f, ns, antiAffinityPodConf.Name).Spec.NodeName, nodeNames[1])
+
+			ginkgo.By("Trying to create failedPod")
+			failedPodConf := pausePodConfig{
+				Name:        "failed-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{interpodaffinity.Name}),
+				Labels:      map[string]string{testLabelKeys[1]: testLabelValues[1]},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("700")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("700")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, failedPodConf), ns, failedPodConf.Name, false)
+			verifyResult(cs, 3, 1, ns)
+
+			ginkgo.By("Trying to create successpod")
+			successPodConf := pausePodConfig{
+				Name:        "success-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{interpodaffinity.Name}),
+				Labels:      map[string]string{testLabelKeys[0]: testLabelValues[0]},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("700")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("700")},
+				},
+			}
+			framework.ExpectEqual(runPodAndGetNodeName(f, successPodConf), nodeNames[1])
+		})
+	})
+
 	/*
 		Testname: Scheduling pods with inter-pod affinity not matching
-		Description: TODO
+		Description: Create a Pod with a inter-pod affinity set to a value that does not match a pod in the cluster.
+					Since there are no pods matching the criteria the Pod MUST NOT be scheduled.
+					Then create a pod with inter-pod anti affinity set to a value that does not match a pod in the cluster.
+					Since there are no pods matching the criteria the Pod MUST be scheduled.
 	*/
-	//framework.ConformanceIt("", func() {
-	//})
+	framework.ConformanceIt("validates inter-pod affinity if not matching ", func() {
+		testLabelKeys := []string{"godel.bytedance.com/test-label1", "godel.bytedance.com/test-label2"}
+		testLabelValues := []string{"test", "foo"}
+		WaitForStableCluster(cs, workerNodes)
+
+		ginkgo.By(fmt.Sprintf("Trying to schedule affinityPod with unmatched inter-pod affinity {%s: %s}", testLabelKeys[0], testLabelValues[0]))
+		affinityPodConf := pausePodConfig{
+			Name:        "affinity-pod-" + string(uuid.NewUUID()),
+			Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{interpodaffinity.Name}),
+			Affinity:    getInterPodAffinity(map[string]string{testLabelKeys[0]: testLabelValues[0]}, nil),
+		}
+
+		WaitForSchedulerAfterAction(f, createPausePodAction(f, affinityPodConf), ns, affinityPodConf.Name, false)
+		verifyResult(cs, 0, 1, ns)
+
+		ginkgo.By(fmt.Sprintf("Trying to schedule antiAffinityPod with unmatched inter-pod anti affinity {%s: %s}", testLabelKeys[1], testLabelValues[1]))
+		antiAffinityPodConf := pausePodConfig{
+			Name:        "anti-affinity-pod-" + string(uuid.NewUUID()),
+			Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{interpodaffinity.Name}),
+			Affinity:    getInterPodAffinity(nil, map[string]string{testLabelKeys[1]: testLabelValues[1]}),
+		}
+
+		WaitForSchedulerAfterAction(f, createPausePodAction(f, antiAffinityPodConf), ns, antiAffinityPodConf.Name, true)
+		verifyResult(cs, 1, 1, ns)
+	})
 
 	// Test scenario:
 	// 1. Run a pod to get an available node, then delete the pod
@@ -984,13 +1419,480 @@ var _ = SIGDescribe("SchedulingHardConstraints [Serial]", func() {
 		verifyResult(cs, 1, 0, ns)
 	})
 
-	// TODO PodTopologySpread plugin is needed
+	// Test scenario:
+	// 1. Add same extra resource to all worker nodes.
+	// 2. Create basicPods with same pod topology spread constraints(MaxSkew = 1) and related label.
+	//    Note that the first pod requests 10% of the resources, and the remaining pods request 70% of the resources.
+	// 3. Wait for the pods to be scheduled and check whether pods are evenly scheduled to each node.
+	// 4. Create one normal pod with related label that needs 10% of the extra resource to the node-1 where the first pod is scheduled as mentioned above
+	// 5. Make sure the normal pod is scheduled to the node-1.
+	// 6. Create one failedPod with same pod topology spread constraints(MaxSkew = 1) and related label that needs 40% of the extra resource.
+	// 7. Make sure the failedPod is not scheduled becaues it only can be scheduled to the node-1 due the resource limit.
+	//    But the node-1 doesn't satisfy the the pod topology spread constraints.
+	//    Because when the failedPod is scheduled, the skew will be 2 which is greater than MaxSkew = 1.
+	// 8. Create one successPod with same pod topology spread constraints(MaxSkew = 2) and related label that needs 40% of the extra resource.
+	// 9. Make sure the successPod is scheduled to the node-1, because it satisfies the pod topology spread constraints and has enough resource.
 	/*
 		Testname: Scheduling pods with pod topology spread constraints
-		Description: TODO
+		Description: Scheduling MUST meet pod topology spread requirements.
 	*/
-	//framework.ConformanceIt("", func() {
-	//})
+	ginkgo.Context("validates pod scheduling fits pod topology spread constraints[DoNotSchedule]", func() {
+		testLabelKey := "godel.bytedance.com/test-label-pod-topology"
+		testLabelValue := "test"
+		var beardsecond v1.ResourceName = "example.com/beardsecond"
+		var scheduledNodeNames []string
+
+		ginkgo.BeforeEach(func() {
+			WaitForStableCluster(cs, workerNodes)
+			ginkgo.By("cluster is stable")
+
+			ginkgo.By("Set fake resource for every node")
+			// Get node object:)
+			for _, testNodeName := range workerNodes.List() {
+				node, err := cs.CoreV1().Nodes().Get(context.TODO(), testNodeName, metav1.GetOptions{})
+				framework.ExpectNoError(err, "unable to get node object for node %v", testNodeName)
+
+				nodeCopy := node.DeepCopy()
+				nodeCopy.ResourceVersion = "0"
+
+				nodeCopy.Status.Capacity[beardsecond] = resource.MustParse("1000")
+				_, err = cs.CoreV1().Nodes().UpdateStatus(context.TODO(), nodeCopy, metav1.UpdateOptions{})
+				framework.ExpectNoError(err, "unable to apply fake resource to %v", testNodeName)
+			}
+		})
+
+		ginkgo.AfterEach(func() {
+			ginkgo.By("Remove fake resource")
+			for _, testNodeName := range workerNodes.List() {
+				// remove fake resource:
+				if testNodeName != "" {
+					// Get node object:
+					node, err := cs.CoreV1().Nodes().Get(context.TODO(), testNodeName, metav1.GetOptions{})
+					framework.ExpectNoError(err, "unable to get node object for node %v", testNodeName)
+
+					nodeCopy := node.DeepCopy()
+					// force it to update
+					nodeCopy.ResourceVersion = "0"
+					delete(nodeCopy.Status.Capacity, beardsecond)
+					_, err = cs.CoreV1().Nodes().UpdateStatus(context.TODO(), nodeCopy, metav1.UpdateOptions{})
+					framework.ExpectNoError(err, "unable to update node %v", testNodeName)
+				}
+			}
+		})
+
+		ginkgo.It("verify pod topology spread constraints[DoNotSchedule]", func() {
+
+			e2eskipper.SkipUnlessNodeCountIsAtLeast(2)
+
+			ginkgo.By("Trying to create pod with pod topology spread constraints(MaxSkew = 1) and related label in every node")
+			for i := 0; i < len(workerNodes); i++ {
+				requestedResource := ""
+				if i == 0 {
+					requestedResource = "100"
+				} else {
+					requestedResource = "700"
+				}
+				basicPodConf := pausePodConfig{
+					Name:                      "basic-pod-" + string(uuid.NewUUID()),
+					Annotations:               WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{podtopologyspread.Name}),
+					Labels:                    map[string]string{testLabelKey: testLabelValue},
+					TopologySpreadConstraints: []v1.TopologySpreadConstraint{getPodTopologySpreadConstraint(1, map[string]string{testLabelKey: testLabelValue}, v1.LabelHostname)},
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{beardsecond: resource.MustParse(requestedResource)},
+						Limits:   v1.ResourceList{beardsecond: resource.MustParse(requestedResource)},
+					},
+				}
+				WaitForSchedulerAfterAction(f, createPausePodAction(f, basicPodConf), ns, basicPodConf.Name, true)
+				framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, basicPodConf.Name, ns, framework.PollShortTimeout))
+				scheduledNodeNames = append(scheduledNodeNames, GetPod(f, ns, basicPodConf.Name).Spec.NodeName)
+			}
+			framework.ExpectConsistOf(scheduledNodeNames, workerNodes.List())
+
+			ginkgo.By(fmt.Sprintf("Trying to create 1 normal pods with related label in %v", scheduledNodeNames[0]))
+			normalPodConf := pausePodConfig{
+				Name:        "normal-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{podtopologyspread.Name}),
+				Labels:      map[string]string{testLabelKey: testLabelValue},
+				NodeName:    scheduledNodeNames[0],
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("100")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("100")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, normalPodConf), ns, normalPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, normalPodConf.Name, ns, framework.PollShortTimeout))
+			verifyResult(cs, len(scheduledNodeNames)+1, 0, ns)
+
+			ginkgo.By("Trying to create 1 pod with pod topology spread constraints(MaxSkew = 1) and related label in two nodes which will fail")
+			failedPodConf := pausePodConfig{
+				Name:                      "failed-pod-" + string(uuid.NewUUID()),
+				Annotations:               WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{podtopologyspread.Name}),
+				Labels:                    map[string]string{testLabelKey: testLabelValue},
+				TopologySpreadConstraints: []v1.TopologySpreadConstraint{getPodTopologySpreadConstraint(1, map[string]string{testLabelKey: testLabelValue}, v1.LabelHostname)},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("400")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("400")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, failedPodConf), ns, failedPodConf.Name, false)
+			verifyResult(cs, len(scheduledNodeNames)+1, 1, ns)
+
+			ginkgo.By("Trying to create 1 pod with pod topology spread constraints(MaxSkew = 2) and related label in two nodes which will success")
+			successPodConf := pausePodConfig{
+				Name:                      "sucess-pod-" + string(uuid.NewUUID()),
+				Annotations:               WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{podtopologyspread.Name}),
+				Labels:                    map[string]string{testLabelKey: testLabelValue},
+				TopologySpreadConstraints: []v1.TopologySpreadConstraint{getPodTopologySpreadConstraint(2, map[string]string{testLabelKey: testLabelValue}, v1.LabelHostname)},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("400")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("400")},
+				},
+			}
+			framework.ExpectEqual(runPodAndGetNodeName(f, successPodConf), scheduledNodeNames[0])
+		})
+	})
+
+	// Test scenario:
+	// 1. Create nmnode for every worker node and add same extra resource to all created nmnodes.
+	// 2. Create basicPods[node-manager] with same pod topology spread constraints(MaxSkew = 1) and related label.
+	//    Note that the first pod requests 10% of the resources, and the remaining pods request 70% of the resources.
+	// 3. Wait for the pods to be scheduled and check whether pods are evenly scheduled to each node.
+	// 4. Create one normal pod[node-manager] with related label that needs 10% of the extra resource to the node-1 where the first pod is scheduled as mentioned above
+	// 5. Make sure the normal pod is scheduled to the node-1.
+	// 6. Create one failedPod[node-manager] with same pod topology spread constraints(MaxSkew = 1) and related label that needs 40% of the extra resource.
+	// 7. Make sure the failedPod is not scheduled becaues it only can be scheduled to the node-1 due the resource limit.
+	//    But the node-1 doesn't satisfy the the pod topology spread constraints.
+	//    Because when the failedPod is scheduled, the skew will be 2 which is greater than MaxSkew = 1.
+	// 8. Create one successPod[node-manager] with same pod topology spread constraints(MaxSkew = 2) and related label that needs 40% of the extra resource.
+	// 9. Make sure the successPod is scheduled to the node-1, because it satisfies the pod topology spread constraints and has enough resource.
+	/*
+		Testname: Scheduling pods[node-manager] with pod topology spread constraints for nmnodes
+		Description: Scheduling MUST meet pod topology spread requirements.
+	*/
+	ginkgo.Context("validates pod scheduling fits pod topology spread constraints[DoNotSchedule] for nmnodes", func() {
+		testLabelKey := "godel.bytedance.com/test-label-pod-topology"
+		testLabelValue := "test"
+		var beardsecond v1.ResourceName = "example.com/beardsecond"
+		var scheduledNodeNames []string
+
+		ginkgo.BeforeEach(func() {
+			WaitForStableCluster(cs, workerNodes)
+			ginkgo.By("cluster is stable")
+
+			ginkgo.By("Create nmnode for every node")
+			// Get node object:)
+			for _, testNodeName := range workerNodes.List() {
+				node, err := cs.CoreV1().Nodes().Get(context.TODO(), testNodeName, metav1.GetOptions{})
+				framework.ExpectNoError(err, "unable to get node object for node %v", testNodeName)
+
+				nmnodeTemplate := GetNMNodeTemplateByNode(node)
+				(*nmnodeTemplate.Status.ResourceCapacity)[beardsecond] = resource.MustParse("1000")
+				(*nmnodeTemplate.Status.ResourceAllocatable)[beardsecond] = resource.MustParse("1000")
+				_, err = fs.NodeV1alpha1().NMNodes().Create(context.TODO(), nmnodeTemplate, metav1.CreateOptions{})
+				framework.ExpectNoError(err, "unable to create NM node for node %v", testNodeName)
+			}
+		})
+
+		ginkgo.AfterEach(func() {
+			ginkgo.By("Remove nmnodes")
+			for _, testNodeName := range workerNodes.List() {
+				// remove nmnodes:
+				if testNodeName != "" {
+					err := fs.NodeV1alpha1().NMNodes().Delete(context.TODO(), testNodeName, metav1.DeleteOptions{})
+					framework.ExpectNoError(err, "unable to remove nmnode %v", testNodeName)
+				}
+			}
+		})
+
+		ginkgo.It("verify pod topology spread constraints[DoNotSchedule] for nmnodes", func() {
+
+			e2eskipper.SkipUnlessNodeCountIsAtLeast(2)
+
+			ginkgo.By("Trying to create pod with pod topology spread constraints(MaxSkew = 1) and related label in every node")
+			for i := 0; i < len(workerNodes); i++ {
+				requestedResource := ""
+				if i == 0 {
+					requestedResource = "100"
+				} else {
+					requestedResource = "700"
+				}
+				basicPodConf := pausePodConfig{
+					Name:                      "basic-pod-" + string(uuid.NewUUID()),
+					Annotations:               WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{podtopologyspread.Name}),
+					Labels:                    map[string]string{testLabelKey: testLabelValue},
+					TopologySpreadConstraints: []v1.TopologySpreadConstraint{getPodTopologySpreadConstraint(1, map[string]string{testLabelKey: testLabelValue}, v1.LabelHostname)},
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{beardsecond: resource.MustParse(requestedResource)},
+						Limits:   v1.ResourceList{beardsecond: resource.MustParse(requestedResource)},
+					},
+				}
+				WaitForSchedulerAfterAction(f, createPausePodAction(f, basicPodConf), ns, basicPodConf.Name, true)
+				framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, basicPodConf.Name, ns, framework.PollShortTimeout))
+				scheduledNodeNames = append(scheduledNodeNames, GetPod(f, ns, basicPodConf.Name).Spec.NodeName)
+			}
+			framework.ExpectConsistOf(scheduledNodeNames, workerNodes.List())
+
+			ginkgo.By(fmt.Sprintf("Trying to create 1 normal pods with related label in %v", scheduledNodeNames[0]))
+			normalPodConf := pausePodConfig{
+				Name:        "normal-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{podtopologyspread.Name}),
+				Labels:      map[string]string{testLabelKey: testLabelValue},
+				NodeName:    scheduledNodeNames[0],
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("100")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("100")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, normalPodConf), ns, normalPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, normalPodConf.Name, ns, framework.PollShortTimeout))
+			verifyResult(cs, len(scheduledNodeNames)+1, 0, ns)
+
+			ginkgo.By("Trying to create 1 pod with pod topology spread constraints(MaxSkew = 1) and related label in two nodes which will fail")
+			failedPodConf := pausePodConfig{
+				Name:                      "failed-pod-" + string(uuid.NewUUID()),
+				Annotations:               WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{podtopologyspread.Name}),
+				Labels:                    map[string]string{testLabelKey: testLabelValue},
+				TopologySpreadConstraints: []v1.TopologySpreadConstraint{getPodTopologySpreadConstraint(1, map[string]string{testLabelKey: testLabelValue}, v1.LabelHostname)},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("400")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("400")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, failedPodConf), ns, failedPodConf.Name, false)
+			verifyResult(cs, len(scheduledNodeNames)+1, 1, ns)
+
+			ginkgo.By("Trying to create 1 pod with pod topology spread constraints(MaxSkew = 2) and related label in two nodes which will success")
+			successPodConf := pausePodConfig{
+				Name:                      "sucess-pod-" + string(uuid.NewUUID()),
+				Annotations:               WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{podtopologyspread.Name}),
+				Labels:                    map[string]string{testLabelKey: testLabelValue},
+				TopologySpreadConstraints: []v1.TopologySpreadConstraint{getPodTopologySpreadConstraint(2, map[string]string{testLabelKey: testLabelValue}, v1.LabelHostname)},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("400")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("400")},
+				},
+			}
+			framework.ExpectEqual(runPodAndGetNodeName(f, successPodConf), scheduledNodeNames[0])
+		})
+	})
+
+	// Test scenario:
+	// 1. Create nmnode for every worker node and add same extra resource to all nmnodes and nodes.
+	//    Note that nmnode and node on the same host share the same extra resource.
+	//    The scenario looks like this:
+	// ┌────────────┐   ┌────────────┐   ┌────────────┐
+	// │   host 1   │   │   host 2   │   │   host 3   │
+	// │┌──────────┐│   │┌──────────┐│   │┌──────────┐│
+	// ││  node 1  ││   ││  node 2  ││   ││  node 3  ││
+	// │└──────────┘│   │└──────────┘│   │└──────────┘│
+	// │┌──────────┐│   │┌──────────┐│   │┌──────────┐│
+	// ││ nmnode 1 ││   ││ nmnode 2 ││   ││ nmnode 3 ││
+	// │└──────────┘│   │└──────────┘│   │└──────────┘│
+	// │ extra 100% │   │ extra 100% │   │ extra 100% │
+	// └────────────┘   └────────────┘   └────────────┘
+	// 2. Create basicPods with same pod topology spread constraints(MaxSkew = 1) and related label.
+	//    Note that the first pod requests 10% of the resources, and the remaining pods request 70% of the resources.
+	//    Set odd-numbered pods to kubelet management type and even-numbered pods to node-manager management type
+	// 3. Wait for the pods to be scheduled and check whether pods are evenly scheduled to each host.
+	// 4. Create one normal pod[kubelet] with related label that needs 10% of the extra resource to the node-1 where the first pod is scheduled as mentioned above
+	// 5. Make sure the normal pod is scheduled to the node-1.
+	// 6. Create one failedPod[node-manager] with same pod topology spread constraints(MaxSkew = 1) and related label that needs 40% of the extra resource.
+	// 7. Make sure the failedPod is not scheduled becaues it only can be scheduled to the node-1 due the resource limit.
+	//    But the node-1 doesn't satisfy the the pod topology spread constraints.
+	//    Because when the failedPod is scheduled, the skew will be 2 which is greater than MaxSkew = 1.
+	// 8. Create one successPod[node-manager] with same pod topology spread constraints(MaxSkew = 2) and related label that needs 40% of the extra resource.
+	// 9. Make sure the successPod is scheduled to the node-1, because it satisfies the pod topology spread constraints and has enough resource.
+	/*
+		Testname: Scheduling pods[node-manager] with pod topology spread constraints for mix of nmnodes and nodes
+		Description: Scheduling MUST meet pod topology spread requirements.
+	*/
+	ginkgo.Context("validates pod scheduling fits pod topology spread constraints[DoNotSchedule] for mix of nmnodes and nodes", func() {
+		testLabelKey := "godel.bytedance.com/test-label-pod-topology"
+		testLabelValue := "test"
+		var beardsecond v1.ResourceName = "example.com/beardsecond"
+		var scheduledNodeNames []string
+
+		ginkgo.BeforeEach(func() {
+			WaitForStableCluster(cs, workerNodes)
+			ginkgo.By("cluster is stable")
+
+			ginkgo.By("Create nmnode for every node")
+			// Get node object:)
+			for _, testNodeName := range workerNodes.List() {
+				node, err := cs.CoreV1().Nodes().Get(context.TODO(), testNodeName, metav1.GetOptions{})
+				framework.ExpectNoError(err, "unable to get node object for node %v", testNodeName)
+
+				nmnodeTemplate := GetNMNodeTemplateByNode(node)
+				(*nmnodeTemplate.Status.ResourceCapacity)[beardsecond] = resource.MustParse("1000")
+				(*nmnodeTemplate.Status.ResourceAllocatable)[beardsecond] = resource.MustParse("1000")
+				_, err = fs.NodeV1alpha1().NMNodes().Create(context.TODO(), nmnodeTemplate, metav1.CreateOptions{})
+				framework.ExpectNoError(err, "unable to create NM node for node %v", testNodeName)
+
+				nodeCopy := node.DeepCopy()
+				nodeCopy.ResourceVersion = "0"
+
+				nodeCopy.Status.Capacity[beardsecond] = resource.MustParse("1000")
+				_, err = cs.CoreV1().Nodes().UpdateStatus(context.TODO(), nodeCopy, metav1.UpdateOptions{})
+				framework.ExpectNoError(err, "unable to apply fake resource to %v", testNodeName)
+			}
+		})
+
+		ginkgo.AfterEach(func() {
+			ginkgo.By("Remove nmnodes")
+			for _, testNodeName := range workerNodes.List() {
+				// remove nmnodes:
+				if testNodeName != "" {
+					err := fs.NodeV1alpha1().NMNodes().Delete(context.TODO(), testNodeName, metav1.DeleteOptions{})
+					framework.ExpectNoError(err, "unable to remove nmnode %v", testNodeName)
+
+					// Get node object:
+					node, err := cs.CoreV1().Nodes().Get(context.TODO(), testNodeName, metav1.GetOptions{})
+					framework.ExpectNoError(err, "unable to get node object for node %v", testNodeName)
+
+					nodeCopy := node.DeepCopy()
+					// force it to update
+					nodeCopy.ResourceVersion = "0"
+					delete(nodeCopy.Status.Capacity, beardsecond)
+					_, err = cs.CoreV1().Nodes().UpdateStatus(context.TODO(), nodeCopy, metav1.UpdateOptions{})
+					framework.ExpectNoError(err, "unable to update node %v", testNodeName)
+				}
+			}
+		})
+
+		ginkgo.It("verify pod topology spread constraints[DoNotSchedule] for mix of nmnodes and nodes", func() {
+
+			e2eskipper.SkipUnlessNodeCountIsAtLeast(2)
+
+			ginkgo.By("Trying to create pod with pod topology spread constraints(MaxSkew = 1) and related label in every node")
+			for i := 0; i < len(workerNodes); i++ {
+				requestedResource := ""
+				if i == 0 {
+					requestedResource = "100"
+				} else {
+					requestedResource = "700"
+				}
+				basicPodConf := pausePodConfig{
+					Name:                      "basic-pod-" + string(uuid.NewUUID()),
+					Labels:                    map[string]string{testLabelKey: testLabelValue},
+					TopologySpreadConstraints: []v1.TopologySpreadConstraint{getPodTopologySpreadConstraint(1, map[string]string{testLabelKey: testLabelValue}, v1.LabelHostname)},
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{beardsecond: resource.MustParse(requestedResource)},
+						Limits:   v1.ResourceList{beardsecond: resource.MustParse(requestedResource)},
+					},
+				}
+				if i%2 == 0 {
+					basicPodConf.Annotations = WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{podtopologyspread.Name})
+				} else {
+					basicPodConf.Annotations = WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{podtopologyspread.Name})
+				}
+				WaitForSchedulerAfterAction(f, createPausePodAction(f, basicPodConf), ns, basicPodConf.Name, true)
+				framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, basicPodConf.Name, ns, framework.PollShortTimeout))
+				scheduledNodeNames = append(scheduledNodeNames, GetPod(f, ns, basicPodConf.Name).Spec.NodeName)
+			}
+			framework.ExpectConsistOf(scheduledNodeNames, workerNodes.List())
+
+			ginkgo.By(fmt.Sprintf("Trying to create 1 normal pods with related label in %v", scheduledNodeNames[0]))
+			normalPodConf := pausePodConfig{
+				Name:        "normal-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{podtopologyspread.Name}),
+				Labels:      map[string]string{testLabelKey: testLabelValue},
+				NodeName:    scheduledNodeNames[0],
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("100")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("100")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, normalPodConf), ns, normalPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, normalPodConf.Name, ns, framework.PollShortTimeout))
+			verifyResult(cs, len(scheduledNodeNames)+1, 0, ns)
+
+			ginkgo.By("Trying to create 1 pod with pod topology spread constraints(MaxSkew = 1) and related label in two nodes which will fail")
+			failedPodConf := pausePodConfig{
+				Name:                      "failed-pod-" + string(uuid.NewUUID()),
+				Annotations:               WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{podtopologyspread.Name}),
+				Labels:                    map[string]string{testLabelKey: testLabelValue},
+				TopologySpreadConstraints: []v1.TopologySpreadConstraint{getPodTopologySpreadConstraint(1, map[string]string{testLabelKey: testLabelValue}, v1.LabelHostname)},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("400")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("400")},
+				},
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, failedPodConf), ns, failedPodConf.Name, false)
+			verifyResult(cs, len(scheduledNodeNames)+1, 1, ns)
+
+			ginkgo.By("Trying to create 1 pod with pod topology spread constraints(MaxSkew = 2) and related label in two nodes which will success")
+			successPodConf := pausePodConfig{
+				Name:                      "sucess-pod-" + string(uuid.NewUUID()),
+				Annotations:               WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.NodeManager), []string{podtopologyspread.Name}),
+				Labels:                    map[string]string{testLabelKey: testLabelValue},
+				TopologySpreadConstraints: []v1.TopologySpreadConstraint{getPodTopologySpreadConstraint(2, map[string]string{testLabelKey: testLabelValue}, v1.LabelHostname)},
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{beardsecond: resource.MustParse("400")},
+					Limits:   v1.ResourceList{beardsecond: resource.MustParse("400")},
+				},
+			}
+			framework.ExpectEqual(runPodAndGetNodeName(f, successPodConf), scheduledNodeNames[0])
+		})
+	})
+
+	// Test scenario:
+	// 1. Add extra label to all worker nodes.
+	// 2. Create a pod on each worker node and set the pod label to label[node index%2]
+	// 3. Wait for the pods to be scheduled and check whether pods are scheduled to right nodes.
+	// 4. Create one pod with all two labels and set it up to two topology spread constraints.
+	//    One is for the label[0] and the topologyKey is host name, and the other is for the label[1] and the topologyKey is the extra label.The maxskew of both is 1
+	// 5. Make sure the pod is not scheduled. Becaues fot the label[0] topology spread constraints, it can only be scheduled to the node without a pod with the label[0],
+	//    for the label[1] topology spread constraints, it can only be scheduled to the node without a pod with the label[1].
+	//	  But there is no such node, every node has a pod with the label[0] or the label[1].
+	/*
+		Testname: Scheduling pods with pod topology spread constraints not matching
+		Description: Scheduling MUST be failed if it not meet pod topology spread requirements.
+	*/
+	framework.ConformanceIt("validates pod topology spread if not matching ", func() {
+
+		e2eskipper.SkipUnlessNodeCountIsAtLeast(2)
+
+		testLabelKeys := []string{"godel.bytedance.com/test-label-pod-topology1", "godel.bytedance.com/test-label-pod-topology2"}
+		testLabelValues := []string{"test", "foo"}
+		extraHostTopologyLabelKey := "kubernetes.io/topology-extra-host"
+		workerNodeNameList := workerNodes.List()
+		WaitForStableCluster(cs, workerNodes)
+		ginkgo.By("cluster is stable")
+
+		ginkgo.By("Trying to add extra topology label to every nodes")
+		for _, nodeName := range workerNodeNameList {
+			topologyValue := fmt.Sprintf("extra-host-%s", nodeName)
+			framework.AddOrUpdateLabelOnNode(cs, nodeName, extraHostTopologyLabelKey, topologyValue)
+			framework.ExpectNodeHasLabel(cs, nodeName, extraHostTopologyLabelKey, topologyValue)
+			defer framework.RemoveLabelOffNode(cs, nodeName, extraHostTopologyLabelKey)
+		}
+
+		ginkgo.By("Trying to schedule pods with two different labels to every nodes")
+		for i := 0; i < len(workerNodeNameList); i++ {
+			basicPodConf := pausePodConfig{
+				Name:        "basic-pod-" + string(uuid.NewUUID()),
+				Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{podtopologyspread.Name}),
+				Labels:      map[string]string{testLabelKeys[i%2]: testLabelValues[i%2]},
+				NodeName:    workerNodeNameList[i],
+			}
+			WaitForSchedulerAfterAction(f, createPausePodAction(f, basicPodConf), ns, basicPodConf.Name, true)
+			framework.ExpectNoError(e2epod.WaitTimeoutForPodRunningInNamespace(f.ClientSet, basicPodConf.Name, ns, framework.PollShortTimeout))
+			framework.ExpectEqual(GetPod(f, ns, basicPodConf.Name).Spec.NodeName, workerNodeNameList[i])
+		}
+
+		ginkgo.By("Trying to create 1 pod with pod topology spread constraints(MaxSkew = 1) and related label not matching")
+		failedPodConf := pausePodConfig{
+			Name:        "pod-" + string(uuid.NewUUID()),
+			Annotations: WithHardConstraints(GetPodAnnotations(podutil.GuaranteedPod, podutil.Kubelet), []string{podtopologyspread.Name}),
+			Labels:      map[string]string{testLabelKeys[0]: testLabelValues[0], testLabelKeys[1]: testLabelValues[1]},
+			TopologySpreadConstraints: []v1.TopologySpreadConstraint{
+				getPodTopologySpreadConstraint(1, map[string]string{testLabelKeys[0]: testLabelValues[0]}, v1.LabelHostname),
+				getPodTopologySpreadConstraint(1, map[string]string{testLabelKeys[1]: testLabelValues[1]}, extraHostTopologyLabelKey),
+			},
+		}
+		WaitForSchedulerAfterAction(f, createPausePodAction(f, failedPodConf), ns, failedPodConf.Name, false)
+		verifyResult(cs, len(workerNodeNameList), 1, ns)
+	})
 })
 
 // printAllPodsOnNode outputs status of all kubelet pods into log.
@@ -1208,6 +2110,46 @@ func Get2NodesThatCanRunPod(f *framework.Framework) []string {
 	return []string{firstNode, secondNode}
 }
 
+func getInterPodAffinity(affinityMap, antiAffinityMap map[string]string) *v1.Affinity {
+	affinity := v1.Affinity{}
+	if affinityMap != nil {
+		affinity.PodAffinity = &v1.PodAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+				{
+					LabelSelector: &metav1.LabelSelector{
+						MatchLabels: affinityMap,
+					},
+					TopologyKey: v1.LabelHostname,
+				},
+			},
+		}
+	}
+	if antiAffinityMap != nil {
+		affinity.PodAntiAffinity = &v1.PodAntiAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+				{
+					LabelSelector: &metav1.LabelSelector{
+						MatchLabels: antiAffinityMap,
+					},
+					TopologyKey: v1.LabelHostname,
+				},
+			},
+		}
+	}
+	return &affinity
+}
+
+func getPodTopologySpreadConstraint(maxSkew int32, matchLabels map[string]string, topologyKey string) v1.TopologySpreadConstraint {
+	return v1.TopologySpreadConstraint{
+		MaxSkew:           maxSkew,
+		TopologyKey:       topologyKey,
+		WhenUnsatisfiable: v1.DoNotSchedule,
+		LabelSelector: &metav1.LabelSelector{
+			MatchLabels: matchLabels,
+		},
+	}
+}
+
 func getNodeThatCanRunPodWithoutToleration(f *framework.Framework) string {
 	ginkgo.By("Trying to launch a pod without a toleration to get a node which can launch it.")
 	return runPodAndGetNodeName(f, pausePodConfig{
@@ -1328,5 +2270,28 @@ func setNodeUnschedulable(cs clientset.Interface, nodeName string, unschedulabel
 func setNodeUnschedulableAction(cs clientset.Interface, nodeName string, unschedulabel bool) Action {
 	return func() error {
 		return setNodeUnschedulable(cs, nodeName, unschedulabel)
+	}
+}
+
+func GetNMNodeTemplateByNode(node *v1.Node) *nodev1alpha1.NMNode {
+	// Note if capacity takes a copy of capacity,
+	// then when nodeinfo calculates the overall remaining resources,
+	// it multiplies the resources consumed by the node by 2, which is wrong.
+	capacity := node.Status.Allocatable.DeepCopy()
+	allocatable := node.Status.Allocatable.DeepCopy()
+	return &nodev1alpha1.NMNode{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        node.Name,
+			Namespace:   node.Namespace,
+			Labels:      node.Labels,
+			Annotations: node.Annotations,
+		},
+		Spec: nodev1alpha1.NMNodeSpec{
+			Taints: node.Spec.Taints,
+		},
+		Status: nodev1alpha1.NMNodeStatus{
+			ResourceCapacity:    &capacity,
+			ResourceAllocatable: &allocatable,
+		},
 	}
 }

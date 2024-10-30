@@ -1438,11 +1438,11 @@ func TestSchedulerCache_UpdateSubClusterSnapshot(t *testing.T) {
 			// Update snapshot and check nodes.
 			for i := 0; i < len(snapshots); i++ {
 				snapshot := snapshots[i]
-				if snapshot.nodeSlices.inPartitionNodeSlice.Len() > 0 {
-					t.Errorf("unexpected inPartitionNodeSlice length. expect: %v, got: %v", 0, snapshot.nodeSlices.inPartitionNodeSlice.Len())
+				if snapshot.nodeSlices.InPartitionNodeSlice.Len() > 0 {
+					t.Errorf("unexpected inPartitionNodeSlice length. expect: %v, got: %v", 0, snapshot.nodeSlices.InPartitionNodeSlice.Len())
 				}
-				if snapshot.nodeSlices.outOfPartitionNodeSlice.Len() != len(test.subCluster[i]) {
-					t.Errorf("unexpected subcluster snapshot nodeslice num. expect: %v, got: %v", len(test.subCluster[i]), snapshot.nodeSlices.outOfPartitionNodeSlice.Len())
+				if snapshot.nodeSlices.OutOfPartitionNodeSlice.Len() != len(test.subCluster[i]) {
+					t.Errorf("unexpected subcluster snapshot nodeslice num. expect: %v, got: %v", len(test.subCluster[i]), snapshot.nodeSlices.OutOfPartitionNodeSlice.Len())
 				}
 				for j := 0; j < len(test.subCluster[i]); j++ {
 					expect := test.subCluster[i][j]
@@ -1462,8 +1462,8 @@ func TestSchedulerCache_UpdateSubClusterSnapshot(t *testing.T) {
 						}
 					}
 					if shouldBePlaceHolder {
-						if !reflect.DeepEqual(nodestore.GlobalNodeInfoPlaceHolder, got) {
-							t.Errorf("unexpected node, expect: %v, got %v.", nodestore.GlobalNodeInfoPlaceHolder, got)
+						if !reflect.DeepEqual(framework.GlobalNodeInfoPlaceHolder, got) {
+							t.Errorf("unexpected node, expect: %v, got %v.", framework.GlobalNodeInfoPlaceHolder, got)
 						}
 						// if diff := cmp.Diff(globalNodeInfoPlaceHolder, got); len(diff) > 0 {
 						// 	t.Errorf("unexpected node, should be PlaceHolder. diff: %v", diff)
@@ -1828,8 +1828,8 @@ func TestSchedulerCache_UpdateSnapshot(t *testing.T) {
 			}
 
 			// Check number of nodes with pods with affinity
-			if snapshot.nodeSlices.havePodsWithAffinityNodeSlice.Len() != test.expectedHavePodsWithAffinity {
-				t.Errorf("unexpected number of HavePodsWithAffinity nodes. Expected: %v, got: %v", test.expectedHavePodsWithAffinity, snapshot.nodeSlices.havePodsWithAffinityNodeSlice.Len())
+			if snapshot.nodeSlices.HavePodsWithAffinityNodeSlice.Len() != test.expectedHavePodsWithAffinity {
+				t.Errorf("unexpected number of HavePodsWithAffinity nodes. Expected: %v, got: %v", test.expectedHavePodsWithAffinity, snapshot.nodeSlices.HavePodsWithAffinityNodeSlice.Len())
 			}
 
 			// Always update the snapshot at the end of operations and compare it.
@@ -1856,8 +1856,8 @@ func compareCacheWithNodeInfoSnapshot(cache *schedulerCache, snapshot *Snapshot)
 	}
 
 	// Compare the lists.
-	if snapshot.nodeSlices.outOfPartitionNodeSlice.Len() != cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
-		return fmt.Errorf("unexpected number of nodes in NodeInfoList. Expected: %v, got: %v", cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), snapshot.nodeSlices.outOfPartitionNodeSlice.Len())
+	if snapshot.nodeSlices.OutOfPartitionNodeSlice.Len() != cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len() {
+		return fmt.Errorf("unexpected number of nodes in NodeInfoList. Expected: %v, got: %v", cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len(), snapshot.nodeSlices.OutOfPartitionNodeSlice.Len())
 	}
 
 	expectedNodeInfoList := make([]framework.NodeInfo, 0, cache.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Len())
@@ -1888,7 +1888,7 @@ func compareCacheWithNodeInfoSnapshot(cache *schedulerCache, snapshot *Snapshot)
 
 	for _, expected := range expectedHavePodsWithAffinityNodeInfoList {
 		find := false
-		for _, got := range snapshot.nodeSlices.havePodsWithAffinityNodeSlice.Nodes() {
+		for _, got := range snapshot.nodeSlices.HavePodsWithAffinityNodeSlice.Nodes() {
 			if got == expected {
 				find = true
 			}
@@ -2031,7 +2031,7 @@ func TestSchedulerCache_updateNodeInfoSnapshotList(t *testing.T) {
 				t.Error(err)
 			}
 			nodeNames := sets.NewString()
-			for _, nodeInfo := range snapshot.nodeSlices.outOfPartitionNodeSlice.Nodes() {
+			for _, nodeInfo := range snapshot.nodeSlices.OutOfPartitionNodeSlice.Nodes() {
 				nodeNames.Insert(nodeInfo.GetNodeName())
 			}
 			if !test.expected.Equal(nodeNames) {
