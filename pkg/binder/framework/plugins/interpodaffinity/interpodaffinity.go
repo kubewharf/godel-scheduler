@@ -20,11 +20,13 @@ import (
 	"context"
 
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
+	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/interpodaffinity"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 const (
@@ -63,6 +65,14 @@ func (pl *InterPodAffinity) CheckTopology(_ context.Context, cycleState *framewo
 		PodInfo:                                    podInfo,
 	}
 
+	commonState, err := binderutils.ReadCommonState(cycleState)
+	if err != nil {
+		return framework.NewStatus(framework.Error, err.Error())
+	}
+	if commonState != nil {
+		pl.updateStateByVictims(state, pl.frameworkHandle, commonState.VictimsGroupByNode, pod)
+	}
+
 	if !utils.SatisfyPodAffinity(state, nodeInfo, podLauncher) {
 		return framework.NewStatus(framework.UnschedulableAndUnresolvable, utils.ErrReasonAffinityNotMatch, utils.ErrReasonAffinityRulesNotMatch)
 	}
@@ -82,4 +92,30 @@ func New(_ runtime.Object, handle handle.BinderFrameworkHandle) (framework.Plugi
 	return &InterPodAffinity{
 		frameworkHandle: handle,
 	}, nil
+}
+
+func (pl *InterPodAffinity) updateStateByVictims(state *utils.PreFilterState, handle handle.BinderFrameworkHandle, victimsGroupByNode map[string]map[types.UID]*v1.Pod, targetPod *v1.Pod) error {
+	for nodeName, victimsMap := range victimsGroupByNode {
+		nodeInfo := handle.GetNodeInfo(nodeName)
+		if nodeInfo == nil {
+			continue
+		}
+
+		splitPlods, err := binderutils.SplitPods(victimsMap)
+		if err != nil {
+			return err
+		}
+
+		for podLanucher, pods := range splitPlods {
+			nodeLabels := nodeInfo.GetNodeLabels(podLanucher)
+			for _, pod := range pods {
+				podInfo := framework.NewPodInfo(pod)
+				state.TopologyToMatchedExistingAntiAffinityTerms.UpdateWithAntiAffinityTerms(targetPod, nodeLabels, podInfo.RequiredAntiAffinityTerms, -1)
+				state.TopologyToMatchedAffinityTerms.UpdateWithAffinityTerms(pod, nodeLabels, state.PodInfo.RequiredAffinityTerms, -1)
+				state.TopologyToMatchedAntiAffinityTerms.UpdateWithAntiAffinityTerms(pod, nodeLabels, state.PodInfo.RequiredAntiAffinityTerms, -1)
+			}
+		}
+	}
+
+	return nil
 }

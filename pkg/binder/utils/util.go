@@ -20,6 +20,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
 
 	"github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
@@ -53,4 +54,22 @@ func CleanupPodAnnotations(client clientset.Interface, pod *v1.Pod) error {
 	}
 	metrics.PodOperatingLatencyObserve(framework.ExtractPodProperty(pod), metrics.SuccessResult, metrics.PatchPod, metrics.SinceInSeconds(startTime))
 	return nil
+}
+
+func SplitPods(pods map[types.UID]*v1.Pod) (map[podutil.PodLauncher][]*v1.Pod, error) {
+	podMap := make(map[podutil.PodLauncher][]*v1.Pod)
+
+	for _, pod := range pods {
+		podLanucher, err := podutil.GetPodLauncher(pod)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := podMap[podLanucher]; !exists {
+			podMap[podLanucher] = []*v1.Pod{pod}
+		} else {
+			podMap[podLanucher] = append(podMap[podLanucher], pod)
+		}
+	}
+
+	return podMap, nil
 }

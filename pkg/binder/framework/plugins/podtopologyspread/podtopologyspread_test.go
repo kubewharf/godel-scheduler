@@ -26,6 +26,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	pt "github.com/kubewharf/godel-scheduler/pkg/binder/testing"
+	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podtopologyspread"
@@ -604,6 +605,158 @@ func TestCheckConflictsForMultipleConstraint(t *testing.T) {
 			for _, node := range tt.nodes {
 				nodeInfo := frameworkHandle.GetNodeInfo(node.Name)
 				gotStatus := pl.(framework.CheckTopologyPlugin).CheckTopology(context.Background(), nil, tt.pod, nodeInfo)
+				if len(tt.wantStatusCode) != 0 && gotStatus.Code() != tt.wantStatusCode[node.Name] {
+					t.Errorf("[%s]: expected error code %v got %v", node.Name, tt.wantStatusCode[node.Name], gotStatus.Code())
+				}
+			}
+		})
+	}
+}
+
+func TestCheckConflictsWithVictims(t *testing.T) {
+	tests := []struct {
+		name                    string
+		pod                     *v1.Pod
+		nodes                   []*v1.Node
+		existingPods            []*v1.Pod
+		victimsIndexGroupByNode map[string][]int
+		wantStatusCode          map[string]framework.Code
+	}{
+		{
+			name: "pods spread across nodes as 2/0/0/3, node-b and node-x fits",
+			pod: testing_helper.MakePod().Name("p").Label("foo", "").SpreadConstraint(
+				1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj(),
+			).Obj(),
+			nodes: []*v1.Node{
+				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
+				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
+				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
+				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
+			},
+			victimsIndexGroupByNode: map[string][]int{
+				"node-b": {
+					2,
+				},
+			},
+			wantStatusCode: map[string]framework.Code{
+				"node-a": framework.Unschedulable,
+				"node-b": framework.Success,
+				"node-x": framework.Success,
+				"node-y": framework.Unschedulable,
+			},
+		},
+		{
+			// 1. to fulfil "zone" constraint, incoming pod can be placed on any zone (hence any node)
+			// 2. to fulfil "node" constraint, incoming pod can be placed on node-x
+			// intersection of (1) and (2) returns node-b or node-x
+			name: "two Constraints on zone and node, spreads = [2/2, 2/0/0/2]",
+			pod: testing_helper.MakePod().Name("p").Label("foo", "").
+				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
+				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
+				Obj(),
+			nodes: []*v1.Node{
+				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
+				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
+				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
+				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
+			},
+			victimsIndexGroupByNode: map[string][]int{
+				"node-b": {
+					2,
+				},
+				"node-y": {
+					3,
+				},
+			},
+			wantStatusCode: map[string]framework.Code{
+				"node-a": framework.Unschedulable,
+				"node-b": framework.Success,
+				"node-x": framework.Success,
+				"node-y": framework.Unschedulable,
+			},
+		},
+		{
+			// 1. to fulfil "zone" constraint, incoming pod can be placed on zone1 (node-a or node-b)
+			// 2. to fulfil "node" constraint, incoming pod can be placed on node-x
+			// intersection of (1) and (2) returns no node
+			name: "two Constraints on zone and node, spreads = [0/4, 0/0/0/4]",
+			pod: testing_helper.MakePod().Name("p").Label("foo", "").
+				SpreadConstraint(1, "zone", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
+				SpreadConstraint(1, "node", v1.DoNotSchedule, testing_helper.MakeLabelSelector().Exists("foo").Obj()).
+				Obj(),
+			nodes: []*v1.Node{
+				testing_helper.MakeNode().Name("node-a").Label("zone", "zone1").Label("node", "node-a").Obj(),
+				testing_helper.MakeNode().Name("node-b").Label("zone", "zone1").Label("node", "node-b").Obj(),
+				testing_helper.MakeNode().Name("node-x").Label("zone", "zone2").Label("node", "node-x").Obj(),
+				testing_helper.MakeNode().Name("node-y").Label("zone", "zone2").Label("node", "node-y").Obj(),
+			},
+			existingPods: []*v1.Pod{
+				testing_helper.MakePod().Name("p-a1").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-a2").Node("node-a").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-b1").Node("node-b").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y1").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y2").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y3").Node("node-y").Label("foo", "").Obj(),
+				testing_helper.MakePod().Name("p-y4").Node("node-y").Label("foo", "").Obj(),
+			},
+			victimsIndexGroupByNode: map[string][]int{
+				"node-a": {
+					0, 1,
+				},
+				"node-b": {
+					2,
+				},
+			},
+			wantStatusCode: map[string]framework.Code{
+				"node-a": framework.Success,
+				"node-b": framework.Success,
+				"node-x": framework.Unschedulable,
+				"node-y": framework.Unschedulable,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frameworkHandle, err := initFrameworkHandle(fake.NewSimpleClientset(), tt.nodes, tt.existingPods)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			pl, err := New(nil, frameworkHandle)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			state := framework.NewCycleState()
+			victimsGroupByNode := make(map[string]map[types.UID]*v1.Pod)
+			for node, victimsIndex := range tt.victimsIndexGroupByNode {
+				victims := make(map[types.UID]*v1.Pod)
+				for _, index := range victimsIndex {
+					victims[tt.existingPods[index].UID] = tt.existingPods[index]
+				}
+				victimsGroupByNode[node] = victims
+			}
+			binderutils.WriteCommonState(state, victimsGroupByNode)
+
+			for _, node := range tt.nodes {
+				nodeInfo := frameworkHandle.GetNodeInfo(node.Name)
+				gotStatus := pl.(framework.CheckTopologyPlugin).CheckTopology(context.Background(), state, tt.pod, nodeInfo)
 				if len(tt.wantStatusCode) != 0 && gotStatus.Code() != tt.wantStatusCode[node.Name] {
 					t.Errorf("[%s]: expected error code %v got %v", node.Name, tt.wantStatusCode[node.Name], gotStatus.Code())
 				}
