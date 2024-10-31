@@ -24,7 +24,7 @@ $ git clone https://github.com/kubewharf/godel-scheduler
 ### 2. Change to the Gödel directory
 
 ```console
-$ cd godel
+$ cd godel-scheduler
 ```
 
 ### 3. Bootstrap the cluster and install Gödel components
