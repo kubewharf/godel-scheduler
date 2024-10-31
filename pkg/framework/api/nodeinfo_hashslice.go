@@ -16,6 +16,8 @@ limitations under the License.
 
 package api
 
+var GlobalNodeInfoPlaceHolder = NewNodeInfo()
+
 // NodeHashSlice maintains a linear NodeInfo's slice. The time complexity of all methods is O(1).
 type NodeHashSlice interface {
 	Add(NodeInfo) bool
@@ -81,4 +83,48 @@ func (hs *NodeHashSliceImpl) Nodes() []NodeInfo {
 
 func (hs *NodeHashSliceImpl) Len() int {
 	return hs.count
+}
+
+// NodeSlices is mainly used to maintain all nodeInfos in the cluster.
+type NodeSlices struct {
+	InPartitionNodeSlice                      NodeHashSlice
+	OutOfPartitionNodeSlice                   NodeHashSlice
+	HavePodsWithAffinityNodeSlice             NodeHashSlice
+	HavePodsWithRequiredAntiAffinityNodeSlice NodeHashSlice
+}
+
+func NewNodeSlices() *NodeSlices {
+	return &NodeSlices{
+		InPartitionNodeSlice:                      NewNodeHashSlice(),
+		OutOfPartitionNodeSlice:                   NewNodeHashSlice(),
+		HavePodsWithAffinityNodeSlice:             NewNodeHashSlice(),
+		HavePodsWithRequiredAntiAffinityNodeSlice: NewNodeHashSlice(),
+	}
+}
+
+func op(slice NodeHashSlice, n NodeInfo, isAdd bool) {
+	if isAdd {
+		_ = slice.Add(n)
+	} else {
+		_ = slice.Del(n)
+	}
+}
+
+func (s *NodeSlices) Update(n NodeInfo, isAdd bool) {
+	// ATTENTION: We should ensure that the `globalNodeInfoPlaceHolder` will not be added to nodelice.
+	if n == GlobalNodeInfoPlaceHolder {
+		return
+	}
+
+	if n.GetNodeInSchedulerPartition() || n.GetNMNodeInSchedulerPartition() {
+		op(s.InPartitionNodeSlice, n, isAdd)
+	} else {
+		op(s.OutOfPartitionNodeSlice, n, isAdd)
+	}
+	if len(n.GetPodsWithAffinity()) > 0 {
+		op(s.HavePodsWithAffinityNodeSlice, n, isAdd)
+	}
+	if len(n.GetPodsWithRequiredAntiAffinity()) > 0 {
+		op(s.HavePodsWithRequiredAntiAffinityNodeSlice, n, isAdd)
+	}
 }

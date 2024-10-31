@@ -61,7 +61,9 @@ type NodeStore struct {
 	// `Deleted` holds all the nodes:
 	// 1. that have been deleted but still have residual pods.
 	// 2. that its pod comes before its own, so we can't use it to schedule.
-	Deleted sets.String
+	Deleted     sets.String
+	AfterAdd    func(framework.NodeInfo) // Triggered by a call to the NodeStore.Add function, used to maintain additional information about the node.
+	AfterDelete func(framework.NodeInfo) // Triggered by a call to the NodeStore.Delete function, used to maintain additional information about the node.
 
 	// A map from image name to its imageState.
 	// ATTENTION: Like `Deleted` field, it will only be modified and used in the Cache.
@@ -426,11 +428,17 @@ func (s *NodeStore) Set(nodeName string, nodeInfo framework.NodeInfo) {
 // Add will Store the node and trigger the AfterAdd.
 func (s *NodeStore) Add(nodeName string, nodeInfo framework.NodeInfo) {
 	s.Store.Set(nodeName, nodeInfo)
+	if s.AfterAdd != nil {
+		s.AfterAdd(nodeInfo)
+	}
 }
 
 // Delete will delete the node and trigger the AfterDelete.
 func (s *NodeStore) Delete(nodeName string, nodeInfo framework.NodeInfo) {
 	s.Store.Delete(nodeName)
+	if s.AfterDelete != nil {
+		s.AfterDelete(nodeInfo)
+	}
 }
 
 // AllNodesClone return all nodes's deepcopy and organize them in map.

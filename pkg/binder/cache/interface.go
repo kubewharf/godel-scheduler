@@ -103,4 +103,6 @@ type BinderCache interface {
 
 	// for resource reservation
 	GetAvailablePlaceholderPod(pod *v1.Pod) (*v1.Pod, error)
+
+	List() []framework.NodeInfo
 }

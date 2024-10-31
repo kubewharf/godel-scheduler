@@ -135,3 +135,7 @@ func (h *frameworkHandleImpl) GetNodeInfo(nodename string) framework.NodeInfo {
 func (h *frameworkHandleImpl) FindStore(storeName commonstore.StoreName) commonstore.Store {
 	return h.binderCache.FindStore(storeName)
 }
+
+func (h *frameworkHandleImpl) ListNodeInfos() []framework.NodeInfo {
+	return h.binderCache.List()
+}
