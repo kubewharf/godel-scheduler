@@ -77,7 +77,7 @@ func (pl *PodTopologySpreadCheck) CheckTopology(_ context.Context, cycleState *f
 		return framework.NewStatus(framework.Error, err.Error())
 	}
 	if commonState != nil {
-		pl.updateStateByVictims(&state, pl.frameworkHandle, commonState.VictimsGroupByNode)
+		pl.updateStateByVictims(&state, commonState.VictimsGroupByNode)
 	}
 
 	return utils.IsSatisfyPodTopologySpreadConstraints(&state, pod, nodeInfo, podLauncher)
@@ -145,9 +145,9 @@ func (pl *PodTopologySpreadCheck) getConstraints(pod *v1.Pod) ([]utils.TopologyS
 	return constraints, nil
 }
 
-func (pl *PodTopologySpreadCheck) updateStateByVictims(state *utils.PreFilterState, handle handle.BinderFrameworkHandle, victimsGroupByNode map[string]map[types.UID]*v1.Pod) error {
+func (pl *PodTopologySpreadCheck) updateStateByVictims(state *utils.PreFilterState, victimsGroupByNode map[string]map[types.UID]*v1.Pod) error {
 	for nodeName, victimsMap := range victimsGroupByNode {
-		nodeInfo := handle.GetNodeInfo(nodeName)
+		nodeInfo := pl.frameworkHandle.GetNodeInfo(nodeName)
 		if nodeInfo == nil {
 			continue
 		}

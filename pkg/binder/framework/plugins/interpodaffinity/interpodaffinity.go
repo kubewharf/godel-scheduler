@@ -70,7 +70,7 @@ func (pl *InterPodAffinity) CheckTopology(_ context.Context, cycleState *framewo
 		return framework.NewStatus(framework.Error, err.Error())
 	}
 	if commonState != nil {
-		pl.updateStateByVictims(state, pl.frameworkHandle, commonState.VictimsGroupByNode, pod)
+		pl.updateStateByVictims(state, commonState.VictimsGroupByNode, pod)
 	}
 
 	if !utils.SatisfyPodAffinity(state, nodeInfo, podLauncher) {
@@ -94,9 +94,9 @@ func New(_ runtime.Object, handle handle.BinderFrameworkHandle) (framework.Plugi
 	}, nil
 }
 
-func (pl *InterPodAffinity) updateStateByVictims(state *utils.PreFilterState, handle handle.BinderFrameworkHandle, victimsGroupByNode map[string]map[types.UID]*v1.Pod, targetPod *v1.Pod) error {
+func (pl *InterPodAffinity) updateStateByVictims(state *utils.PreFilterState, victimsGroupByNode map[string]map[types.UID]*v1.Pod, targetPod *v1.Pod) error {
 	for nodeName, victimsMap := range victimsGroupByNode {
-		nodeInfo := handle.GetNodeInfo(nodeName)
+		nodeInfo := pl.frameworkHandle.GetNodeInfo(nodeName)
 		if nodeInfo == nil {
 			continue
 		}
