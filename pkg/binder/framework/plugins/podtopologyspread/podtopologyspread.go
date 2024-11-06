@@ -152,12 +152,12 @@ func (pl *PodTopologySpreadCheck) updateStateByVictims(state *utils.PreFilterSta
 			continue
 		}
 
-		podMap, err := binderutils.SplitPods(victimsMap)
+		launcherToPods, err := binderutils.GroupPodsByLauncher(victimsMap)
 		if err != nil {
 			return err
 		}
 
-		for podLanucher, pods := range podMap {
+		for podLanucher, pods := range launcherToPods {
 			nodeLabels := nodeInfo.GetNodeLabels(podLanucher)
 			for _, constraint := range state.Constraints {
 				pair := utils.TopologyPair{Key: constraint.TopologyKey, Value: nodeLabels[constraint.TopologyKey]}

@@ -101,12 +101,12 @@ func (pl *InterPodAffinity) updateStateByVictims(state *utils.PreFilterState, ha
 			continue
 		}
 
-		splitPlods, err := binderutils.SplitPods(victimsMap)
+		launcherToPods, err := binderutils.GroupPodsByLauncher(victimsMap)
 		if err != nil {
 			return err
 		}
 
-		for podLanucher, pods := range splitPlods {
+		for podLanucher, pods := range launcherToPods {
 			nodeLabels := nodeInfo.GetNodeLabels(podLanucher)
 			for _, pod := range pods {
 				podInfo := framework.NewPodInfo(pod)

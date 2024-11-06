@@ -56,7 +56,7 @@ func CleanupPodAnnotations(client clientset.Interface, pod *v1.Pod) error {
 	return nil
 }
 
-func SplitPods(pods map[types.UID]*v1.Pod) (map[podutil.PodLauncher][]*v1.Pod, error) {
+func GroupPodsByLauncher(pods map[types.UID]*v1.Pod) (map[podutil.PodLauncher][]*v1.Pod, error) {
 	podMap := make(map[podutil.PodLauncher][]*v1.Pod)
 
 	for _, pod := range pods {
