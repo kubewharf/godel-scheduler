@@ -72,12 +72,12 @@ func (pl *PodTopologySpreadCheck) CheckTopology(_ context.Context, cycleState *f
 
 	state := utils.GetPreFilterState(pod, nodeInfos, constraints)
 
-	commonState, err := binderutils.ReadCommonState(cycleState)
-	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
-	}
-	if commonState != nil {
-		pl.updateStateByVictims(&state, commonState.VictimsGroupByNode)
+	if cycleState != nil {
+		victimsGroupByNode, err := framework.GetVictimsGroupByNodeState(cycleState)
+		if err != nil {
+			return framework.NewStatus(framework.Error, err.Error())
+		}
+		pl.updateStateByVictims(&state, victimsGroupByNode)
 	}
 
 	return utils.IsSatisfyPodTopologySpreadConstraints(&state, pod, nodeInfo, podLauncher)

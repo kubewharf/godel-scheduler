@@ -26,7 +26,6 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/binder/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
 	pt "github.com/kubewharf/godel-scheduler/pkg/binder/testing"
-	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	utils "github.com/kubewharf/godel-scheduler/pkg/plugins/podtopologyspread"
@@ -752,7 +751,7 @@ func TestCheckConflictsWithVictims(t *testing.T) {
 				}
 				victimsGroupByNode[node] = victims
 			}
-			binderutils.WriteCommonState(state, victimsGroupByNode)
+			framework.SetVictimsGroupByNodeState(victimsGroupByNode, state)
 
 			for _, node := range tt.nodes {
 				nodeInfo := frameworkHandle.GetNodeInfo(node.Name)
