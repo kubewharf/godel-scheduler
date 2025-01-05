@@ -446,6 +446,7 @@ func getQoSLevelForPod(pod *v1.Pod, qos string) util.QoSLevel {
 }
 
 // GetPodLauncher return the launcher of the given pod, only kubelet and node-manager are allowed.
+// GetPodLauncher 从 pod annotation 中获取 launcher，仅允许 kubelet 和 node-manager，如果不存在则返回 kubelet
 func GetPodLauncher(pod *v1.Pod) (PodLauncher, error) {
 	if podLauncher, ok := pod.Annotations[PodLauncherAnnotationKey]; ok {
 		switch pt := PodLauncher(podLauncher); pt {
@@ -599,10 +600,13 @@ func GetPodKey(pod *v1.Pod) string {
 	return pod.Namespace + "/" + pod.Name
 }
 
+// LegalPodResourceTypeAndLauncher 判断 pod 是否可以获取到 launcher && Qos
 func LegalPodResourceTypeAndLauncher(pod *v1.Pod) bool {
+	// 尝试获取 Pod 的启动器，如果出错则返回 false
 	if _, err := GetPodLauncher(pod); err != nil {
 		return false
 	}
+	// 尝试获取 Pod Qos，如果出错则返回 false
 	if _, err := GetPodResourceType(pod); err != nil {
 		return false
 	}

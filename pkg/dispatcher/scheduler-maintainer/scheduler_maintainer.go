@@ -66,11 +66,13 @@ func NewSchedulerMaintainer(crdClient crdclient.Interface, schedulerLister sched
 	}
 }
 
-// Run runs all necessary workers
+// Run runs all necessary workers Run 运行所有必要的工作者
 func (maintainer *SchedulerMaintainer) Run(stopCh <-chan struct{}) {
 	// populate schedulers periodically
-	go wait.Until(maintainer.PopulateSchedulers, 1*time.Minute, stopCh)
+	go wait.Until(maintainer.PopulateSchedulers, 1*time.Minute, stopCh) // 定期更新 SchedulerMaintainer 中调度器的数量和状态。
 
+	// 遍历 active 状态的 scheudler，将实际不活跃的 scheudler 删掉；
+	// 遍历 inactive 状态的 scheudler，将实际活跃的 scheudler 的 active 置为 true，将实际不活跃的 scheudler 删掉。
 	go wait.Until(maintainer.SyncUpSchedulersStatus, 30*time.Second, stopCh)
 
 	<-stopCh
@@ -92,7 +94,12 @@ func (maintainer *SchedulerMaintainer) PopulateSchedulers() {
 // TODO: we need to handle this scenario: schedulers exists in both active queue and inactive queue
 // be careful about the race condition when we handle the scenario above
 // we can delete schedulers from one of the queues based on schedulers actual status
+//
+// 遍历 active 状态的 scheudler，将实际不活跃的 scheudler 删掉；
+// 遍历 inactive 状态的 scheudler，将实际活跃的 scheudler 的 active 置为 true，将实际不活跃的 scheudler 删掉。
 func (maintainer *SchedulerMaintainer) SyncUpSchedulersStatus() {
+
+	// 遍历 active 状态的 scheudler，将不活跃的 scheudler 删掉
 	activeSchedulers := maintainer.GetActiveSchedulers()
 	for _, schedulerName := range activeSchedulers {
 		scheduler, err := maintainer.schedulerLister.Get(schedulerName)
@@ -104,9 +111,11 @@ func (maintainer *SchedulerMaintainer) SyncUpSchedulersStatus() {
 			maintainer.DeactivateScheduler(schedulerName)
 			continue
 		}
+		// 如果 2 分钟内没有更新调度程序的 crd，调度程序将被视为非活动状态
 		if !IsSchedulerActive(scheduler) {
 			klog.V(3).InfoS("Started to delete the inactive schedulers", "schedulerName", schedulerName)
 			// schedulers is still there and it is not active, delete it.
+			// 调度程序仍在，且 not active，将其删除。
 			err := maintainer.crdClient.SchedulingV1alpha1().Schedulers().Delete(context.TODO(), scheduler.Name, metav1.DeleteOptions{})
 			if err != nil {
 				klog.InfoS("Failed to delete the inactive schedulers", "schedulerName", scheduler.Name, "err", err)
@@ -114,6 +123,7 @@ func (maintainer *SchedulerMaintainer) SyncUpSchedulersStatus() {
 		}
 	}
 
+	// 遍历 inactive 状态的 scheudler，将不活跃的 scheudler 删掉
 	inactiveSchedulers := maintainer.GetInactiveSchedulers()
 	for _, schedulerName := range inactiveSchedulers {
 		scheduler, err := maintainer.schedulerLister.Get(schedulerName)
@@ -126,8 +136,10 @@ func (maintainer *SchedulerMaintainer) SyncUpSchedulersStatus() {
 			continue
 		}
 		if IsSchedulerActive(scheduler) {
+			// 将 scheduler 的 active 置为 true
 			maintainer.ActivateScheduler(scheduler.Name)
 		} else {
+			// scheudler 不是 active 的，删除
 			klog.V(3).InfoS("Started to delete the inactive schedulers", "schedulerName", schedulerName)
 			// schedulers is still there and it is not active, delete it.
 			err := maintainer.crdClient.SchedulingV1alpha1().Schedulers().Delete(context.TODO(), scheduler.Name, metav1.DeleteOptions{})

@@ -73,7 +73,8 @@ func simpleKeyFunc(obj interface{}) (string, error) {
 }
 
 func (uis *unitInfos) Run(stop <-chan struct{}) {
-	go wait.Until(uis.populate, 30*time.Second, stop)
+	// populate: 填充、填入
+	go wait.Until(uis.populate, 30*time.Second, stop) // 判断 podGroup 中的 pods 是否可以发送，如果可以发送，则添加到 ready queue 中
 }
 
 func syncPendingMetricsFactory() func(ui *unitInfo) {
@@ -121,7 +122,7 @@ func (uis *unitInfos) populate() {
 	// TODO: remove this func after refactor dispatcher Queue unit
 	syncPendingMetrics := syncPendingMetricsFactory()
 	for _, ui := range uis.units {
-		message, isReady := ui.readyToBeDispatched()
+		message, isReady := ui.readyToBeDispatched() // 判断这个 podGroup 中的pod是否可以发送
 		if isReady {
 			uis.movePodsToReadyQueue(ui)
 		} else {
@@ -130,7 +131,7 @@ func (uis *unitInfos) populate() {
 				uis.recorder.Eventf(podGroup, nil, v1.EventTypeNormal, "PeriodicallyCheckDispatchReadiness", "CheckDispatchReadiness", message)
 			}
 		}
-		syncPendingMetrics(ui)
+		syncPendingMetrics(ui) // metric 相关
 	}
 }
 
@@ -140,7 +141,10 @@ func (uis *unitInfos) movePodsToReadyQueue(ui *unitInfo) {
 		return
 	}
 
+	// 获取 unit 的 Property
 	unitProperty := ui.GetUnitProperty()
+	// 将 pod 添加到 ready queue 中，并从 unsorted pods 中删除。后续 ready queue 的pod会被放到 fifo queue中，待 dispatcher
+	// todo 看着是 job 的场景，又不太像，又有点像 批调度的场景
 	for key, podInfo := range ui.unSortedPods {
 		klog.V(3).InfoS("DEBUG: added pod to ready queue", "pod", podInfo.PodKey)
 		if err := uis.readyUnitPods.Add(podInfo); err == nil {
@@ -175,6 +179,7 @@ func (uis *unitInfos) addPodGroup(pg *v1alpha1.PodGroup) {
 	}
 	ui.podGroup = pg
 
+	// 如果 podGroup 的 pod数达到了 ready 的条件，将 podGroup 中的 pod： 添加到 ready queue 中， 后续异步协程会添加到 pending fifo queue -> dispatch
 	message, isReady := uis.units[unitKey].readyToBeDispatched()
 	if isReady {
 		uis.movePodsToReadyQueue(uis.units[unitKey])
@@ -221,6 +226,7 @@ func (uis *unitInfos) AddPod(unitKey string, podKey string) {
 		}
 		uis.units[unitKey].pods[podKey] = struct{}{}
 
+		// 判断是否可以发送
 		message, isReady := uis.units[unitKey].readyToBeDispatched()
 		if isReady {
 			uis.movePodsToReadyQueue(uis.units[unitKey])
@@ -356,6 +362,7 @@ const (
 )
 
 func (ui *unitInfo) readyToBeDispatched() (string, bool) {
+	// podGroup 为空，返回错误
 	if nil == ui.podGroup {
 		klog.V(5).InfoS(MsgNilPodGroup)
 		return MsgNilPodGroup, false
@@ -367,6 +374,7 @@ func (ui *unitInfo) readyToBeDispatched() (string, bool) {
 		return MsgPodGroupBeingDeleted, false
 	}
 
+	// 如果podGroup的状态不是Pending且不是Unknown，返回ture，准备发送
 	if ui.podGroup.Status.Phase != v1alpha1.PodGroupPending && ui.podGroup.Status.Phase != v1alpha1.PodGroupUnknown {
 		return "", true
 	}

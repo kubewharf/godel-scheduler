@@ -31,6 +31,7 @@ const (
 	PodStateAnnotationKey = "godel.bytedance.com/pod-state"
 
 	// SchedulerAnnotationKey is a pod annotation key, value is the scheduler id who is responsible for scheduling this pod
+	// 表示 pod 由哪个 scheudler 负责调度
 	SchedulerAnnotationKey = "godel.bytedance.com/selected-scheduler"
 
 	// FailedSchedulersAnnotationKey is a pod annotation key, value is schedulers who have already tried and failed to schedule the pod
@@ -43,6 +44,7 @@ const (
 	// AssumedNodeAnnotationKey is a pod annotation key, value is the assumed node name chosen by one scheduler
 	// the scheduler will reserve the allocated resource for the pod. TODO: should all schedulers be aware of this ?
 	// TODO: figure out if we can return multiple nodes ? if so how to deal with scheduler cache ?
+	// scheduler 为 pod assume 的 node 的名称， scheudler 将为 pod 保留分配的资源。
 	AssumedNodeAnnotationKey = "godel.bytedance.com/assumed-node"
 
 	// TODO: figure out how to define cross node constraint and whether we need this annotation
@@ -52,6 +54,7 @@ const (
 	AssumedCrossNodeAnnotationKey = "godel.bytedance.com/assumed-cross-node"
 
 	// PodGroupNameAnnotationKey is pod annotation key, the value is name of PodGroup custom resource.
+	// PodGroupNameAnnotationKey 是 Pod 注释键，值是 PodGroup 自定义资源的名称。
 	PodGroupNameAnnotationKey = "godel.bytedance.com/pod-group-name"
 
 	// PotentialVictimsAnnotationKey is a pod annotation key, value is the victims chosen by dispatcher
@@ -64,6 +67,7 @@ const (
 	// value can be like: {node: node1, victims: pod1, pod2...}
 	// the scheduler will reserve the allocated resource for the pod. TODO: should all schedulers be aware of this ?
 	// TODO: figure out if we can return multiple nodes ? if so how to deal with scheduler cache ?
+	// 表示 scheduler 为 pod 选择的抢占节点，值可以是 {node: node1, victims: pod1, pod2...}，调度器将为 pod 保留分配的资源。
 	NominatedNodeAnnotationKey = "godel.bytedance.com/nominated-node"
 
 	// ATTENTION: This annotation key will be DEPRECATED in the future and REPLACED by `QoSLevelKey=katalyst.kubewharf.io/qos_level`.
@@ -71,9 +75,11 @@ const (
 	PodResourceTypeAnnotationKey = "godel.bytedance.com/pod-resource-type"
 
 	// PodLauncherAnnotationKey is a pod annotation key, value is the launcher of this pod (kubelet or node-manager)
+	// PodLauncherAnnotationKey 是一个 Pod 注解键，其值是该 Pod 的启动器（kubelet 或 node-manager）。
 	PodLauncherAnnotationKey = "godel.bytedance.com/pod-launcher"
 
 	// InitialHandledTimestampAnnotationKey is a pod annotation key, value is the timestamp when the pod is first handled by Godel Scheduler
+	// InitialHandledTimestampAnnotationKey 是 pod 注释键，值是 pod 首次被 Godel 调度程序处理的时间戳。
 	InitialHandledTimestampAnnotationKey = "godel.bytedance.com/initial-handled-timestamp"
 
 	// MicroTopologyKey is an annotation key for pod micro topology assigned by scheduler&binder
@@ -153,6 +159,11 @@ var (
 )
 
 // PendingPod checks if the given pod is in pending state
+// 1. godel.bytedance.com/pod-state == pending 或者 "" && (表示pod 为 pending 状态)
+// 2. godel.bytedance.com/selected-scheduler 为 "" && （表示没有 scheudler 负责调度这个 pod）
+// 3. godel.bytedance.com/assumed-node 为 "" && （表示 pod 没有被 scheduler assume 到某个节点上）
+// 4. godel.bytedance.com/nominated-node 为 "" && （表示 scheduler 没有为 pod 选择抢占节点）
+// 5. pod.Spec.NodeName 为 ""
 func PendingPod(pod *v1.Pod) bool {
 	if pod.Annotations != nil &&
 		(pod.Annotations[PodStateAnnotationKey] == string(PodPending) || len(pod.Annotations[PodStateAnnotationKey]) == 0) &&
@@ -166,6 +177,11 @@ func PendingPod(pod *v1.Pod) bool {
 }
 
 // DispatchedPod checks if the given pod is in dispatched state
+// godel.bytedance.com/pod-state == dispatched && (表示 pod 为 dispatched 状态)
+// godel.bytedance.com/selected-scheduler 不为 "" && （表示选定了 scheudler 为这个 pod 负责调度）
+// godel.bytedance.com/assumed-node 为 "" && （表示 pod 没有被 scheduler assume 到某个节点上）
+// godel.bytedance.com/nominated-node 为 "" && （表示 scheduler 没有为 pod 选择抢占节点）
+// pod.Spec.NodeName 为 ""
 func DispatchedPod(pod *v1.Pod) bool {
 	if pod.Annotations != nil &&
 		pod.Annotations[PodStateAnnotationKey] == string(PodDispatched) &&
@@ -196,9 +212,10 @@ func AssumedPodOfGodel(pod *v1.Pod, schedulerName string) bool {
 	return false
 }
 
+// PendingPodOfGodel 判断 pod 是否为 godel-scheduler 待调度的 pending pod
 func PendingPodOfGodel(pod *v1.Pod, schedulerName string) bool {
-	if LegalPodResourceTypeAndLauncher(pod) &&
-		responsibleForPod(pod, schedulerName) &&
+	if LegalPodResourceTypeAndLauncher(pod) && // 判断 pod 是否可以获取到 launcher && Qos
+		responsibleForPod(pod, schedulerName) && // pod.Spec.SchedulerName 为 godel-scheduler || default-scheduler || ""
 		PendingPod(pod) {
 		return true
 	}
@@ -255,10 +272,16 @@ func BoundPod(pod *v1.Pod) bool {
 
 // AbnormalPodState checks if the given pod is in abnormal state
 func AbnormalPodState(pod *v1.Pod) bool {
+	// 已调度的pod，直接返回false
 	if BoundPod(pod) {
 		return false
 	}
 
+	// "godel.bytedance.com/pod-state"
+	// 1. 为空但实际不是 pending pod ||
+	// 2. 是"pending" 但实际不是 pending pod ||
+	// 3. 为"dispatched" 但实际不是 Dispatched Pod ||
+	// 4. 为"assumed" 但实际不是 assumed Pod，则返回true
 	switch pod.Annotations[PodStateAnnotationKey] {
 	case "":
 		fallthrough

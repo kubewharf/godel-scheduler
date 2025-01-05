@@ -36,6 +36,7 @@ func (maintainer *SchedulerMaintainer) AddScheduler(scheduler *schedulerapi.Sche
 
 // updateSchedulerBasedOnSchedulerCRD updates gs based on schedulers crd
 // we assume the caller has already got the lock
+// 根据调度程序的运行状态更新 generalScheduler
 func (maintainer *SchedulerMaintainer) updateSchedulerBasedOnSchedulerCRD(scheduler *schedulerapi.Scheduler) {
 	if maintainer.generalSchedulers[scheduler.Name] == nil {
 		// schedulers are not added before, add it to active schedulers map directly

@@ -31,6 +31,7 @@ import (
 )
 
 // DispatchedPodsPopulator is the populator struct for collecting dispatched pods who are in inactive schedulers
+// DispatchedPodsPopulator 是 populator 结构，用于收集处于非活动调度器中的已调度 pod。
 type DispatchedPodsPopulator struct {
 	schedulerName            string
 	podLister                v1.PodLister
@@ -52,10 +53,12 @@ func NewDispatchedPodsPopulator(schedulerName string, podLister v1.PodLister, qu
 
 // Run starts the collection work
 func (dpp *DispatchedPodsPopulator) Run(stopCh <-chan struct{}) {
+	// 收集并入队所有分配给非活动调度器的已调度 Pod。
 	go wait.Until(dpp.collectDispatchedPodsInInactiveSchedulers, 5*time.Minute, stopCh)
 }
 
 // collectDispatchedPodsInInactiveSchedulers enqueues all dispatched pods who are assigned to inactive schedulers
+// 收集并入队所有分配给非活动调度器的已调度 Pod。
 func (dpp *DispatchedPodsPopulator) collectDispatchedPodsInInactiveSchedulers() {
 	// TODO: add indexers for PodState and Scheduler annotations
 	pods, err := dpp.podLister.List(labels.Everything())

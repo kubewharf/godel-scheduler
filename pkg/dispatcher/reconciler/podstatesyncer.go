@@ -38,6 +38,8 @@ import (
 )
 
 // PodStateReconciler stores all abnormal state pods and try to reset pod state
+// PodStateReconciler 存储所有异常状态的 pod 并尝试重置 pod 状态
+// 主要负责周期性的检查 Pod、Node、Scheduler、SchedulingUnit 等状态，修正错误状态，查漏补缺。
 type PodStateReconciler struct {
 	client                   kubernetes.Interface
 	podLister                listerv1.PodLister
@@ -84,8 +86,8 @@ func NewPodStateReconciler(client kubernetes.Interface,
 
 // Run runs pod state syncer worker
 func (psr *PodStateReconciler) Run(stop <-chan struct{}) {
-	go wait.Until(psr.AbnormalStatePodsSyncer, time.Second, stop)
-	go wait.Until(psr.StaleDispatchedPodsSyncer, time.Second, stop)
+	go wait.Until(psr.AbnormalStatePodsSyncer, time.Second, stop)   // 异常状态 pod 的处理逻辑，annotaiton和实际状态不一致等情况
+	go wait.Until(psr.StaleDispatchedPodsSyncer, time.Second, stop) // 周期性检查 Pod、Node、Scheduler、SchedulingUnit 等状态，修正错误状态，查漏补缺。
 
 	go psr.populator.Run(stop)
 }
@@ -100,6 +102,7 @@ func (psr *PodStateReconciler) StaleDispatchedPodsEnqueue(obj interface{}) {
 	psr.staleDispatchedPodsQueue.Add(obj)
 }
 
+// 周期性检查 Pod、Node、Scheduler、SchedulingUnit 等状态，修正错误状态，查漏补缺。
 func (psr *PodStateReconciler) StaleDispatchedPodsSyncer() {
 	workFunc := func() bool {
 		podKeyObj, quit := psr.staleDispatchedPodsQueue.Get()
@@ -145,6 +148,7 @@ func (psr *PodStateReconciler) StaleDispatchedPodsSyncer() {
 	}
 }
 
+// 若 dispatched 状态的 pod 对应的 scheduler 为 inactive 状态，将 pod 置为 pending 状态重新 dispatch
 func (psr *PodStateReconciler) updateStaleDispatchedStatePod(pod *corev1.Pod) error {
 	if podutil.DispatchedPodOfGodel(pod, psr.schedulerName) {
 		schedulerName := pod.Annotations[podutil.SchedulerAnnotationKey]
@@ -159,6 +163,7 @@ func (psr *PodStateReconciler) updateStaleDispatchedStatePod(pod *corev1.Pod) er
 }
 
 // AbnormalStatePodsSyncer tries reset abnormal state pods
+// 异常状态 pod 的处理逻辑，annotaiton和实际状态不一致等情况
 func (psr *PodStateReconciler) AbnormalStatePodsSyncer() {
 	workFunc := func() bool {
 		podKeyObj, quit := psr.abnormalPodsQueue.Get()
@@ -205,6 +210,7 @@ func (psr *PodStateReconciler) AbnormalStatePodsSyncer() {
 }
 
 // updatePodState tries to update pod state if it is abnormal
+// 尝试修复异常 pod
 func (psr *PodStateReconciler) updateAbnormalStatePod(pod *corev1.Pod) error {
 	abnormal := podutil.AbnormalPodStateOfGodel(pod, psr.schedulerName)
 	if abnormal {

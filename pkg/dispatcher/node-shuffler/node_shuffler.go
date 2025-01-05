@@ -147,15 +147,16 @@ func NewNodeShuffler(k8sClient kubernetes.Interface, crdClient crdclient.Interfa
 // Run runs different tasks of node shuffler
 func (ns *NodeShuffler) Run(stopCh <-chan struct{}) {
 	// run node processing worker every one second
-	go wait.Until(ns.nodeProcessingWorker, time.Second, stopCh)
+	go wait.Until(ns.nodeProcessingWorker, time.Second, stopCh) // 更新节点状态，比如有节点 add，为 node 分配 scheudler，并将信息更新到 node annotation
 	// run re-balancing goroutine every one minute
-	go wait.Until(ns.ReBalanceSchedulerNodes, time.Minute, stopCh)
+	go wait.Until(ns.ReBalanceSchedulerNodes, time.Minute, stopCh) // 重新平衡调度器的节点数量
 	// TODO: sync up node and cnr scheduler name annotation
 
 	<-stopCh
 }
 
 // nodeProcessingWorker keeps updating scheduler name annotation for node
+// nodeProcessingWorker 不断更新节点的调度器名称注释
 func (ns *NodeShuffler) nodeProcessingWorker() {
 	workFunc := func() bool {
 		nodeInfo, quit := ns.nodeProcessingQueue.Get()
@@ -169,6 +170,7 @@ func (ns *NodeShuffler) nodeProcessingWorker() {
 		}
 		klog.V(5).InfoS("Started to process node", "nodeInfo", nodeInfo)
 
+		// nodeLister 获取 node
 		node, nodeErr := ns.nodeLister.Get(nodeInfo.nodeName)
 		if nodeErr != nil && !errors.IsNotFound(nodeErr) {
 			klog.InfoS("Failed to get the node from informer", "node", klog.KRef("", nodeInfo.nodeName), "err", nodeErr)
@@ -177,6 +179,7 @@ func (ns *NodeShuffler) nodeProcessingWorker() {
 			return false
 		}
 
+		// nmNodeLister 获取 nmnode
 		nmNode, nmNodeErr := ns.nmNodeLister.Get(nodeInfo.nodeName)
 		if nmNodeErr != nil && !errors.IsNotFound(nmNodeErr) {
 			klog.InfoS("Failed to get the nmnode from informer", "node", klog.KObj(node), "err", nmNodeErr)
@@ -190,6 +193,7 @@ func (ns *NodeShuffler) nodeProcessingWorker() {
 			return false
 		}
 
+		// 更新节点 annotation 中 scheudler 的名称
 		if err := ns.updateSchedulerNameForNode(node, nmNode); err != nil {
 			klog.InfoS("Failed to update the scheduler name for the node", "node", klog.KObj(node), "err", err)
 			// don't add it back to the queue directly, wait for another node update event
@@ -211,11 +215,13 @@ func (ns *NodeShuffler) nodeProcessingWorker() {
 func (ns *NodeShuffler) updateSchedulerNameForNode(node *v1.Node, nmNode *nodev1alpha1.NMNode /*nodeInfo *NodeToBeProcessed*/) error {
 	// choose the scheduler with lease number of nodes in its partition directly for the first phase
 	selectedSchedulerName := ""
+	// 从 schedulers 中获取节点数最少的 scheduler
 	if schedulerName, err := ns.chooseOneSchedulerForThisNode(); err != nil {
 		return err
 	} else {
 		selectedSchedulerName = schedulerName
 	}
+	// 更新节点，将 scheudlerName 信息写入 node annotation
 	return ns.updateNodeSchedulerNameAnnotation(node, nmNode, selectedSchedulerName)
 
 	// TODO: add more fine-grained reactions based on node enqueue reasons
@@ -274,14 +280,19 @@ func (ns *NodeShuffler) ReBalanceSchedulerNodes() {
 	// go through all the active schedulers
 	// shuffle nodes if the loads are not balanced
 	// TODO: revisit this and replace it with more accurate and complex logic
-	schedulerInfo := ns.schedulerMaintainer.GetSchedulersWithMostAndLeastNumberOfNodes()
+	schedulerInfo := ns.schedulerMaintainer.GetSchedulersWithMostAndLeastNumberOfNodes() // 获取节点数最少和最多的 scheduler
+	// 如果节点数最多的 scheduler 的节点数大于节点数最少的 scheduler 的节点数的 2 倍，且节点数最多的 scheudler 的节点数大于1，则将节点数最少的 scheduler 的节点数减半
 	if schedulerInfo != nil && schedulerInfo.MostNumberOfNodes > schedulerInfo.LeastNumberOfNodes*2 && schedulerInfo.MostNumberOfNodes > 1 {
+		// 例1:（5 + 2）/2 - 2 = 1
+		// 例2:（13 + 2）/2 - 2 = 5
 		numberOfNodesNeedToBeMoved := (schedulerInfo.MostNumberOfNodes+schedulerInfo.LeastNumberOfNodes)/2 - schedulerInfo.LeastNumberOfNodes
+		// 从节点数最多的 scheduler 中获取 numberOfNodesNeedToBeMoved 个节点，加入 nodeProcessingQueue，由 nodeProcessingWorker 处理
 		nodeNames, err := ns.schedulerMaintainer.GetSomeNodeNamesFromGeneralActiveScheduler(numberOfNodesNeedToBeMoved, schedulerInfo.MostNumberOfNodesSchedulerName)
 		if err != nil {
 			klog.InfoS("Failed to get nodes from scheduler", "schedulerName", schedulerInfo.MostNumberOfNodesSchedulerName, "err", err)
 		} else {
 			for _, nodeName := range nodeNames {
+				// 将节点从节点数最多的 scheduler 移到节点数最少的 scheduler，后续由 nodeProcessingWorker 处理
 				ns.nodeProcessingQueue.Add(&NodeToBeProcessed{
 					nodeName: nodeName,
 					reason:   TooManyNodesInThisPartition,

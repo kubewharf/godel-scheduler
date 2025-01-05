@@ -73,6 +73,9 @@ func (d *Dispatcher) addPodToPendingOrSortedQueue(obj interface{}) {
 
 	// if the pod is associated to a unit, which is not ready, add
 	// it to the corresponding pending unit.
+	// 通过 pod annotation "godel.bytedance.com/pod-group-name" 判断 是否属于 unit，
+	// 如果属于，则添加到 UnitInfos 的 unSortedPods 中，
+	// 否则添加到 FIFOPendingPodsQueue 中，直接 diaspatch
 	if frwkutils.PodBelongToUnit(pod) {
 		klog.V(5).InfoS("DEBUG: added unsorted pod to unit infos", "pod", klog.KObj(pod))
 		d.UnitInfos.AddUnSortedPodInfo(generateUnitKeyFromPod(pod), podInfo)
@@ -233,7 +236,7 @@ func AddAllEventHandlers(
 	nmNodeInformer nodeinformer.NMNodeInformer,
 	podGroupInformer schedulinginformer.PodGroupInformer,
 ) {
-	// pending pods queue
+	// pending pods queue 等待调度的 pod 队列
 	podInformer.Informer().AddEventHandler(
 		cache.FilteringResourceEventHandler{
 			FilterFunc: func(obj interface{}) bool {
@@ -259,7 +262,7 @@ func AddAllEventHandlers(
 		},
 	)
 
-	// dispatched pods queue
+	// dispatched pods queue 已经 dispatch 的 pod 队列
 	podInformer.Informer().AddEventHandler(
 		cache.FilteringResourceEventHandler{
 			FilterFunc: func(obj interface{}) bool {
@@ -284,6 +287,7 @@ func AddAllEventHandlers(
 		},
 	)
 
+	// 重调度相关功能
 	if utilfeature.DefaultFeatureGate.Enabled(features.SupportRescheduling) {
 		podInformer.Informer().AddEventHandler(
 			cache.FilteringResourceEventHandler{
@@ -310,6 +314,7 @@ func AddAllEventHandlers(
 		)
 	}
 
+	// 一些异常情况的pod，主要是 annotation 和实际状态不一致的pod
 	// abnormal state pod queue
 	podInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
@@ -318,6 +323,7 @@ func AddAllEventHandlers(
 		},
 	)
 
+	// scheduler 实例 event handler
 	schedulerInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    dispatcher.addScheduler,
@@ -326,7 +332,10 @@ func AddAllEventHandlers(
 		},
 	)
 
-	// unit infos
+	// unit infos: 看着似乎是 job or 批调度 相关的功能
+	// event add:
+	// 1. pod annotation "godel.bytedance.com/pod-group-name" 有值，将 pod 加入到 UnitInfos.units.pods 中
+	// 2. ((podGroup 状态不为 pending && unknown) || pod 数量满足要求)，将 podGroup(unit) 中的 pod 整体 dispatch
 	podInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    dispatcher.addPodToUnitInfos,
@@ -334,6 +343,9 @@ func AddAllEventHandlers(
 		},
 	)
 	// unit infos
+	// event add:
+	// 1. 将 podGroup 加入到 UnitInfos.units.podGroup 中
+	// 2. (podGroup 状态不为 pending && unknown || pod 数量满足要求)，将 podGroup(unit) 中的 pod 整体 dispatch
 	podGroupInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    dispatcher.addPodGroupToUnitInfos,
@@ -342,6 +354,7 @@ func AddAllEventHandlers(
 		},
 	)
 
+	// 当 add update delete 节点时，node shuffler 对节点重新进行分区
 	if utilfeature.DefaultFeatureGate.Enabled(features.DispatcherNodeShuffle) {
 		nodeInformer.Informer().AddEventHandler(
 			cache.ResourceEventHandlerFuncs{
@@ -351,6 +364,7 @@ func AddAllEventHandlers(
 			},
 		)
 
+		// nominated-node 相关功能，用于抢占
 		nmNodeInformer.Informer().AddEventHandler(
 			cache.ResourceEventHandlerFuncs{
 				AddFunc:    dispatcher.addNMNode,
@@ -413,6 +427,10 @@ func (d *Dispatcher) deleteScheduler(obj interface{}) {
 
 	d.DispatchInfo.DeleteScheduler(scheduler.Name)
 	d.maintainer.DeleteScheduler(scheduler)
+
+	// 从 Reconciler 的 store 中获取到该 scheudler 的 pods，
+	// 1. 加入到 StaleDispatchedPods Queue，有异步协程会把这个 scheduler 对应的 dispatched pod 置为 pending 状态重新 dispatch
+	// 2. 从 Reconciler 的 store 中删除这些 pod
 	d.reconciler.DeleteScheduler(scheduler)
 }
 
@@ -435,6 +453,7 @@ func (d *Dispatcher) deletePodFromUnitInfos(obj interface{}) {
 	d.UnitInfos.DeletePod(generateUnitKeyFromPod(pod), podutil.GetPodKey(pod))
 }
 
+// event: add PodGroup
 func (d *Dispatcher) addPodGroupToUnitInfos(obj interface{}) {
 	pg, ok := obj.(*scheduling.PodGroup)
 	if !ok {
@@ -444,6 +463,8 @@ func (d *Dispatcher) addPodGroupToUnitInfos(obj interface{}) {
 
 	klog.V(4).InfoS("Started to handle Add event for PodGroup",
 		"podGroup", klog.KObj(pg))
+
+	// UnitInfos 中添加 PodGroup
 	d.UnitInfos.AddPodGroup(pg)
 }
 

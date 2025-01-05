@@ -109,6 +109,8 @@ func IsSchedulerActive(scheduler *schedulerapi.Scheduler) bool {
 		return false
 	}
 	// TODO: for now, we check schedulers status based on schedulers.Status.LastUpdateTime, do we need to adjust this ?
+	//       目前，我们根据 schedulers.Status.LastUpdateTime 检查调度程序的状态，是否需要调整？
+	//  如果 2 分钟（MaxSchedulerCRDNotUpdateDuration）内没有更新调度程序的 crd，调度程序将被视为非活动状态
 	return now.Before(scheduler.Status.LastUpdateTime.Add(MaxSchedulerCRDNotUpdateDuration))
 }
 
@@ -181,6 +183,7 @@ type SchedulersWithLeastNumberOfNodes struct {
 }
 
 // GetGeneralActiveSchedulerWithLeastNumberOfNodes gets the schedulers with the least number of nodes from general active schedulers
+// GetGeneralActiveSchedulerWithLeastNumberOfNodes 从 schedulers 中获取节点数最少的 scheduler
 func (maintainer *SchedulerMaintainer) GetGeneralActiveSchedulerWithLeastNumberOfNodes() *SchedulersWithLeastNumberOfNodes {
 	maintainer.schedulerMux.Lock()
 	defer maintainer.schedulerMux.Unlock()

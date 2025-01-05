@@ -106,7 +106,7 @@ func ExtractPodProperty(pod *v1.Pod) *PodProperty {
 	p := &PodProperty{
 		Namespace:  pod.Namespace,
 		UnitKey:    GetUnitKey(pod),
-		Priority:   GetPodPriority(pod),
+		Priority:   GetPodPriority(pod), // 通过 pod 的 Property 和 Qos 信息获取，优先 Property
 		Qos:        GetPodQos(pod),
 		SubCluster: GetPodSubCluster(pod),
 	}

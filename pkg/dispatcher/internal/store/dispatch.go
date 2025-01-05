@@ -227,6 +227,7 @@ func (dq *dispatchInfo) UpdatePodInAdvance(pod *v1.Pod, scheduler string) {
 	dq.addPod(pod, scheduler)
 }
 
+// 选择节点数最少的 scheduler
 func (dq *dispatchInfo) GetMostIdleSchedulerAndAddPodInAdvance(pod *v1.Pod) string {
 	dq.lock.Lock()
 	defer dq.lock.Unlock()
