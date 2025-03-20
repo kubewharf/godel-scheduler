@@ -1,0 +1,1343 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: godel-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.9.0
+  creationTimestamp: null
+  name: customnoderesources.node.katalyst.kubewharf.io
+spec:
+  group: node.katalyst.kubewharf.io
+  names:
+    kind: CustomNodeResource
+    listKind: CustomNodeResourceList
+    plural: customnoderesources
+    shortNames:
+      - kcnr
+    singular: customnoderesource
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: CustomNodeResource captures information about a custom defined
+            node resource CustomNodeResource objects are non-namespaced.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: Spec defines the behavior of a CustomNodeResource.
+              properties:
+                nodeResourceProperties:
+                  items:
+                    properties:
+                      propertyName:
+                        description: property name
+                        type: string
+                      propertyQuantity:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        description: values of the quantity-types property
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      propertyValues:
+                        description: values of the specific property
+                        items:
+                          type: string
+                        type: array
+                    required:
+                      - propertyName
+                    type: object
+                  type: array
+                taints:
+                  description: customized taint for katalyst, which may affect partial
+                    tasks
+                  items:
+                    properties:
+                      effect:
+                        description: Required. The effect of the taint on pods that
+                          do not tolerate the taint. Valid effects are NoScheduleForReclaimedTasks.
+                        type: string
+                      key:
+                        description: Required. The taint key to be applied to a node.
+                        type: string
+                      value:
+                        description: Required. The taint value corresponding to the
+                          taint key.
+                        type: string
+                    type: object
+                  type: array
+              type: object
+            status:
+              description: Status represents the current information about a CustomNodeResource.
+                This data may not be up-to-date.
+              properties:
+                conditions:
+                  description: Conditions is an array of current observed cnr conditions.
+                  items:
+                    description: CNRCondition contains condition information for a cnr.
+                    properties:
+                      lastHeartbeatTime:
+                        description: Last time we got an update on a given condition.
+                        format: date-time
+                        type: string
+                      message:
+                        description: Human-readable message indicating details about
+                          last transition.
+                        type: string
+                      reason:
+                        description: (brief) reason for the condition's last transition.
+                        type: string
+                      status:
+                        description: Status of the condition, one of True, False, Unknown.
+                        type: string
+                      type:
+                        description: Type is the type of the condition.
+                        type: string
+                    required:
+                      - status
+                      - type
+                    type: object
+                  type: array
+                resources:
+                  description: Resources defines the numeric quantities in this node;
+                    for instance reclaimed resources for this node
+                  properties:
+                    allocatable:
+                      additionalProperties:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      description: ResourceList is a set of (resource name, quantity)
+                        pairs.
+                      type: object
+                    capacity:
+                      additionalProperties:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      description: ResourceList is a set of (resource name, quantity)
+                        pairs.
+                      type: object
+                  type: object
+                topologyPolicy:
+                  default: none
+                  description: TopologyPolicy indicates placement policy for scheduler
+                    or other centralized components to follow. this policy (including
+                    topology scope) is defined in topology-manager, katalyst is responsible
+                    to parse the policy, and transform to TopologyPolicy here.
+                  type: string
+                topologyZone:
+                  items:
+                    properties:
+                      allocations:
+                        items:
+                          properties:
+                            consumer:
+                              type: string
+                            requests:
+                              additionalProperties:
+                                anyOf:
+                                  - type: integer
+                                  - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              description: ResourceList is a set of (resource name,
+                                quantity) pairs.
+                              type: object
+                          required:
+                            - consumer
+                          type: object
+                        type: array
+                      attributes:
+                        items:
+                          description: Attribute records the resource-specified info
+                            with name-value pairs
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                          required:
+                            - name
+                            - value
+                          type: object
+                        type: array
+                      children:
+                        description: 'Children represents the ownerships between multiple
+                        TopologyZone; for instance, - a TopologyZone with type TopologyTypeSocket
+                        may have multiple childed TopologyZone with type TopologyTypeNuma
+                        to reflect the physical connections for a node - a TopologyZone
+                        with type `nic` may have multiple childed TopologyZone with
+                        type `vf` to reflect the `physical and virtual` relations
+                        between devices todo: in order to bypass the lacked functionality
+                        of recursive structure definition, we need to skip validation
+                        of this field for now; will re-add this validation logic if
+                        the community supports $ref, for more information, please
+                        refer to https://github.com/kubernetes/kubernetes/issues/62872'
+                        x-kubernetes-preserve-unknown-fields: true
+                      name:
+                        description: Name represents the name for the given type for
+                          resource; for instance, - disk-for-log, disk-for-storage may
+                          have different usage or attributes, so we need separate structure
+                          to distinguish them.
+                        type: string
+                      resources:
+                        description: Resources defines the numeric quantities in this
+                          TopologyZone; for instance, - a TopologyZone with type TopologyTypeGPU
+                          may have both gpu and gpu-memory - a TopologyZone with type
+                          TopologyTypeNIC may have both ingress and egress bandwidth
+                        properties:
+                          allocatable:
+                            additionalProperties:
+                              anyOf:
+                                - type: integer
+                                - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: ResourceList is a set of (resource name, quantity)
+                              pairs.
+                            type: object
+                          capacity:
+                            additionalProperties:
+                              anyOf:
+                                - type: integer
+                                - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: ResourceList is a set of (resource name, quantity)
+                              pairs.
+                            type: object
+                        type: object
+                      siblings:
+                        description: Siblings represents the relationship between TopologyZones
+                          at the same level; for instance, the distance between NUMA
+                          nodes.
+                        items:
+                          description: Sibling describes the relationship between two
+                            Zones.
+                          properties:
+                            attributes:
+                              description: Attributes are the attributes of the relationship
+                                between two Zones. For instance, the distance between
+                                tow NUMA nodes, the connection type between two GPUs,
+                                etc.
+                              items:
+                                description: Attribute records the resource-specified
+                                  info with name-value pairs
+                                properties:
+                                  name:
+                                    type: string
+                                  value:
+                                    type: string
+                                required:
+                                  - name
+                                  - value
+                                type: object
+                              type: array
+                            name:
+                              description: Name represents the name of this Sibling.
+                              type: string
+                            type:
+                              description: Type represents the type of this Sibling.
+                                For instance, Socket, Numa, GPU, NIC, Disk and so on.
+                              type: string
+                          required:
+                            - name
+                            - type
+                          type: object
+                        type: array
+                      type:
+                        description: Type represents which kind of resource this TopologyZone
+                          is for; for instance, Socket, Numa, GPU, NIC, Disk and so
+                          on.
+                        type: string
+                    required:
+                      - name
+                      - type
+                    type: object
+                  type: array
+              required:
+                - topologyPolicy
+              type: object
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.0
+  creationTimestamp: null
+  name: nmnodes.node.godel.kubewharf.io
+spec:
+  group: node.godel.kubewharf.io
+  names:
+    kind: NMNode
+    listKind: NMNodeList
+    plural: nmnodes
+    singular: nmnode
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: NMNode is the struct created for NodeManager to report and store
+            node info
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: Spec defines the behavior of a NMNode.
+              properties:
+                taints:
+                  description: If specified, the nmnode's taints. TODO:should we move
+                    this to NMNode Status ?
+                  items:
+                    description: The node this Taint is attached to has the "effect"
+                      on any pod that does not tolerate the Taint.
+                    properties:
+                      effect:
+                        description: Required. The effect of the taint on pods that
+                          do not tolerate the taint. Valid effects are NoSchedule, PreferNoSchedule
+                          and NoExecute.
+                        type: string
+                      key:
+                        description: Required. The taint key to be applied to a node.
+                        type: string
+                      timeAdded:
+                        description: TimeAdded represents the time at which the taint
+                          was added. It is only written for NoExecute taints.
+                        format: date-time
+                        type: string
+                      value:
+                        description: The taint value corresponding to the taint key.
+                        type: string
+                    required:
+                      - effect
+                      - key
+                    type: object
+                  type: array
+              type: object
+            status:
+              description: Status represents the current information about a NMNode.
+                This data may not be up to date.
+              properties:
+                machineStatus:
+                  description: machine status
+                  properties:
+                    loadAvgLastM:
+                      anyOf:
+                        - type: integer
+                        - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                  type: object
+                nodeCondition:
+                  items:
+                    description: NodeCondition contains condition information for a
+                      node.
+                    properties:
+                      lastHeartbeatTime:
+                        description: Last time we got an update on a given condition.
+                        format: date-time
+                        type: string
+                      lastTransitionTime:
+                        description: Last time the condition transit from one status
+                          to another.
+                        format: date-time
+                        type: string
+                      message:
+                        description: Human readable message indicating details about
+                          last transition.
+                        type: string
+                      reason:
+                        description: (brief) reason for the condition's last transition.
+                        type: string
+                      status:
+                        description: Status of the condition, one of True, False, Unknown.
+                        type: string
+                      type:
+                        description: Type of node condition.
+                        type: string
+                    required:
+                      - status
+                      - type
+                    type: object
+                  type: array
+                nodeStatus:
+                  description: node status from Yarn perspective
+                  type: string
+                resourceAllocatable:
+                  additionalProperties:
+                    anyOf:
+                      - type: integer
+                      - type: string
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  description: ResourceList is a set of (resource name, quantity) pairs.
+                  type: object
+                resourceCapacity:
+                  additionalProperties:
+                    anyOf:
+                      - type: integer
+                      - type: string
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  description: store the resource info reported by RM(NM)
+                  type: object
+              type: object
+          type: object
+      served: true
+      storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.0
+  creationTimestamp: null
+  name: podgroups.scheduling.godel.kubewharf.io
+spec:
+  group: scheduling.godel.kubewharf.io
+  names:
+    kind: PodGroup
+    listKind: PodGroupList
+    plural: podgroups
+    singular: podgroup
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - description: The current status of the PodGroup
+          jsonPath: .status.phase
+          name: Status
+          priority: 1
+          type: string
+        - description: The minimal number of members/tasks to run the PodGroup
+          jsonPath: .spec.minMember
+          name: MinMember
+          priority: 1
+          type: integer
+        - description: The maximal time of tasks to wait before run the PodGroup
+          jsonPath: .spec.scheduleTimeoutSeconds
+          name: TimeoutSeconds
+          priority: 1
+          type: integer
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: PodGroup indicates a collection of Pods which will be used for
+            batch workloads.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: 'Specification of the desired behavior of the pod group.
+              More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#spec-and-status'
+              properties:
+                affinity:
+                  description: Affinity shows the affinity/anti-affinity rules that
+                    scheduler needs to follow when scheduling instances of this pod
+                    group.
+                  properties:
+                    podGroupAffinity:
+                      description: PodGroupAffinity defines the specific affinity rules
+                      properties:
+                        nodeSelector:
+                          description: NodeSelector specifies the requirements that
+                            must be met for the podGroup's pods to fit on the nodes.
+                          properties:
+                            nodeSelectorTerms:
+                              description: Required. A list of node selector terms.
+                                The terms are ORed.
+                              items:
+                                description: A null or empty node selector term matches
+                                  no objects. The requirements of them are ANDed. The
+                                  TopologySelectorTerm type implements a subset of the
+                                  NodeSelectorTerm.
+                                properties:
+                                  matchExpressions:
+                                    description: A list of node selector requirements
+                                      by node's labels.
+                                    items:
+                                      description: A node selector requirement is a
+                                        selector that contains values, a key, and an
+                                        operator that relates the key and values.
+                                      properties:
+                                        key:
+                                          description: The label key that the selector
+                                            applies to.
+                                          type: string
+                                        operator:
+                                          description: Represents a key's relationship
+                                            to a set of values. Valid operators are
+                                            In, NotIn, Exists, DoesNotExist. Gt, and
+                                            Lt.
+                                          type: string
+                                        values:
+                                          description: An array of string values. If
+                                            the operator is In or NotIn, the values
+                                            array must be non-empty. If the operator
+                                            is Exists or DoesNotExist, the values array
+                                            must be empty. If the operator is Gt or
+                                            Lt, the values array must have a single
+                                            element, which will be interpreted as an
+                                            integer. This array is replaced during a
+                                            strategic merge patch.
+                                          items:
+                                            type: string
+                                          type: array
+                                      required:
+                                        - key
+                                        - operator
+                                      type: object
+                                    type: array
+                                  matchFields:
+                                    description: A list of node selector requirements
+                                      by node's fields.
+                                    items:
+                                      description: A node selector requirement is a
+                                        selector that contains values, a key, and an
+                                        operator that relates the key and values.
+                                      properties:
+                                        key:
+                                          description: The label key that the selector
+                                            applies to.
+                                          type: string
+                                        operator:
+                                          description: Represents a key's relationship
+                                            to a set of values. Valid operators are
+                                            In, NotIn, Exists, DoesNotExist. Gt, and
+                                            Lt.
+                                          type: string
+                                        values:
+                                          description: An array of string values. If
+                                            the operator is In or NotIn, the values
+                                            array must be non-empty. If the operator
+                                            is Exists or DoesNotExist, the values array
+                                            must be empty. If the operator is Gt or
+                                            Lt, the values array must have a single
+                                            element, which will be interpreted as an
+                                            integer. This array is replaced during a
+                                            strategic merge patch.
+                                          items:
+                                            type: string
+                                          type: array
+                                      required:
+                                        - key
+                                        - operator
+                                      type: object
+                                    type: array
+                                type: object
+                              type: array
+                          required:
+                            - nodeSelectorTerms
+                          type: object
+                        preferred:
+                          description: Preferred represents a set of affinity terms
+                            that don't necessarily have to be satisfied. But we need
+                            to try to satisfy
+                          items:
+                            description: PodGroupAffinityTerm defines terms of pod group
+                              affinity
+                            properties:
+                              topologyKey:
+                                description: TopologyKey is the specific topology name
+                                  that all related tasks should be scheduled to Empty
+                                  topologyKey is not allowed.
+                                type: string
+                            type: object
+                          type: array
+                        required:
+                          description: Required represents a set of affinity terms,
+                            all of them MUST be satisfied
+                          items:
+                            description: PodGroupAffinityTerm defines terms of pod group
+                              affinity
+                            properties:
+                              topologyKey:
+                                description: TopologyKey is the specific topology name
+                                  that all related tasks should be scheduled to Empty
+                                  topologyKey is not allowed.
+                                type: string
+                            type: object
+                          type: array
+                        sortRules:
+                          description: SortRules indicates how the nodeGroups, aggregated
+                            by required or preferred affinity, are sorted. The rule's
+                            index in slice is the sort sequence. If this is not defined,
+                            we will sort nodeGroups in default sort rule.
+                          items:
+                            description: SortRule defines the rule for sorting items.
+                            properties:
+                              dimension:
+                                description: Dimension may be Capacity or Available
+                                  for the moment. We allow this field to be empty for
+                                  backward compatibility.
+                                type: string
+                              order:
+                                description: Order may be either Ascending or Descending
+                                type: string
+                              resource:
+                                description: Resource defines the resource name for
+                                  sorting.
+                                type: string
+                            required:
+                              - order
+                              - resource
+                            type: object
+                          type: array
+                      type: object
+                    podGroupAntiAffinity:
+                      description: PodGroupAntiAffinity defines the specific anti affinity
+                        rules
+                      properties:
+                        preferred:
+                          description: Preferred represents a set of affinity terms
+                            that we need to try not to satisfy them
+                          items:
+                            description: PodGroupAffinityTerm defines terms of pod group
+                              affinity
+                            properties:
+                              topologyKey:
+                                description: TopologyKey is the specific topology name
+                                  that all related tasks should be scheduled to Empty
+                                  topologyKey is not allowed.
+                                type: string
+                            type: object
+                          type: array
+                        required:
+                          description: Required represents a set of affinity terms,
+                            all of them MUST NOT be satisfied
+                          items:
+                            description: PodGroupAffinityTerm defines terms of pod group
+                              affinity
+                            properties:
+                              topologyKey:
+                                description: TopologyKey is the specific topology name
+                                  that all related tasks should be scheduled to Empty
+                                  topologyKey is not allowed.
+                                type: string
+                            type: object
+                          type: array
+                      type: object
+                  type: object
+                application:
+                  description: Application indicates the podGroup belongs to a logical
+                    Application This will be used for coordinate with features like
+                    drf and faire share.
+                  type: string
+                minMember:
+                  description: MinMember defines the minimal number of members/tasks
+                    to run the pod group; if there's not enough resources to start all
+                    tasks, the scheduler will not start anyone.
+                  format: int32
+                  type: integer
+                priorityClassName:
+                  description: If specified, indicates the PodGroup's priority. "system-node-critical"
+                    and "system-cluster-critical" are two special reserved keywords
+                    which indicate the highest priorities. Any other name must be defined
+                    by creating a PriorityClass object with that name. If not specified,
+                    the PodGroup priority will be default. If default priority class
+                    doesn't exist, the PodGroup priority will be zero.
+                  type: string
+                scheduleTimeoutSeconds:
+                  description: ScheduleTimeoutSeconds defines the maximal time of tasks
+                    to wait before run the pod group;
+                  format: int32
+                  type: integer
+              type: object
+            status:
+              description: Status represents the current information about a pod group.
+                This data may not be up to date.
+              properties:
+                conditions:
+                  description: The conditions of PodGroup.
+                  items:
+                    description: PodGroupCondition contains details for the current
+                      state of this pod group.
+                    properties:
+                      lastTransitionTime:
+                        description: Last time the phase transitioned from another to
+                          current phase.
+                        format: date-time
+                        type: string
+                      message:
+                        description: Human-readable message indicating details about
+                          last transition.
+                        type: string
+                      phase:
+                        description: Phase is the current phase of PodGroup
+                        type: string
+                      reason:
+                        description: Unique, one-word, CamelCase reason for the phase's
+                          last transition.
+                        type: string
+                      status:
+                        description: Status is the status of the condition.
+                        type: string
+                    type: object
+                  type: array
+                failed:
+                  description: The number of pods which reached phase Failed.
+                  format: int32
+                  type: integer
+                occupiedBy:
+                  description: OccupiedBy marks the workload (e.g., deployment, job)
+                    name that occupy the PodGroup. It is empty if not initialized.
+                  type: string
+                pending:
+                  description: The number of actively pending pods.
+                  format: int32
+                  type: integer
+                phase:
+                  description: Current phase of PodGroup.
+                  type: string
+                running:
+                  description: The number of actively running pods.
+                  format: int32
+                  type: integer
+                scheduleStartTime:
+                  description: ScheduleStartTime of the pod group
+                  format: date-time
+                  type: string
+                succeeded:
+                  description: The number of pods which reached phase Succeeded.
+                  format: int32
+                  type: integer
+              type: object
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.0
+  creationTimestamp: null
+  name: schedulers.scheduling.godel.kubewharf.io
+spec:
+  group: scheduling.godel.kubewharf.io
+  names:
+    kind: Scheduler
+    listKind: SchedulerList
+    plural: schedulers
+    singular: scheduler
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: Scheduler captures information about a scheduler Scheduler objects
+            are non-namespaced.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: Spec defines the behavior of a Scheduler.
+              type: object
+            status:
+              description: Status represents the current information about a Scheduler.
+                This data may not be up to date.
+              properties:
+                currentHost:
+                  description: CurrentHost is the host the current scheduler leader
+                    runs on
+                  type: string
+                lastUpdateTime:
+                  description: LastUpdateTime is the latest update time. It should be
+                    first time initialized when this crd is created
+                  format: date-time
+                  type: string
+                metricsStatus:
+                  description: 'TODO: populate more info here TODO: investigate whether
+                  we need a separate API object for this'
+                  properties:
+                    pendingPods:
+                      description: pending pods in the pending queue
+                      type: integer
+                  type: object
+                phase:
+                  type: string
+                schedulerNodePartitionName:
+                  description: SchedulerNodePartitionName is the name of NodePartition
+                    which contains all the nodes in this scheduler's partition
+                  type: string
+              type: object
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: godel
+  namespace: godel-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: godel
+  namespace: ""
+rules:
+  - apiGroups:
+      - ""
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - update
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - '*'
+  - apiGroups:
+      - coordination.k8s.io
+    resourceNames:
+      - kube-scheduler
+    resources:
+      - leases
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resourceNames:
+      - kube-scheduler
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - configmaps
+    verbs:
+      - '*'
+  - apiGroups:
+      - ""
+    resources:
+      - bindings
+      - pods/binding
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - pods/status
+    verbs:
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - replicationcontrollers
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+      - extensions
+    resources:
+      - replicasets
+      - deployments
+      - daemonsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
+      - persistentvolumes
+    verbs:
+      - "*"
+  - apiGroups:
+      - authentication.k8s.io
+    resources:
+      - tokenreviews
+    verbs:
+      - create
+  - apiGroups:
+      - authorization.k8s.io
+    resources:
+      - subjectaccessreviews
+    verbs:
+      - create
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - csinodes
+      - storageclasses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - scheduling.godel.kubewharf.io
+    resources:
+      - schedulers
+      - schedulers/status
+      - podgroups
+      - podgroups/status
+    verbs:
+      - '*'
+  - apiGroups:
+      - scheduling.k8s.io
+    resources:
+      - priorityclasses
+    verbs:
+      - '*'
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - node.godel.kubewharf.io
+    resources:
+      - nmnodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - node.katalyst.kubewharf.io
+    resources:
+      - customnoderesources
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: godel
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: godel
+subjects:
+  - kind: ServiceAccount
+    name: godel
+    namespace: godel-system
+---
+apiVersion: v1
+data:
+  godel-binder-config: |
+    apiVersion: godelbinder.config.kubewharf.io/v1beta1
+    kind: GodelBinderConfiguration
+    profile:
+      plugins:
+        victimChecking:
+          pluginCollections:
+            - plugins:
+                - name: PDBChecker
+              enableQuickPass: false
+kind: ConfigMap
+metadata:
+  name: godel-binder-config
+  namespace: godel-system
+---
+apiVersion: v1
+data:
+  godel-scheduler-config: |
+    apiVersion: godelscheduler.config.kubewharf.io/v1beta1
+    kind: GodelSchedulerConfiguration
+    subClusterKey: subCluster
+    defaultProfile:
+      disablePreemption: true
+kind: ConfigMap
+metadata:
+  name: godel-scheduler-config
+  namespace: godel-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    component: binder
+  name: binder
+  namespace: godel-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: binder
+  template:
+    metadata:
+      labels:
+        app: binder
+    spec:
+      containers:
+        - args:
+            - --leader-elect=false
+            - --tracer=noop
+            - --v=5
+            - --config=/config/binder.config
+          command:
+            - /usr/local/bin/binder
+          image: lintongj/godel:e2cac0c
+          imagePullPolicy: IfNotPresent
+          name: binder
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2G
+          volumeMounts:
+            - mountPath: /config
+              name: binder-config
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      serviceAccountName: godel
+      hostNetwork: true
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+      volumes:
+        - configMap:
+            items:
+              - key: godel-binder-config
+                path: binder.config
+            name: godel-binder-config
+          name: binder-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    component: dispatcher
+  name: dispatcher
+  namespace: godel-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: godel-dispatcher
+  template:
+    metadata:
+      labels:
+        app: godel-dispatcher
+    spec:
+      containers:
+        - args:
+            - --leader-elect=false
+            - --tracer=noop
+            - --v=5
+          command:
+            - /usr/local/bin/dispatcher
+          image: lintongj/godel:e2cac0c
+          imagePullPolicy: IfNotPresent
+          name: dispatcher
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2G
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      serviceAccountName: godel
+      hostNetwork: true
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    component: scheduler
+  name: scheduler-0
+  namespace: godel-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: godel-scheduler-0
+  template:
+    metadata:
+      labels:
+        app: godel-scheduler-0
+    spec:
+      containers:
+        - args:
+            - --leader-elect=false
+            - --tracer=noop
+            - --v=4
+            - --disable-preemption=false
+            - --config=/config/scheduler.config
+            - --secure-port=10959
+            - --godel-scheduler-name=godel-scheduler-0
+            - --port=10251
+          command:
+            - /usr/local/bin/scheduler
+          image: lintongj/godel:e2cac0c
+          imagePullPolicy: IfNotPresent
+          name: scheduler
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2G
+          volumeMounts:
+            - mountPath: /config
+              name: scheduler-config
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      serviceAccountName: godel
+      hostNetwork: true
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+      volumes:
+        - configMap:
+            items:
+              - key: godel-scheduler-config
+                path: scheduler.config
+            name: godel-scheduler-config
+          name: scheduler-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    component: scheduler
+  name: scheduler-1
+  namespace: godel-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: godel-scheduler-1
+  template:
+    metadata:
+      labels:
+        app: godel-scheduler-1
+    spec:
+      containers:
+        - args:
+            - --leader-elect=false
+            - --tracer=noop
+            - --v=4
+            - --disable-preemption=false
+            - --config=/config/scheduler.config
+            - --secure-port=11959
+            - --godel-scheduler-name=godel-scheduler-1
+            - --port=11251
+          command:
+            - /usr/local/bin/scheduler
+          image: lintongj/godel:e2cac0c
+          imagePullPolicy: IfNotPresent
+          name: scheduler
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2G
+          volumeMounts:
+            - mountPath: /config
+              name: scheduler-config
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      serviceAccountName: godel
+      hostNetwork: true
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+      volumes:
+        - configMap:
+            items:
+              - key: godel-scheduler-config
+                path: scheduler.config
+            name: godel-scheduler-config
+          name: scheduler-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    component: scheduler
+  name: scheduler-2
+  namespace: godel-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: godel-scheduler-2
+  template:
+    metadata:
+      labels:
+        app: godel-scheduler-2
+    spec:
+      containers:
+        - args:
+            - --leader-elect=false
+            - --tracer=noop
+            - --v=4
+            - --disable-preemption=false
+            - --config=/config/scheduler.config
+            - --secure-port=12959
+            - --godel-scheduler-name=godel-scheduler-2
+            - --port=12251
+          command:
+            - /usr/local/bin/scheduler
+          image: lintongj/godel:e2cac0c
+          imagePullPolicy: IfNotPresent
+          name: scheduler
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2G
+          volumeMounts:
+            - mountPath: /config
+              name: scheduler-config
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      serviceAccountName: godel
+      hostNetwork: true
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+      volumes:
+        - configMap:
+            items:
+              - key: godel-scheduler-config
+                path: scheduler.config
+            name: godel-scheduler-config
+          name: scheduler-config

@@ -1,0 +1,56 @@
+apiVersion: kubeadm.k8s.io/v1beta3
+bootstrapTokens:
+- groups:
+  - system:bootstrappers:kubeadm:default-node-token
+  token: dazihg.jm4dqxu05nryv8ut
+  ttl: 24h0m0s
+  usages:
+  - signing
+  - authentication
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: <USE_YOUR_IP_HERE>
+  bindPort: 6443
+nodeRegistration:
+  criSocket: unix:///var/run/containerd/containerd.sock
+  imagePullPolicy: IfNotPresent
+  name: <USE_YOUR_IP_HERE>
+  taints: []
+---
+apiServer:
+  timeoutForControlPlane: 4m0s
+  extraArgs:
+    "event-ttl": "10m"
+    "etcd-servers-overrides": "/events#http://localhost:2479"
+    "max-mutating-requests-inflight": "10000"
+    "max-requests-inflight": "20000"
+apiVersion: kubeadm.k8s.io/v1beta3
+certificatesDir: /etc/kubernetes/pki
+clusterName: kubernetes
+controllerManager:
+  extraArgs:
+    allocate-node-cidrs: "true"
+    cluster-cidr: "10.244.0.0/16"
+    kube-api-qps: "10000"
+    kube-api-burst: "10000"
+    concurrent-deployment-syncs: "2000"
+    concurrent-namespace-syncs: "200"
+    concurrent-replicaset-syncs: "4000"
+scheduler:
+  extraArgs:
+    kube-api-qps: "10000"
+    kube-api-burst: "10000"
+dns: {}
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+    extraArgs:
+      "quota-backend-bytes": "85899345920"
+imageRepository: hub.byted.org/security
+kind: ClusterConfiguration
+kubernetesVersion: v1.29.14
+networking:
+  dnsDomain: cluster.local
+  serviceSubnet: 10.96.0.0/12
+scheduler: {}
+controlPlaneEndpoint: <USE_YOUR_IP_HERE>:6443
