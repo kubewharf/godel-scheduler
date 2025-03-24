@@ -93,7 +93,9 @@ Instead, Godel Scheduler was able to keep a closer pace with the pod creation ra
 
 ![godel-scheduler-perf-result](godel-scheduler-2000pps-30knodes.png)
 
-We also ran the controlled experiment with different combinations of parameter settings. The observation above is just one of the typical cases. As always, Godel Scheduler is designed to achieve high performance in terms of scheduling throughput within a large-scale cluster with heavy load. In production, Godel Scheduler is able to stably support running up to 1 million pods on top of no more than 20K nodes with pod creation rate being up to 1000 pods per second.
+We also ran the controlled experiment with different combinations of parameter settings. The observation above is just one of the typical cases. As always, Godel Scheduler is designed to achieve high performance in terms of scheduling throughput within a large-scale cluster with heavy load. 
+- In production, Godel Scheduler is able to stably support running up to 1 million pods on top of no more than 20K nodes with pod creation rate being up to 1000 pods per second.
+- In benchmarking environment, Godel Scheduler is regularly tested to support running more than 1.5 million pods on top of 80K nodes with pod creation rate being up to 1000 pods per second.
 
 ## Tips for the Performance Evaluation
 1. Use performant machines for the performance evaluation.
@@ -109,3 +111,4 @@ We also ran the controlled experiment with different combinations of parameter s
           godel.bytedance.com/pod-resource-type: guaranteed
           godel.bytedance.com/pod-launcher: kubelet
   ```
+6. Make sure to either explicitly set the `schedulerName` for each pod to use the Godel Scheduler, or disable the kube-scheduler entirely in the cluster if you prefer not to update the `schedulerName` for each pod.
