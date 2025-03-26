@@ -467,6 +467,7 @@ func (binder *Binder) CheckCrossNodeTopologyForUnit(ctx context.Context, unitInf
 	commonState := framework.NewCycleState()
 	// TODO
 	// Step 1: PrepareCommonState
+	framework.SetVictimsGroupByNodeState(unitInfo.newTasks.VictimsGroupByNode, commonState)
 
 	for _, newTask := range unitInfo.GetNewTasks() {
 		nodeName := newTask.suggestedNode

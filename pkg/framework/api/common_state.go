@@ -19,6 +19,8 @@ package api
 import (
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -40,6 +42,7 @@ const (
 	VictimCountOfDeployKey    = "VictimCountOfDeployKey"
 	IndexOfPDBKey             = "IndexOfPDBKey"
 	EverScheduledKey          = "EverScheduledKey"
+	VictimsGroupByNodeKey     = "VictimsGroupByNode"
 
 	// Error Message
 	NodePartitionTypeMissedErrorString = "failed to get NodePartitionType, supposed to be set in cycle state"
@@ -340,4 +343,21 @@ func GetEverScheduledState(state *CycleState) (bool, error) {
 		}
 	}
 	return false, fmt.Errorf("everScheduled state not found")
+}
+
+func SetVictimsGroupByNodeState(victimsGroupByNode map[string]map[types.UID]*v1.Pod, state *CycleState) {
+	data := &stateData{data: victimsGroupByNode}
+	state.Write(VictimsGroupByNodeKey, data)
+}
+
+func GetVictimsGroupByNodeState(state *CycleState) (map[string]map[types.UID]*v1.Pod, error) {
+	if state == nil {
+		return nil, fmt.Errorf("nil cycle state")
+	}
+	if data, err := state.Read(VictimsGroupByNodeKey); err == nil {
+		if s, ok := data.(*stateData); ok {
+			return s.data.(map[string]map[types.UID]*v1.Pod), nil
+		}
+	}
+	return nil, fmt.Errorf("victimsGroupByNode state not found")
 }

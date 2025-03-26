@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/kubewharf/godel-scheduler/pkg/binder/framework/handle"
+	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/helper"
 	"github.com/kubewharf/godel-scheduler/pkg/plugins/podlauncher"
@@ -29,6 +30,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/validation"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 const (
@@ -69,6 +71,14 @@ func (pl *PodTopologySpreadCheck) CheckTopology(_ context.Context, cycleState *f
 	nodeInfos := pl.frameworkHandle.ListNodeInfos()
 
 	state := utils.GetPreFilterState(pod, nodeInfos, constraints)
+
+	if cycleState != nil {
+		victimsGroupByNode, err := framework.GetVictimsGroupByNodeState(cycleState)
+		if err != nil {
+			return framework.NewStatus(framework.Error, err.Error())
+		}
+		pl.updateStateByVictims(&state, victimsGroupByNode)
+	}
 
 	return utils.IsSatisfyPodTopologySpreadConstraints(&state, pod, nodeInfo, podLauncher)
 }
@@ -133,4 +143,31 @@ func (pl *PodTopologySpreadCheck) getConstraints(pod *v1.Pod) ([]utils.TopologyS
 	}
 
 	return constraints, nil
+}
+
+func (pl *PodTopologySpreadCheck) updateStateByVictims(state *utils.PreFilterState, victimsGroupByNode map[string]map[types.UID]*v1.Pod) error {
+	for nodeName, victimsMap := range victimsGroupByNode {
+		nodeInfo := pl.frameworkHandle.GetNodeInfo(nodeName)
+		if nodeInfo == nil {
+			continue
+		}
+
+		launcherToPods, err := binderutils.GroupPodsByLauncher(victimsMap)
+		if err != nil {
+			return err
+		}
+
+		for podLanucher, pods := range launcherToPods {
+			nodeLabels := nodeInfo.GetNodeLabels(podLanucher)
+			for _, constraint := range state.Constraints {
+				pair := utils.TopologyPair{Key: constraint.TopologyKey, Value: nodeLabels[constraint.TopologyKey]}
+				tpCount := state.TpPairToMatchNum[pair]
+				if state.TpPairToMatchNum[pair] != nil {
+					*tpCount = *tpCount - int32(len(pods))
+				}
+			}
+		}
+	}
+
+	return nil
 }

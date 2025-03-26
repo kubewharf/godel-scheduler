@@ -1744,3 +1744,257 @@ func TestRequiredAffinityMultipleNodes(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckConflictsWithVictims(t *testing.T) {
+	podLabelA := map[string]string{
+		"foo": "bar",
+	}
+	labelRgChina := map[string]string{
+		"region": "China",
+	}
+	labelRgChinaAzAz1 := map[string]string{
+		"region": "China",
+		"az":     "az1",
+	}
+	labelRgIndia := map[string]string{
+		"region": "India",
+	}
+
+	tests := []struct {
+		pod                     *v1.Pod
+		pods                    []*v1.Pod
+		nodes                   []*v1.Node
+		victimsIndexGroupByNode map[string][]int
+		wantStatuses            []*framework.Status
+		name                    string
+	}{
+		{
+			pod: createPodWithAffinityTerms(defaultNamespace, "", nil,
+				[]v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "foo",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"bar"},
+								},
+							},
+						},
+						TopologyKey: "region",
+					},
+				}, nil),
+			pods: []*v1.Pod{
+				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelA}},
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgChinaAzAz1}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelRgIndia}},
+			},
+			victimsIndexGroupByNode: map[string][]int{
+				"machine1": {
+					0,
+				},
+			},
+			wantStatuses: []*framework.Status{
+				framework.NewStatus(
+					framework.UnschedulableAndUnresolvable,
+					utils.ErrReasonAffinityNotMatch,
+					utils.ErrReasonAffinityRulesNotMatch,
+				),
+				framework.NewStatus(
+					framework.UnschedulableAndUnresolvable,
+					utils.ErrReasonAffinityNotMatch,
+					utils.ErrReasonAffinityRulesNotMatch,
+				),
+				framework.NewStatus(
+					framework.UnschedulableAndUnresolvable,
+					utils.ErrReasonAffinityNotMatch,
+					utils.ErrReasonAffinityRulesNotMatch,
+				),
+			},
+			name: "A pod can NOT be scheduled onto any nodes, because the only pod that meets the inter pod affinity requirement is the victim",
+		},
+		{
+			pod: createPodWithAffinityTerms(defaultNamespace, "", nil, nil,
+				[]v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "foo",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"abc"},
+								},
+							},
+						},
+						TopologyKey: "region",
+					},
+				}),
+			pods: []*v1.Pod{
+				{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "abc"}}},
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: map[string]string{"region": "r1", "hostname": "nodeA"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: map[string]string{"region": "r1", "hostname": "nodeB"}}},
+			},
+			victimsIndexGroupByNode: map[string][]int{
+				"nodeA": {
+					0,
+				},
+			},
+			wantStatuses: []*framework.Status{
+				nil,
+				nil,
+			},
+			name: "NodeA and nodeB have same topologyKey and label value. NodeA has an existing pod that matches the inter pod antiaffinity rule, but it is a victim. The pod can be scheduled onto nodeA and nodeB.",
+		},
+		{
+			pod: createPodWithAffinityTerms(defaultNamespace, "", nil, nil,
+				[]v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "foo",
+									Operator: metav1.LabelSelectorOpExists,
+								},
+							},
+						},
+						TopologyKey: "zone",
+					},
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "bar",
+									Operator: metav1.LabelSelectorOpExists,
+								},
+							},
+						},
+						TopologyKey: "region",
+					},
+				}),
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": ""}},
+					Spec: v1.PodSpec{
+						NodeName: "nodeA",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"bar": ""}},
+					Spec: v1.PodSpec{
+						NodeName: "nodeB",
+					},
+				},
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: map[string]string{"region": "r1", "zone": "z1", "hostname": "nodeA"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: map[string]string{"region": "r1", "zone": "z2", "hostname": "nodeB"}}},
+			},
+			victimsIndexGroupByNode: map[string][]int{
+				"nodeB": {
+					1,
+				},
+			},
+			wantStatuses: []*framework.Status{
+				framework.NewStatus(
+					framework.Unschedulable,
+					utils.ErrReasonAffinityNotMatch,
+					utils.ErrReasonAntiAffinityRulesNotMatch,
+				),
+				nil,
+			},
+			name: "Test incoming pod's anti-affinity: incoming pod wouldn't considered as a fit as it at least violates one anti-affinity rule of existingPod. Note that the pod in nodeB is a victim.",
+		},
+		{
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "", "bar": ""}},
+			},
+			pods: []*v1.Pod{
+				createPodWithAffinityTerms(defaultNamespace, "nodeA", nil, nil,
+					[]v1.PodAffinityTerm{
+						{
+							LabelSelector: &metav1.LabelSelector{
+								MatchExpressions: []metav1.LabelSelectorRequirement{
+									{
+										Key:      "foo",
+										Operator: metav1.LabelSelectorOpExists,
+									},
+								},
+							},
+							TopologyKey: "zone",
+						},
+					}),
+				createPodWithAffinityTerms(defaultNamespace, "nodeA", nil, nil,
+					[]v1.PodAffinityTerm{
+						{
+							LabelSelector: &metav1.LabelSelector{
+								MatchExpressions: []metav1.LabelSelectorRequirement{
+									{
+										Key:      "bar",
+										Operator: metav1.LabelSelectorOpExists,
+									},
+								},
+							},
+							TopologyKey: "region",
+						},
+					}),
+			},
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: map[string]string{"region": "r1", "zone": "z1", "hostname": "nodeA"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: map[string]string{"region": "r1", "zone": "z2", "hostname": "nodeB"}}},
+			},
+			victimsIndexGroupByNode: map[string][]int{
+				"nodeA": {
+					1,
+				},
+			},
+			wantStatuses: []*framework.Status{
+				framework.NewStatus(
+					framework.Unschedulable,
+					utils.ErrReasonAffinityNotMatch,
+					utils.ErrReasonExistingAntiAffinityRulesNotMatch,
+				),
+				nil,
+			},
+			name: "Test existing pod's anti-affinity: incoming pod wouldn't considered as a fit as it violates each existingPod's terms on all nodes. Note that the second pod is a victim, so we don't need to consider the existing pod's anti-affinity of region",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := fake.NewSimpleClientset()
+			frameworkHandle, err := initFrameworkHandle(client, tt.nodes, tt.pods)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			p, err := New(nil, frameworkHandle)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			state := framework.NewCycleState()
+			victimsGroupByNode := make(map[string]map[types.UID]*v1.Pod)
+			for node, victimsIndex := range tt.victimsIndexGroupByNode {
+				victims := make(map[types.UID]*v1.Pod)
+				for _, index := range victimsIndex {
+					victims[tt.pods[index].UID] = tt.pods[index]
+				}
+				victimsGroupByNode[node] = victims
+			}
+			framework.SetVictimsGroupByNodeState(victimsGroupByNode, state)
+
+			for i, node := range tt.nodes {
+				nodeInfo := frameworkHandle.GetNodeInfo(node.Name)
+				gotStatus := p.(framework.CheckTopologyPlugin).CheckTopology(context.Background(), state, tt.pod, nodeInfo)
+				if !reflect.DeepEqual(gotStatus, tt.wantStatuses[i]) {
+					t.Errorf("status does not match: %v, want: %v", gotStatus, tt.wantStatuses[i])
+				}
+			}
+		})
+	}
+}
