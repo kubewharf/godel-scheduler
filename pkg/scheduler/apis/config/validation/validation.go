@@ -141,6 +141,10 @@ func ValidateSubClusterArgs(cc *config.GodelSchedulerProfile, fldPath *field.Pat
 	errs = append(errs, ValidateBasePluginsConfiguration(cc.BasePluginsForNM, field.NewPath("baseNMPlugins"))...)
 	errs = append(errs, ValidatePluginArgsConfiguration(cc.PluginConfigs, field.NewPath("pluginConfig"))...)
 
+	if cc.ExpectedThroughput != nil && *cc.ExpectedThroughput < 0 {
+		errs = append(errs, field.Invalid(field.NewPath("expectedThroughput"),
+			cc.ExpectedThroughput, "not in valid range [0-INF]"))
+	}
 	if cc.PercentageOfNodesToScore != nil && (*cc.PercentageOfNodesToScore < 0 || *cc.PercentageOfNodesToScore > 100) {
 		errs = append(errs, field.Invalid(field.NewPath("percentageOfNodesToScore"),
 			cc.PercentageOfNodesToScore, "not in valid range [0-100]"))

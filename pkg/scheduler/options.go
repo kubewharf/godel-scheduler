@@ -80,6 +80,7 @@ func renderOptions(opts ...Option) schedulerOptions {
 }
 
 type subClusterConfig struct {
+	ExpectedThroughput                int32
 	PercentageOfNodesToScore          int32
 	IncreasedPercentageOfNodesToScore int32
 
@@ -105,6 +106,9 @@ type subClusterConfig struct {
 func (c *subClusterConfig) complete(profile *config.GodelSchedulerProfile) {
 	if profile == nil {
 		return
+	}
+	if profile.ExpectedThroughput != nil {
+		c.ExpectedThroughput = *profile.ExpectedThroughput
 	}
 	if profile.PercentageOfNodesToScore != nil {
 		c.PercentageOfNodesToScore = *profile.PercentageOfNodesToScore
@@ -165,6 +169,7 @@ func (c *subClusterConfig) Equal(other *subClusterConfig) bool {
 
 func newDefaultSubClusterConfig(profile *config.GodelSchedulerProfile) *subClusterConfig {
 	c := &subClusterConfig{
+		ExpectedThroughput:                config.DefaultExpectedThroughput,
 		PercentageOfNodesToScore:          config.DefaultPercentageOfNodesToScore,
 		IncreasedPercentageOfNodesToScore: config.DefaultIncreasedPercentageOfNodesToScore,
 
@@ -195,6 +200,7 @@ func newDefaultSubClusterConfig(profile *config.GodelSchedulerProfile) *subClust
 
 func newSubClusterConfigFromDefaultConfig(profile *config.GodelSchedulerProfile, defaultConfig *subClusterConfig) *subClusterConfig {
 	c := &subClusterConfig{
+		ExpectedThroughput:                defaultConfig.ExpectedThroughput,
 		PercentageOfNodesToScore:          defaultConfig.PercentageOfNodesToScore,
 		IncreasedPercentageOfNodesToScore: defaultConfig.IncreasedPercentageOfNodesToScore,
 

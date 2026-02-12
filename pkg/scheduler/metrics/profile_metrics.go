@@ -114,6 +114,14 @@ func ObserveUpdateSnapshotAttemptAndLatency(subCluster, qos, scheduler string, d
 	}, duration)
 }
 
+func ObservePodFilteredUnchangedNodesPercentage(subCluster, qos, scheduler string, percentage float64) {
+	SchedulingPodFilteredUnchangedNodesPercentage(k8smetrics.Labels{
+		metrics.SubClusterLabel: subCluster,
+		metrics.QosLabel:        qos,
+		metrics.SchedulerLabel:  scheduler,
+	}, percentage)
+}
+
 func ObservePodEvaluatedNodes(subCluster, qos, scheduler string, count float64) {
 	podEvaluatedNodes.With(k8smetrics.Labels{
 		metrics.SubClusterLabel: subCluster,

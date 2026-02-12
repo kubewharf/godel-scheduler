@@ -150,6 +150,10 @@ func SetDefaults_GodelSchedulerConfiguration(obj *GodelSchedulerConfiguration) {
 			// We got SubClusterName "" as default.
 			obj.DefaultProfile = &GodelSchedulerProfile{}
 		}
+		if obj.DefaultProfile.ExpectedThroughput == nil {
+			expectedThroughput := int32(DefaultExpectedThroughput)
+			obj.DefaultProfile.ExpectedThroughput = &expectedThroughput
+		}
 		if obj.DefaultProfile.PercentageOfNodesToScore == nil {
 			percentageOfNodesToScore := int32(DefaultPercentageOfNodesToScore)
 			obj.DefaultProfile.PercentageOfNodesToScore = &percentageOfNodesToScore

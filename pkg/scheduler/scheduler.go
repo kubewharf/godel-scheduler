@@ -269,6 +269,7 @@ func (sched *Scheduler) createDataSet(idx int, subCluster string, switchType fra
 		subClusterConfig.DisablePreemption,
 		subClusterConfig.CandidatesSelectPolicy,
 		subClusterConfig.BetterSelectPolicies,
+		subClusterConfig.ExpectedThroughput,
 		subClusterConfig.PercentageOfNodesToScore,
 		subClusterConfig.IncreasedPercentageOfNodesToScore,
 		subClusterConfig.BasePlugins,

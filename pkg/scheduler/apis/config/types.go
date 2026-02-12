@@ -62,6 +62,8 @@ const (
 )
 
 const (
+	DefaultExpectedThroughput = 0
+
 	// DefaultPercentageOfNodesToScore defines the percentage of nodes of all nodes
 	// that once found feasible, the scheduler stops looking for more nodes.
 	// A value of 0 means adaptive, meaning the scheduler figures out a proper default.
@@ -202,6 +204,8 @@ type GodelSchedulerProfile struct {
 	// Omitting config args for a preemption plugin is equivalent to using the default config
 	// for that preemption plugin.
 	PreemptionPluginConfigs []PluginConfig
+
+	ExpectedThroughput *int32
 
 	// TODO: reserve temporarily(godel).
 	// PercentageOfNodesToScore is the percentage of all nodes that once found feasible

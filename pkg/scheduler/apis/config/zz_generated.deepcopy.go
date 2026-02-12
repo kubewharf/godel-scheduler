@@ -107,6 +107,11 @@ func (in *GodelSchedulerProfile) DeepCopyInto(out *GodelSchedulerProfile) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.ExpectedThroughput != nil {
+		in, out := &in.ExpectedThroughput, &out.ExpectedThroughput
+		*out = new(int32)
+		**out = **in
+	}
 	if in.PercentageOfNodesToScore != nil {
 		in, out := &in.PercentageOfNodesToScore, &out.PercentageOfNodesToScore
 		*out = new(int32)

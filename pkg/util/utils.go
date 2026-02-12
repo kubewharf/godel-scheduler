@@ -489,3 +489,10 @@ func RemoveLabels(labels1, labels2 map[string]string) map[string]string {
 	}
 	return labels
 }
+
+func MinInt32(a, b int32) int32 {
+	if a > b {
+		return b
+	}
+	return a
+}

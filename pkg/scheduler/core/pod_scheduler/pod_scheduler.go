@@ -19,6 +19,7 @@ package podscheduler
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"strconv"
 	"sync"
@@ -27,6 +28,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/clock"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
@@ -37,6 +39,7 @@ import (
 	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
 	crdinformers "github.com/kubewharf/godel-scheduler-api/pkg/client/informers/externalversions"
 	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
+	godelfeatures "github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/api/config"
 	schedulerconfig "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
@@ -44,15 +47,26 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/isolatedcache"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/core"
 	schedulerframework "github.com/kubewharf/godel-scheduler/pkg/scheduler/framework"
+	preemptionplugins "github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/preemption-plugins"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/framework/runtime"
-	"github.com/kubewharf/godel-scheduler/pkg/scheduler/util"
+	"github.com/kubewharf/godel-scheduler/pkg/scheduler/metrics"
 	schedulerutil "github.com/kubewharf/godel-scheduler/pkg/scheduler/util"
+	"github.com/kubewharf/godel-scheduler/pkg/util"
+	"github.com/kubewharf/godel-scheduler/pkg/util/adaptiveattenuation"
 	"github.com/kubewharf/godel-scheduler/pkg/util/constraints"
 	"github.com/kubewharf/godel-scheduler/pkg/util/helper"
+	metricsutil "github.com/kubewharf/godel-scheduler/pkg/util/metrics"
 	"github.com/kubewharf/godel-scheduler/pkg/util/parallelize"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 	"github.com/kubewharf/godel-scheduler/pkg/util/tracing"
 )
+
+// TODO: revisit this trick number.
+//
+// Assuming that 600 nodes can be filtered within 1ms, then 600000 nodes can be filtered within 1s.
+const FilterOpPerSecond float64 = 600000
+
+var localIgnoredNodeStatus = framework.NewStatus(framework.Unschedulable, "node(s) are ignored because of cached results")
 
 // podScheduler is the component managing cache such as node and pod info, and other configs sharing the same life cycle with scheduler
 type podScheduler struct {
@@ -72,6 +86,7 @@ type podScheduler struct {
 	disablePreemption                 bool
 	candidateSelectPolicy             string
 	betterSelectPolicies              []string
+	expectedThroughput                int32
 	percentageOfNodesToScore          int32
 	increasedPercentageOfNodesToScore int32
 
@@ -482,7 +497,25 @@ func (gs *podScheduler) findFeasibleNodes(
 
 	errCh := parallelize.NewErrorChannel()
 	var statusesLock sync.Mutex
-	var feasibleNodesLen int32
+	var feasibleNodesLen, filteredNodesCount, filteredUnchangedNodes int32
+
+	var paradigm adaptiveattenuation.AdaptiveAttenuationParadigm
+	if gs.expectedThroughput > 0 {
+		paradigm = adaptiveattenuation.NewSquareParadigm(float64(numNodesToFind), FilterOpPerSecond/float64(gs.expectedThroughput), 1)
+	} else {
+		paradigm = adaptiveattenuation.NewDefaultParadigm(float64(numNodesToFind))
+	}
+
+	skipFilteringUnchangedNodes := gs.skipFilteringUnchangedNodesForPod(ctx, pod, f)
+	schedulingCtx, _ := framework.GetPodSchedulingCtx(state)
+	lastSchedulingNodeGeneration := schedulingCtx.NodeStoreGeneration
+	defer func() {
+		if lastSchedulingNodeGeneration > 0 {
+			metrics.ObservePodFilteredUnchangedNodesPercentage(gs.subCluster, metricsutil.SwitchTypeToQos(gs.switchType), gs.SchedulerName(), math.Min(float64(filteredUnchangedNodes)*100.0/float64(filteredNodesCount), 100.0))
+		}
+		// etc...
+	}()
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -493,6 +526,19 @@ func (gs *podScheduler) findFeasibleNodes(
 
 		var fit bool
 		var status *framework.Status
+
+		if lastSchedulingNodeGeneration >= nodeInfo.GetGeneration() {
+			atomic.AddInt32(&filteredUnchangedNodes, 1)
+			if skipFilteringUnchangedNodes {
+				// TODO: handleFilterResult(nodeInfo, false, framework.NewStatus(framework.Unschedulable, "node(s) are ignored because of cached results"))
+				statusesLock.Lock()
+				if !status.IsSuccess() {
+					statuses[nodeInfo.GetNodeName()] = localIgnoredNodeStatus
+				}
+				statusesLock.Unlock()
+				return
+			}
+		}
 
 		// TODO: revisit this.
 		// ATTENTION: Read only without modifying the original cachedStatuses.
@@ -511,10 +557,7 @@ func (gs *podScheduler) findFeasibleNodes(
 
 		if fit {
 			length := atomic.AddInt32(&feasibleNodesLen, 1)
-			if length > numNodesToFind {
-				cancel()
-				atomic.AddInt32(&feasibleNodesLen, -1)
-			} else {
+			if length <= numNodesToFind {
 				feasibleNodes[length-1] = nodeInfo
 			}
 		} else {
@@ -524,17 +567,25 @@ func (gs *podScheduler) findFeasibleNodes(
 			}
 			statusesLock.Unlock()
 		}
+
+		if y := paradigm.Predict(float64(atomic.AddInt32(&filteredNodesCount, 1))); atomic.LoadInt32(&feasibleNodesLen) >= int32(math.Ceil(y)) {
+			cancel()
+		}
 	}
 
 	// Stops searching for more nodes once the configured number of feasible nodes
 	// are found.
 	parallelize.Until(ctx, size, checkNode)
 
-	feasibleNodes = feasibleNodes[:feasibleNodesLen]
+	feasibleNodes = feasibleNodes[:util.MinInt32(feasibleNodesLen, numNodesToFind)]
 	if err := errCh.ReceiveError(); err != nil {
 		klog.ErrorS(err, "Failed to get feasible nodes", "pod", klog.KObj(pod))
 		return nil, err
 	}
+
+	klog.InfoS("Finish findFeasibleNodes", "pod", podutil.GetPodKey(pod),
+		"numNodesToFind", numNodesToFind, "feasibleNodesLen", feasibleNodesLen, "filteredNodesCount", filteredNodesCount,
+		"paradigm", paradigm.Name(), "paradigmPredict", paradigm.Predict(float64(filteredNodesCount)))
 
 	return feasibleNodes, nil
 }
@@ -577,6 +628,23 @@ func (gs *podScheduler) numFeasibleNodesToFind(numAllNodes int32, longRunningTas
 	}
 
 	return expectedNodeCount
+}
+
+func (gs *podScheduler) skipFilteringUnchangedNodesForPod(ctx context.Context, pod *v1.Pod, f framework.SchedulerFramework) bool {
+	// Do not skip nodes when the featuregate is not enabled.
+	if !utilfeature.DefaultFeatureGate.Enabled(godelfeatures.SkipFilteringUnchangedNodes) {
+		return false
+	}
+
+	// Do not skip nodes when the pod has cross node constraints
+	// TODO: Fine-grained condition checking
+	if f.HasCrossNodesConstraints(ctx, pod) {
+		return false
+	}
+	if !gs.disablePreemption && preemptionplugins.PodEligibleToPreemptOthers(pod, gs.pcLister) {
+		return false
+	}
+	return true
 }
 
 // prioritizeNodes prioritizes the nodes by running the score plugins,
@@ -874,6 +942,7 @@ func NewPodScheduler(
 	disablePreemption bool,
 	candidateSelectPolicy string,
 	betterSelectPolicies []string,
+	expectedThroughput int32,
 	percentageOfNodesToScore int32,
 	increasedPercentageOfNodesToScore int32,
 	basePlugins framework.PluginCollectionSet,
@@ -891,6 +960,7 @@ func NewPodScheduler(
 		crdInformerFactory:                crdInformerFactory,
 		snapshot:                          snapshot,
 		disablePreemption:                 disablePreemption,
+		expectedThroughput:                expectedThroughput,
 		percentageOfNodesToScore:          percentageOfNodesToScore,
 		increasedPercentageOfNodesToScore: increasedPercentageOfNodesToScore,
 		basePlugins:                       basePlugins,
@@ -924,7 +994,7 @@ func NewPodScheduler(
 	gs.pcLister = informerFactory.Scheduling().V1().PriorityClasses().Lister()
 	gs.pvcLister = informerFactory.Core().V1().PersistentVolumeClaims().Lister()
 	orderedPluginRegistry := schedulerframework.NewOrderedPluginRegistry()
-	gs.pluginOrder = util.GetListIndex(orderedPluginRegistry)
+	gs.pluginOrder = schedulerutil.GetListIndex(orderedPluginRegistry)
 
 	gs.betterSelectPoliciesRegistry = map[string]betterSelectPolicy{
 		schedulerconfig.BetterPreemptionPolicyAscending: gs.ascendingOrderPreemption,

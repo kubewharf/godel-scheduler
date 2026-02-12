@@ -41,6 +41,7 @@ func newQueuedPodInfo(pod *v1.Pod, clock util.Clock) *framework.QueuedPodInfo {
 		InitialAttemptTimestamp: now,
 		QueueSpan:               tracing.NewSpanInfo(framework.ExtractPodProperty(pod).ConvertToTracingTags()),
 		OwnerReferenceKey:       podutil.GetPodTemplateKey(pod),
+		// SchedulingCtx:           &framework.PodSchedulingCtx{}, // TODO: Unit Level SchedulingCtx
 	}
 }
 

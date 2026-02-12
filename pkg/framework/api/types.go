@@ -99,6 +99,10 @@ type ClusterEvent struct {
 // RecorderFactory builds an EventRecorder for a given scheduler name.
 type RecorderFactory func(string) events.EventRecorder
 
+type PodSchedulingCtx struct {
+	NodeStoreGeneration int64
+}
+
 // QueuedPodInfo is a Pod wrapper with additional information related to
 // the pod's status in the scheduling queue, such as the timestamp when
 // it's added to the queue.
@@ -120,6 +124,8 @@ type QueuedPodInfo struct {
 	// timestamp tracks the first time. It is used to timeout if the victim preemption
 	// takes more time.
 	InitialPreemptAttemptTimestamp time.Time
+
+	SchedulingCtx *PodSchedulingCtx
 
 	// Fields below are only used by binder, need to move this out of QueuedPodInfo and put them into BinderQueuedPodInfo
 	// TODO: (liumeng) implement BinderQueuedPodInfo ?

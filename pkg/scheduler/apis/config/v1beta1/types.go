@@ -161,6 +161,8 @@ type GodelSchedulerProfile struct {
 	// for that preemption plugin.
 	PreemptionPluginConfigs []config.PluginConfig `json:"preemptionPluginConfigs,omitempty"`
 
+	ExpectedThroughput *int32 `json:"expectedThroughput,omitempty"`
+
 	// TODO: reserve temporarily(godel).
 	// PercentageOfNodesToScore is the percentage of all nodes that once found feasible
 	// for running a pod, the scheduler stops its search for more feasible nodes in

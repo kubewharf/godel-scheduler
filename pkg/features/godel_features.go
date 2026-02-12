@@ -84,6 +84,12 @@ const (
 	//
 	// Allows to trigger resource reservation in Godel.
 	ResourceReservation featuregate.Feature = "ResourceReservation"
+
+	// owner: @libing.binacs
+	// alpha: for now
+	//
+	// support skipping filtering unchanged nodes.
+	SkipFilteringUnchangedNodes featuregate.Feature = "SkipFilteringUnchangedNodes"
 )
 
 func init() {
@@ -104,4 +110,5 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	EnableColocation:                        {Default: false, PreRelease: featuregate.Alpha},
 	SupportRescheduling:                     {Default: false, PreRelease: featuregate.Alpha},
 	ResourceReservation:                     {Default: false, PreRelease: featuregate.Alpha},
+	SkipFilteringUnchangedNodes:             {Default: false, PreRelease: featuregate.Alpha},
 }

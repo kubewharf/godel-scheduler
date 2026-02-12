@@ -130,6 +130,15 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		}, []string{pkgmetrics.QosLabel, pkgmetrics.SubClusterLabel, pkgmetrics.SchedulerLabel})
 
+	schedulingPodFilteredUnchangedNodesPercentage = metrics.NewHistogramVec(
+		&metrics.HistogramOpts{
+			Subsystem:      SchedulerSubsystem,
+			Name:           "filteredunchangednodes_percentage",
+			Help:           "Percentage of unchanged nodes when pod filtering",
+			Buckets:        metrics.LinearBuckets(0, 5, 20),
+			StabilityLevel: metrics.ALPHA,
+		}, []string{pkgmetrics.QosLabel, pkgmetrics.SubClusterLabel, pkgmetrics.SchedulerLabel})
+
 	schedulingAlgorithmDuration = metrics.NewHistogramVec(
 		&metrics.HistogramOpts{
 			Subsystem:      SchedulerSubsystem,
@@ -467,6 +476,18 @@ func newSchedulingUpdateSnapshotDurationObserverMetric(labels metrics.Labels) me
 // basicLabels contains basic object property labels
 func SchedulingUpdateSnapshotDurationObserve(basicLabels metrics.Labels, duration float64) {
 	newSchedulingUpdateSnapshotDurationObserverMetric(basicLabels).Observe(duration)
+}
+
+// newSchedulingPodFilteredUnchangedNodesPercentageMetric returns the ObserverMetric for given labels by SchedulingUpdateStorePercentage
+func newSchedulingPodFilteredUnchangedNodesPercentageMetric(labels metrics.Labels) metrics.ObserverMetric {
+	setScheduler(labels)
+	return schedulingPodFilteredUnchangedNodesPercentage.With(labels)
+}
+
+// SchedulingPodFilteredUnchangedNodesPercentage Invoke Observe method
+// basicLabels contains basic object property labels
+func SchedulingPodFilteredUnchangedNodesPercentage(basicLabels metrics.Labels, percentage float64) {
+	newSchedulingPodFilteredUnchangedNodesPercentageMetric(basicLabels).Observe(percentage)
 }
 
 // newSchedulingAlgorithmDurationObserverMetric returns the ObserverMetric for given labels by SchedulingAlgorithmDuration

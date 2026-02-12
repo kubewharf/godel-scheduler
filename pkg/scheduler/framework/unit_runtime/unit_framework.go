@@ -395,7 +395,7 @@ func (f *UnitFramework) scheduleOneUnitInstance(ctx context.Context, scheduledIn
 	podTrace := runningUnitInfo.Trace
 	scheduleTraceContext := podTrace.GetTraceContext(tracing.SchedulerSchedulePodSpan)
 
-	podKey, fwk, _, state, err := f.schedulerHooks.BootstrapSchedulePod(ctx, clonedPod, podTrace, nodeGroup.GetKey())
+	podKey, fwk, _, state, err := f.schedulerHooks.BootstrapSchedulePod(ctx, clonedPod, runningUnitInfo.SchedulingCtx, podTrace, nodeGroup.GetKey())
 	if err != nil {
 		errMessage := fmt.Sprintf("Failed to initialize pod: %v in node group: %v", err.Error(), nodeGroup.GetKey())
 		f.schedulerHooks.EventRecorder().Eventf(clonedPod, nil, v1.EventTypeWarning, "FailToInitializePod", core.ReturnAction, helper.TruncateMessage(errMessage))
@@ -510,7 +510,7 @@ func (f *UnitFramework) preemptOneUnitInstance(ctx context.Context, scheduledInd
 	podTrace := runningUnitInfo.Trace
 	preemptionTraceContext := podTrace.GetTraceContext(tracing.SchedulerPreemptPodSpan)
 
-	podKey, fwk, pfwk, state, err := f.schedulerHooks.BootstrapSchedulePod(ctx, clonedPod, podTrace, nodeGroup.GetKey())
+	podKey, fwk, pfwk, state, err := f.schedulerHooks.BootstrapSchedulePod(ctx, clonedPod, runningUnitInfo.SchedulingCtx, podTrace, nodeGroup.GetKey())
 	if err != nil {
 		errMessage := fmt.Sprintf("Failed to initialize pod: %v in node group: %v", err.Error(), nodeGroup.GetKey())
 		f.schedulerHooks.EventRecorder().Eventf(clonedPod, nil, v1.EventTypeWarning, "FailToInitializePod", core.ReturnAction, helper.TruncateMessage(errMessage))
