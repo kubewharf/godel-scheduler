@@ -349,6 +349,13 @@ func (gs *unitScheduler) Schedule(ctx context.Context) {
 
 	// TODO: we will cache some feasible nodes based on pod owners, make sure this (per node group scheduling) will not affect that
 	// if there may be some conflicts, we need to revisit these two features
+	//
+	// When there are multiple node groups (i.e., job-level affinity is in effect), ALL remaining pods
+	// must be placed in the same node group. Partial success (some pods succeed, some fail) must be
+	// rejected even if MinMember or EverScheduled conditions are met. Otherwise, the failed pods
+	// will be re-enqueued and may be placed in a different node group in subsequent rounds, violating
+	// the required affinity constraint (pods scatter across different topology domains).
+	hasMultipleNodeGroups := len(nodeGroups) > 1
 	for _, nodeGroup := range nodeGroups {
 		nodeGroupName := nodeGroup.GetKey()
 		klog.V(4).InfoS("Attempting to schedule unit in this node group", "switchType", switchType, "subCluster", subCluster, "unitKey", unitInfo.UnitKey, "nodeGroup", nodeGroupName)
@@ -358,6 +365,11 @@ func (gs *unitScheduler) Schedule(ctx context.Context) {
 
 		unitResult := gs.scheduleUnitInNodeGroup(ctx, unitInfo, unitFramework, nodeGroup)
 		scheduleSucceed := (unitInfo.EverScheduled && len(unitResult.SuccessfulPods) > 0) || len(unitResult.SuccessfulPods) >= unitInfo.MinMember
+		// When multiple node groups exist (affinity in effect), reject partial success to prevent
+		// failed pods from scattering to different topology domains upon re-enqueue.
+		if hasMultipleNodeGroups && len(unitResult.FailedPods) > 0 {
+			scheduleSucceed = false
+		}
 		if scheduleSucceed && gs.applyToCache(ctx, unitInfo, unitResult) {
 			msg := "Schedule unit succeeded both for snapshot and cache"
 			klog.V(4).InfoS(msg, "switchType", switchType, "subCluster", subCluster, "unitKey", unitInfo.UnitKey, "nodeGroup", nodeGroupName)

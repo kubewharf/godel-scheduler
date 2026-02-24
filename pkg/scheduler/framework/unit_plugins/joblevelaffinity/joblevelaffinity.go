@@ -185,7 +185,12 @@ func (i *JobLevelAffinity) findNodeGroups(
 			}))
 		}
 	}
-
+	klog.InfoS(
+		"JobLevelAffinity findNodeGroups topology result",
+		"unitKey", unit.GetKey(),
+		"topologyTree", fmt.Sprintf("%+v", topologyTree),
+		"nodeGroups", printNodeGroups(nodeGroups),
+	)
 	return nodeGroups, nil
 }
 
@@ -197,6 +202,11 @@ func (i *JobLevelAffinity) getAssignedNodesOfUnit(ctx context.Context, unit fram
 	nodeCollection := sets.NewString()
 	for _, pod := range pods {
 		nodeName := pod.Spec.NodeName
+		// For assumed pods (scheduled by scheduler but not yet bound by binder),
+		// Spec.NodeName is empty and the target node is stored in the AssumedNodeAnnotationKey annotation.
+		if len(nodeName) == 0 && pod.Annotations != nil {
+			nodeName = pod.Annotations[podutil.AssumedNodeAnnotationKey]
+		}
 		if len(nodeName) == 0 || nodeCollection.Has(nodeName) {
 			continue
 		}
