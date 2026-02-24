@@ -145,6 +145,14 @@ func divideNodesByRequireAffinity(
 			return nil, err
 		}
 		topologyElems = getTopologyElems(requiredNodeCircleList)
+
+		// Sort and mark cutOff for domains with insufficient resources, even when there are
+		// assigned nodes. Without this, domains that cannot hold the remaining pods would not
+		// be filtered out, causing pods to be scheduled to resource-insufficient domains and
+		// then fail at the binder stage.
+		sortRules := getSortRules(unit)
+		klog.V(4).InfoS("Started to sort node circles (with assigned nodes)", "unitKey", unit.GetKey(), "sortRules", sortRules)
+		sortAndMarkTopologyElems(ctx, unit, topologyElems, sortRules, request, false)
 	} else {
 		klog.V(4).InfoS("Unit has no running pods", "unitKey", unit.GetKey())
 		// no running pods, then nodes should be grouped by affinity terms
