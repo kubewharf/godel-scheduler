@@ -13,6 +13,6 @@ spec:
       sortRules:
         - resource: CPU
           dimension: Capacity
-          order: Descending
+          order: Ascending
   minMember: 10
   scheduleTimeoutSeconds: 3000
