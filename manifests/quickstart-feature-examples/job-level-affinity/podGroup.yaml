@@ -10,5 +10,9 @@ spec:
         - topologyKey: micronet
       required:
         - topologyKey: mainnet
+      sortRules:
+        - resource: CPU
+          dimension: Capacity
+          order: Descending
   minMember: 10
   scheduleTimeoutSeconds: 3000
