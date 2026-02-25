@@ -184,6 +184,16 @@ func divideNodesByRequireAffinity(
 		sortRules := getSortRules(unit)
 		klog.V(4).InfoS("Started to sort node circles", "unitKey", unit.GetKey(), "sortRules", sortRules)
 		sortAndMarkTopologyElems(ctx, unit, topologyElems, sortRules, request, false)
+
+		for idx, elem := range topologyElems {
+			nodeNames := make([]string, 0)
+			for _, n := range elem.nodeCircle.List() {
+				nodeNames = append(nodeNames, n.GetNodeName())
+			}
+			klog.V(4).InfoS("TopologyElem after sort (no assigned)", "unitKey", unit.GetKey(), "index", idx,
+				"key", elem.nodeCircle.GetKey(), "cutOff", elem.cutOff, "nodeCount", elem.nodeCircle.Len(), "nodes", nodeNames)
+		}
+
 	}
 
 	sz := len(topologyElems)
