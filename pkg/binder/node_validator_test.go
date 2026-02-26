@@ -72,18 +72,16 @@ func TestNodeValidator_Validate(t *testing.T) {
 			wantErrMsg:    `node "node-2" belongs to scheduler "scheduler-B", not "scheduler-A"`,
 		},
 		{
-			name:          "node has no scheduler-name annotation",
+			name:          "node has no scheduler-name annotation (unpartitioned)",
 			schedulerName: "scheduler-A",
 			nodeName:      "node-3",
 			nodeGetter: func(nodeName string) (*v1.Node, error) {
 				return makeTestNode(nodeName, map[string]string{}), nil
 			},
-			wantErr:       true,
-			wantOwnership: true,
-			wantErrMsg:    `node "node-3" has no scheduler-name annotation (expected "scheduler-A")`,
+			wantErr: false,
 		},
 		{
-			name:          "node has empty scheduler-name annotation",
+			name:          "node has empty scheduler-name annotation (unpartitioned)",
 			schedulerName: "scheduler-A",
 			nodeName:      "node-4",
 			nodeGetter: func(nodeName string) (*v1.Node, error) {
@@ -91,19 +89,16 @@ func TestNodeValidator_Validate(t *testing.T) {
 					nodeutil.GodelSchedulerNodeAnnotationKey: "",
 				}), nil
 			},
-			wantErr:       true,
-			wantOwnership: true,
-			wantErrMsg:    `node "node-4" has no scheduler-name annotation (expected "scheduler-A")`,
+			wantErr: false,
 		},
 		{
-			name:          "node has nil annotations",
+			name:          "node has nil annotations (unpartitioned)",
 			schedulerName: "scheduler-A",
 			nodeName:      "node-5",
 			nodeGetter: func(nodeName string) (*v1.Node, error) {
 				return makeTestNode(nodeName, nil), nil
 			},
-			wantErr:       true,
-			wantOwnership: true,
+			wantErr: false,
 		},
 		{
 			name:          "nodeGetter returns not found error",

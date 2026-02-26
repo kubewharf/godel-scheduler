@@ -71,12 +71,12 @@ func (v *NodeValidator) Validate(nodeName string) error {
 		owner = node.Annotations[nodeutil.GodelSchedulerNodeAnnotationKey]
 	}
 
+	// When the annotation is absent the node has not been partitioned yet
+	// (e.g., single-scheduler deployment, or Dispatcher has not assigned it).
+	// In that case we allow the bind to proceed — only reject when the
+	// annotation is present AND belongs to a different scheduler.
 	if owner == "" {
-		return &NodeOwnershipError{
-			Node:     nodeName,
-			Expected: v.schedulerName,
-			Actual:   "",
-		}
+		return nil
 	}
 
 	if owner != v.schedulerName {
