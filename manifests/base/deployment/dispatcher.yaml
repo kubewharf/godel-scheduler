@@ -31,7 +31,7 @@ spec:
           imagePullPolicy: Never
           command: ["/usr/local/bin/dispatcher"]
           ports:
-            - containerPort: 10251
+            - containerPort: 10351
               name: metrics
               protocol: TCP
           args:
