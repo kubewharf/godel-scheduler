@@ -59,6 +59,7 @@ type ScheduleDataSet interface {
 	Snapshot() *cache.Snapshot
 	SchedulingQueue() queue.SchedulingQueue
 	ScheduleFunc() func(context.Context)
+	UnitScheduler() core.UnitScheduler
 }
 
 type ScheduleDataSetImpl struct {
@@ -161,6 +162,10 @@ func (s *ScheduleDataSetImpl) ScheduleFunc() func(context.Context) {
 	return s.unitScheduler.Schedule
 }
 
+func (s *ScheduleDataSetImpl) UnitScheduler() core.UnitScheduler {
+	return s.unitScheduler
+}
+
 // TODO: revisit this rule.
 func (s *ScheduleDataSetImpl) CanBeRecycle() bool {
 	return s.schedulingQueue.CanBeRecycle() && s.unitScheduler.CanBeRecycle()
@@ -177,6 +182,8 @@ type ScheduleSwitch interface {
 	Get(framework.SwitchType) ScheduleDataSet
 	Register(switchType framework.SwitchType, dataSet ScheduleDataSet)
 	Process(framework.SwitchType, ProcessFunc)
+	// RangeDataSets calls f for every registered ScheduleDataSet.
+	RangeDataSets(f func(ScheduleDataSet))
 }
 
 type ScheduleSwitchImpl struct {
@@ -312,6 +319,16 @@ func (s *ScheduleSwitchImpl) Register(switchType framework.SwitchType, dataSet S
 		panic("Duplicate ScheduleDataSet")
 	}
 	s.registry[state] = dataSet
+}
+
+func (s *ScheduleSwitchImpl) RangeDataSets(f func(ScheduleDataSet)) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	for _, ds := range s.registry {
+		if ds != nil {
+			f(ds)
+		}
+	}
 }
 
 func (s *ScheduleSwitchImpl) Get(state framework.SwitchType) ScheduleDataSet {

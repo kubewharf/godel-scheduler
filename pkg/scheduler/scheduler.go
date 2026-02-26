@@ -210,6 +210,14 @@ func New(
 // This must be called before Run().
 func (sched *Scheduler) SetEmbeddedBinder(b binder.BinderInterface) {
 	sched.embeddedBinder = b
+	// Propagate to all already-created unitScheduler instances.
+	// createDataSet() may have run before this call (inside New()),
+	// so existing data sets need to be updated retroactively.
+	if sched.ScheduleSwitch != nil {
+		sched.ScheduleSwitch.RangeDataSets(func(ds ScheduleDataSet) {
+			ds.UnitScheduler().SetEmbeddedBinder(b)
+		})
+	}
 }
 
 // GetEmbeddedBinder returns the embedded Binder, or nil if not configured.
