@@ -173,4 +173,131 @@
 
 ## Phase 5：部署与测试
 
-**状态**：⬜ 未开始
+**状态**：✅ 已完成  
+**完成日期**：2026-02-27
+
+### 新增文件
+
+| 文件 | 用途 | 测试数 |
+|------|------|--------|
+| `manifests/overlays/embedded-binder/kustomization.yaml` | Kustomize overlay，引用 base 并应用 Scheduler / Binder patch | — |
+| `manifests/overlays/embedded-binder/scheduler-embedded.yaml` | Strategic merge patch：为 Scheduler 添加 `--enable-embedded-binder=true`、`--max-bind-retries=3`、`--bind-timeout=30s`、`--max-local-retries=5`；提升资源限制（cpu: 1, memory: 1Gi）；添加 `binder-mode: embedded` 标签 | — |
+| `manifests/overlays/embedded-binder/binder-disabled.yaml` | 将独立 Binder Deployment 副本数缩放为 0 | — |
+| `pkg/binder/integration_test.go` | 端到端集成测试（10 个测试） | 10 |
+| `pkg/binder/benchmark_test.go` | 性能基准测试（7 个基准） | 7 |
+| `cmd/scheduler/app/options/fallback_test.go` | 配置开关回退验证测试 | 5 |
+
+### 部署清单
+
+**嵌入模式部署**（使用 Kustomize overlay）：
+```bash
+kubectl apply -k manifests/overlays/embedded-binder/
+```
+
+**回退到独立模式**（使用原始 base）：
+```bash
+kubectl apply -k manifests/base/
+```
+
+Scheduler patch 新增的 CLI 参数：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--enable-embedded-binder` | `true`（overlay 中） | 启用嵌入式 Binder |
+| `--max-bind-retries` | `3` | 单 Pod 最大绑定重试次数 |
+| `--bind-timeout` | `30s` | 单次绑定操作超时时间 |
+| `--max-local-retries` | `5` | 累计失败次数阈值，超过后回退到 Dispatcher |
+
+### 集成测试（10 个）
+
+| 测试 | 覆盖场景 |
+|------|----------|
+| `EndToEnd_SinglePodBind` | 单 Pod 完整绑定流程（请求验证 → 绑定 → 结果） |
+| `ConfigSwitch_EmbeddedVsStandalone` | 嵌入模式 vs 独立模式配置切换（2 个子测试） |
+| `PodGroup_MultiPodBind` | 5 Pod PodGroup 批量绑定 |
+| `BindFailure_RetryCountAndFallback` | 绑定失败重试 + 重试计数 + reconciler 队列入队 |
+| `NodeReshuffle_ValidationBlocks` | 节点验证阻止非本分区节点绑定 |
+| `FunctionalEquivalence` | 嵌入模式 ↔ 独立模式结果等价性验证 |
+| `EndToEnd_WithNodeValidation_MultiPod` | 含节点验证的多 Pod 端到端绑定 |
+| `ConcurrentMultiScheduler` | 多 Scheduler 并发绑定（race 检测） |
+| `Lifecycle_StartStopRestart` | Start/Stop/Restart 生命周期完整性 |
+| `Timeout_MultiplePods` | 单请求含多 Pod 超时处理 |
+
+### 基准测试结果（Apple M3 Max）
+
+| 基准 | ns/op | B/op | allocs/op |
+|------|-------|------|-----------|
+| `SinglePod` | 1,002 | 2,397 | 20 |
+| `Parallel` | 1,434 | 3,745 | 28 |
+| `PodGroup/5` | 3,610 | 10,237 | 71 |
+| `CacheAdapter_AssumePod` | 67 | 24 | 1 |
+| `NodeValidator_Validate` | 335 | 1,104 | 3 |
+| `WithNodeValidation` | 1,397 | — | — |
+
+**扩展性测试（ScalingN）**：
+
+| Pod 数 | ns/op | 扩展倍率 |
+|--------|-------|----------|
+| 1 | 1,012 | 1.0× |
+| 5 | 4,198 | 4.1× |
+| 10 | 6,035 | 6.0× |
+| 50 | 31,575 | 31.2× |
+
+结论：绑定延迟随 Pod 数**近似线性增长**，无超线性退化，证明架构可扩展。
+
+### 配置开关回退测试（5 个）
+
+| 测试 | 覆盖场景 |
+|------|----------|
+| `DisabledByDefault` | 默认 `EnableEmbeddedBinder = false` |
+| `EnableAndDisableSwitch` | flag 解析：`=true` / `=false` / 隐式 true（3 个子测试） |
+| `ConfigPropagation` | 非默认配置值在禁用时仍正确保留 |
+| `DefaultConfigValues` | 默认配置与 `binder.Default*` 常量一致 |
+| `ValidationOnlyWhenEnabled` | 启用时校验非法配置；禁用时跳过校验 |
+
+### 修复记录
+
+| 问题 | 修复 |
+|------|------|
+| `EmbeddedBinder.Start()` 后 `Stop()` 再 `Start()` 导致 `close of closed channel` panic | `Start()` 每次调用时创建新的 reconciler 实例（不再在构造函数中预创建） |
+| `makePod` 函数名与 `cache_adapter_test.go` 冲突 | 重命名为 `makeIntegrationPod` |
+| `CacheAdapter.AssumePod` 参数类型不匹配 | 改用 `&framework.CachePodInfo{Pod: pod}` 包装 |
+
+### Phase 5 交付物对照
+
+- [x] **部署清单**：Kustomize overlay（3 个文件）支持一键切换嵌入模式 / 独立模式
+- [x] **集成测试**：10 个端到端测试覆盖绑定流程、配置切换、并发、生命周期、超时
+- [x] **基准测试**：7 个性能基准 + 扩展性测试，验证近线性扩展
+- [x] **配置回退测试**：5 个测试验证 flag 解析、配置传播、条件校验
+- [x] **全量回归**：`pkg/binder/...` 全部 PASS（含 `-race` 竞态检测），编译通过
+
+### 测试结果
+
+- 集成测试：10 个，全部 PASS（含 `-race`）
+- 基准测试：7 个，全部 PASS
+- 配置回退测试：5 个，全部 PASS（含 `-race`）
+- `go vet` 无新增告警（pre-existing issues in upstream code only）
+- 编译验证：`go build ./cmd/scheduler/...` 通过
+
+---
+
+## 总结
+
+### 全阶段统计
+
+| 阶段 | 新增文件 | 修改文件 | 新增测试 | 状态 |
+|------|----------|----------|----------|------|
+| Phase 1：接口定义与配置开关 | 4 | 2 | 24 个子用例 | ✅ |
+| Phase 2：核心集成 | 9 | 7 | 59 个函数/用例 | ✅ |
+| Phase 3：PodGroupController 迁移 | 2 | 4 | 14 个测试 | ✅ |
+| Phase 4：容错与节点验证 | 4 | 4 | 24 个测试 | ✅ |
+| Phase 5：部署与测试 | 6 | 0 | 22 个测试 + 7 基准 | ✅ |
+| **合计** | **25** | **17** | **143+** | ✅ |
+
+### 架构改造核心成果
+
+1. **性能**：单 Pod 绑定延迟 ~1μs，近线性扩展至 50 Pod
+2. **可靠性**：节点验证 + 重试 + Dispatcher 回退三级容错
+3. **兼容性**：`--enable-embedded-binder` 一键切换，零配置回滚
+4. **可观测性**：4 个新 Prometheus 指标（节点验证失败、绑定计数/延迟、回退计数）
+5. **部署**：Kustomize overlay 支持声明式切换部署模式

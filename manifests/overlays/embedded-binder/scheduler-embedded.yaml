@@ -1,0 +1,38 @@
+# Scheduler deployment patch for embedded-binder mode.
+# Adds --enable-embedded-binder and Binder-specific flags to the Scheduler.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+  namespace: godel-system
+  labels:
+    component: scheduler
+spec:
+  template:
+    metadata:
+      labels:
+        app: godel-scheduler
+        binder-mode: embedded
+    spec:
+      containers:
+        - name: scheduler
+          args:
+            - "--leader-elect=false"
+            - "--tracer=noop"
+            - "--v=4"
+            - "--disable-preemption=false"
+            - "--config=/config/scheduler.config"
+            - "--reservation-ttl=60"
+            - "--feature-gates=ResourceReservation=true"
+            # Embedded Binder flags
+            - "--enable-embedded-binder=true"
+            - "--max-bind-retries=3"
+            - "--bind-timeout=30s"
+            - "--max-local-retries=5"
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: "0.5"
+              memory: 500Mi

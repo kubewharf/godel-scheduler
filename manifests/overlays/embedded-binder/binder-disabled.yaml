@@ -1,0 +1,11 @@
+# Disable the standalone Binder when using embedded-binder mode.
+# Scale to zero replicas so the pod is not scheduled.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: binder
+  namespace: godel-system
+  labels:
+    component: binder
+spec:
+  replicas: 0

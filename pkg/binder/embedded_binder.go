@@ -89,7 +89,6 @@ func NewEmbeddedBinder(
 		schedulerCache: schedulerCache,
 		cacheAdapter:   NewCacheAdapter(schedulerCache),
 		nodeValidator:  nv,
-		reconciler:     NewBinderTaskReconcilerWithRetry(client, schedulerName, config.MaxLocalRetries),
 		schedulerName:  schedulerName,
 		config:         config,
 	}
@@ -103,9 +102,10 @@ func (eb *EmbeddedBinder) Start(ctx context.Context) error {
 	}
 	_, cancel := context.WithCancel(ctx)
 	eb.cancel = cancel
-	if eb.reconciler != nil {
-		eb.reconciler.Run()
-	}
+	// Create a fresh reconciler on each Start so that a restart after Stop
+	// gets a new stop channel (the previous one was closed by Stop).
+	eb.reconciler = NewBinderTaskReconcilerWithRetry(eb.client, eb.schedulerName, eb.config.MaxLocalRetries)
+	eb.reconciler.Run()
 	klog.V(2).InfoS("Embedded Binder started", "scheduler", eb.schedulerName)
 	return nil
 }
