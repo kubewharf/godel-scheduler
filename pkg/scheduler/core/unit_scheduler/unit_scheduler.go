@@ -36,6 +36,7 @@ import (
 	schedulingv1a1 "github.com/kubewharf/godel-scheduler-api/pkg/apis/scheduling/v1alpha1"
 	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
 	"github.com/kubewharf/godel-scheduler-api/pkg/client/listers/scheduling/v1alpha1"
+	"github.com/kubewharf/godel-scheduler/pkg/binder"
 	commonstore "github.com/kubewharf/godel-scheduler/pkg/common/store"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/framework/utils"
@@ -94,6 +95,10 @@ type unitScheduler struct {
 
 	// Misc...
 	MaxWaitingDeletionDuration time.Duration
+
+	// embeddedBinder, when non-nil, is used for direct in-process binding
+	// instead of the PatchPod → Informer → shared Binder path.
+	embeddedBinder binder.BinderInterface
 }
 
 var (
@@ -159,6 +164,18 @@ func NewUnitScheduler(
 	gs.PluginOrder = schedulerframework.NewOrderedUnitPluginRegistry()
 
 	return gs
+}
+
+// SetEmbeddedBinder attaches an embedded Binder to this unit scheduler.
+// When set, PersistSuccessfulPods will use direct BindUnit() calls instead
+// of patching Pod annotations.
+func (gs *unitScheduler) SetEmbeddedBinder(b binder.BinderInterface) {
+	gs.embeddedBinder = b
+}
+
+// GetEmbeddedBinder returns the embedded Binder, or nil if not configured.
+func (gs *unitScheduler) GetEmbeddedBinder() binder.BinderInterface {
+	return gs.embeddedBinder
 }
 
 // --------------------------------------------------- SchedulerHooks ---------------------------------------------------
@@ -777,6 +794,101 @@ func (gs *unitScheduler) applyToCache(ctx context.Context, unitInfo *core.Schedu
 }
 
 func (gs *unitScheduler) PersistSuccessfulPods(ctx context.Context,
+	result *core.UnitResult, unitInfo *core.SchedulingUnitInfo,
+) {
+	// If we have an embedded binder, use the direct bind path.
+	if gs.embeddedBinder != nil {
+		gs.persistViaEmbeddedBinder(ctx, result, unitInfo)
+		return
+	}
+	gs.persistViaPatchPod(ctx, result, unitInfo)
+}
+
+// persistViaEmbeddedBinder binds pods directly through the embedded Binder,
+// bypassing the PatchPod → Informer → shared Binder communication channel.
+func (gs *unitScheduler) persistViaEmbeddedBinder(ctx context.Context,
+	result *core.UnitResult, unitInfo *core.SchedulingUnitInfo,
+) {
+	switchType, subCluster := gs.switchType, gs.subCluster
+	unitProperty := unitInfo.QueuedUnitInfo.GetUnitProperty()
+
+	// Collect all pods into a BindRequest.
+	var queuedPods []*framework.QueuedPodInfo
+	nodeName := ""
+	for _, podKey := range result.SuccessfulPods {
+		runningUnitInfo := unitInfo.DispatchedPods[podKey]
+		queuedPods = append(queuedPods, runningUnitInfo.QueuedPodInfo)
+		if nodeName == "" {
+			nodeName = runningUnitInfo.ClonedPod.Annotations[podutil.AssumedNodeAnnotationKey]
+		}
+	}
+
+	req := &binder.BindRequest{
+		Unit:          unitInfo.QueuedUnitInfo,
+		Pods:          queuedPods,
+		NodeName:      nodeName,
+		SchedulerName: gs.schedulerName,
+	}
+
+	bindResult, err := gs.embeddedBinder.BindUnit(ctx, req)
+	if err != nil {
+		klog.InfoS("Embedded binder BindUnit call failed",
+			"switchType", switchType, "subCluster", subCluster,
+			"unitKey", unitInfo.UnitKey, "err", err)
+		// Treat all pods as failed – add to reconciler for retry.
+		for _, podKey := range result.SuccessfulPods {
+			gs.Reconciler.AddFailedTask(reconciler.NewFailedPatchTask(
+				framework.MakeCachePodInfoWrapper().Pod(unitInfo.DispatchedPods[podKey].ClonedPod).Obj()))
+		}
+		return
+	}
+
+	metrics.SchedulerUnitE2ELatencyObserve(unitProperty, helper.SinceInSeconds(unitInfo.QueuedUnitInfo.InitialAttemptTimestamp))
+
+	// Process any individually failed pods.
+	if !bindResult.AllSucceeded() {
+		var failedPodKeys []string
+		for _, podKey := range result.SuccessfulPods {
+			runningUnitInfo := unitInfo.DispatchedPods[podKey]
+			if _, failed := bindResult.FailedPods[runningUnitInfo.QueuedPodInfo.Pod.UID]; failed {
+				failedPodKeys = append(failedPodKeys, podKey)
+			}
+		}
+		if len(failedPodKeys) > 0 {
+			klog.InfoS("Some pods failed to bind via embedded binder, adding to reconciler",
+				"switchType", switchType, "subCluster", subCluster,
+				"failedPods", failedPodKeys)
+			for _, podKey := range failedPodKeys {
+				gs.Reconciler.AddFailedTask(reconciler.NewFailedPatchTask(
+					framework.MakeCachePodInfoWrapper().Pod(unitInfo.DispatchedPods[podKey].ClonedPod).Obj()))
+			}
+		}
+	}
+
+	// Log success for bound pods.
+	for _, uid := range bindResult.SuccessfulPods {
+		for _, podKey := range result.SuccessfulPods {
+			runningUnitInfo := unitInfo.DispatchedPods[podKey]
+			if runningUnitInfo.QueuedPodInfo.Pod.UID == uid {
+				podProperty := runningUnitInfo.QueuedPodInfo.GetPodProperty()
+				metrics.ObservePodSchedulingLatency(podProperty, getAttemptsLabel(runningUnitInfo.QueuedPodInfo),
+					helper.SinceInSeconds(runningUnitInfo.QueuedPodInfo.InitialAttemptTimestamp))
+				klog.V(2).InfoS("Bound pod via embedded binder",
+					"switchType", switchType, "subCluster", subCluster,
+					"pod", klog.KObj(runningUnitInfo.ClonedPod),
+					"unitKey", unitInfo.UnitKey)
+				gs.Recorder.Eventf(runningUnitInfo.ClonedPod, nil, v1.EventTypeNormal,
+					"BoundViaEmbeddedBinder", core.ContinueAction,
+					"Pod bound successfully via embedded binder")
+				break
+			}
+		}
+	}
+}
+
+// persistViaPatchPod is the legacy path: patch Pod annotations so the standalone
+// shared Binder picks them up via Informer.
+func (gs *unitScheduler) persistViaPatchPod(ctx context.Context,
 	result *core.UnitResult, unitInfo *core.SchedulingUnitInfo,
 ) {
 	var failedPods []string

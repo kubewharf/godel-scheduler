@@ -396,6 +396,10 @@ func (o *Options) ApplyTo(c *schedulerappconfig.Config) error {
 		}
 	}
 
+	// Apply embedded binder settings.
+	c.EnableEmbeddedBinder = o.EnableEmbeddedBinder
+	c.EmbeddedBinderConfig = o.EmbeddedBinderConfig
+
 	return nil
 }
 

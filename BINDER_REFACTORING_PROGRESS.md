@@ -41,7 +41,51 @@
 
 ## Phase 2：核心集成
 
-**状态**：⬜ 未开始
+**状态**：✅ 已完成  
+**完成日期**：2026-02-26
+
+### 新增文件
+
+| 文件 | 用途 | 测试数 |
+|------|------|--------|
+| `pkg/binder/utils/retry.go` | 绑定失败计数 + Dispatcher 重调度判定（模块 B） | — |
+| `pkg/binder/utils/retry_test.go` | retry 逻辑测试 | 6 个函数，19 个子用例 |
+| `pkg/binder/utils/util_test.go` | `CleanupPodAnnotations` / `CleanupPodAnnotationsWithRetryCount` 测试 | 8 个函数 |
+| `pkg/binder/cache_adapter.go` | `CacheAdapter`：包装 SchedulerCache 为 BinderCache（模块 C） | — |
+| `pkg/binder/cache_adapter_test.go` | CacheAdapter 测试，含并发竞态测试 | 18 个函数 |
+| `pkg/binder/embedded_binder.go` | `EmbeddedBinder`：实现 `BinderInterface`（模块 E） | — |
+| `pkg/binder/embedded_binder_test.go` | EmbeddedBinder 测试，含冲突重试、超时、并发 | 16 个函数 |
+| `pkg/scheduler/embedded_binder_integration_test.go` | Scheduler 层嵌入式 Binder 集成测试 | 4 个函数 |
+| `pkg/scheduler/core/unit_scheduler/embedded_binder_test.go` | UnitScheduler 嵌入式绑定路径测试 | 7 个函数 |
+
+### 修改文件
+
+| 文件 | 改动 |
+|------|------|
+| `pkg/binder/utils/util.go` | 提取 `cleanupSchedulingAnnotations()` 辅助函数；新增 `CleanupPodAnnotationsWithRetryCount()` 含重试计数感知的 Dispatcher 回退逻辑 |
+| `pkg/scheduler/scheduler.go` | 新增 `embeddedBinder` 字段；`SetEmbeddedBinder`/`GetEmbeddedBinder`/`GetCache` 方法；`Run()` 中启动/停止嵌入式 Binder 生命周期管理；`createDataSet()` 中向 UnitScheduler 传播 Binder |
+| `pkg/scheduler/core/types.go` | `UnitScheduler` 接口新增 `SetEmbeddedBinder`/`GetEmbeddedBinder` 方法 |
+| `pkg/scheduler/core/unit_scheduler/unit_scheduler.go` | 新增 `embeddedBinder` 字段及 setter/getter；将 `PersistSuccessfulPods` 拆分为 `persistViaEmbeddedBinder`（直接绑定路径）和 `persistViaPatchPod`（传统 Patch 路径） |
+| `cmd/scheduler/app/config/config.go` | `Config` 新增 `EnableEmbeddedBinder` 和 `EmbeddedBinderConfig` 字段 |
+| `cmd/scheduler/app/options/options.go` | `ApplyTo()` 中传播嵌入式 Binder 配置到 Config |
+| `cmd/scheduler/app/server.go` | `Run()` 中按配置创建 `EmbeddedBinder` 并注入到 Scheduler |
+
+### Phase 2 交付物对照
+
+- [x] **模块 B**：`retry.go` — 绑定失败计数（`Get/Set/IncrementBindFailureCount`）+ Dispatcher 重调度判定（`ShouldDispatchToAnotherScheduler`）+ 失败原因记录
+- [x] **模块 C**：`cache_adapter.go` — `CacheAdapter` 将 SchedulerCache 包装为 BinderCache 接口（`AssumePod`/`ForgetPod`/`FinishBinding`/`MarkPodToDelete` 等）
+- [x] **模块 E**：`embedded_binder.go` — 完整实现 `BinderInterface`（`BindUnit` 含 Conflict/Timeout 指数退避重试；`Start`/`Stop` 原子生命周期管理）
+- [x] **模块 F**：`scheduler.go` 集成 — Scheduler 持有并管理 EmbeddedBinder 生命周期；`createDataSet` 自动传播到 UnitScheduler
+- [x] **模块 G**：`unit_scheduler.go` 绑定路径修改 — `PersistSuccessfulPods` 根据 `embeddedBinder` 是否存在分流到直接绑定 / 传统 Patch 路径
+- [x] **模块 H**：`server.go` + `config.go` + `options.go` 端到端串联 — CLI 参数 → Config → Server → Scheduler → UnitScheduler 完整链路
+- [x] `util.go` 增强 — `CleanupPodAnnotationsWithRetryCount` 支持按重试次数回退到 Dispatcher
+- [x] 全部新增代码测试覆盖 — 共 59 个新测试函数/用例，全部 PASS（含 `-race`）
+
+### 测试结果
+
+- 新增测试全部 PASS（`go test -race -count=1`）
+- 全量构建通过：`go build ./cmd/scheduler/... ./cmd/binder/...`
+- 现有测试中 `TestSchedulerEvent`、`TestPrepareNodes` 等少量失败为 **预存问题**（已在 `git stash` 对比中确认与本次改动无关）
 
 ---
 

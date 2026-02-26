@@ -30,6 +30,7 @@ import (
 	schedulerserverconfig "github.com/kubewharf/godel-scheduler/cmd/scheduler/app/config"
 	"github.com/kubewharf/godel-scheduler/cmd/scheduler/app/options"
 	"github.com/kubewharf/godel-scheduler/cmd/scheduler/app/util/configz"
+	"github.com/kubewharf/godel-scheduler/pkg/binder"
 	godelscheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler"
 	godelschedulerconfig "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	cmdutil "github.com/kubewharf/godel-scheduler/pkg/util/cmd"
@@ -179,6 +180,23 @@ func Run(ctx context.Context, cc schedulerserverconfig.CompletedConfig) error {
 	)
 	if err != nil {
 		return err
+	}
+
+	// Optionally attach an embedded Binder.
+	if cc.EnableEmbeddedBinder {
+		eb := binder.NewEmbeddedBinder(
+			cc.Client,
+			cc.GodelCrdClient,
+			sched.GetCache(),
+			*cc.ComponentConfig.SchedulerName,
+			&cc.EmbeddedBinderConfig,
+		)
+		sched.SetEmbeddedBinder(eb)
+		klog.InfoS("Embedded binder enabled",
+			"maxBindRetries", cc.EmbeddedBinderConfig.MaxBindRetries,
+			"bindTimeout", cc.EmbeddedBinderConfig.BindTimeout,
+			"maxLocalRetries", cc.EmbeddedBinderConfig.MaxLocalRetries,
+		)
 	}
 
 	// Prepare the event broadcaster.

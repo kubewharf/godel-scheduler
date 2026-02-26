@@ -27,6 +27,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	cmdutil "github.com/kubewharf/godel-scheduler/pkg/util/cmd"
 )
@@ -61,6 +62,13 @@ type Config struct {
 	// It will be removed once the migration for events from core API to events API is done.
 	// More details can be found at https://github.com/kubernetes/enhancements/blob/master/keps/sig-instrumentation/383-new-event-api-ga-graduation/README.md
 	EventBroadcaster cmdutil.EventBroadcasterAdapter
+
+	// EnableEmbeddedBinder controls whether the Scheduler starts an embedded
+	// Binder that performs pod-to-node binding in-process.
+	EnableEmbeddedBinder bool
+
+	// EmbeddedBinderConfig holds tuning parameters for the embedded Binder.
+	EmbeddedBinderConfig binder.EmbeddedBinderConfig
 }
 
 type completedConfig struct {

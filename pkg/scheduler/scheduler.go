@@ -37,6 +37,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder"
 	commoncache "github.com/kubewharf/godel-scheduler/pkg/common/cache"
 	"github.com/kubewharf/godel-scheduler/pkg/features"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
@@ -91,6 +92,11 @@ type Scheduler struct {
 	metricsRecorder     *godelcache.ClusterCollectable
 
 	movementController controller.CommonController
+
+	// embeddedBinder is the per-Scheduler Binder instance. When non-nil,
+	// the Scheduler uses direct function calls to bind Pods instead of
+	// the PatchPod → Informer → shared Binder path.
+	embeddedBinder binder.BinderInterface
 }
 
 // New returns a Scheduler
@@ -198,8 +204,37 @@ func New(
 	return sched, nil
 }
 
+// SetEmbeddedBinder attaches an embedded Binder to the Scheduler. When set,
+// the Scheduler's unit_scheduler will use direct BindUnit() calls instead
+// of the PatchPod → Informer → shared Binder path.
+// This must be called before Run().
+func (sched *Scheduler) SetEmbeddedBinder(b binder.BinderInterface) {
+	sched.embeddedBinder = b
+}
+
+// GetEmbeddedBinder returns the embedded Binder, or nil if not configured.
+func (sched *Scheduler) GetEmbeddedBinder() binder.BinderInterface {
+	return sched.embeddedBinder
+}
+
+// GetCache returns the SchedulerCache for external consumers (e.g.
+// initialising the embedded Binder's CacheAdapter).
+func (sched *Scheduler) GetCache() godelcache.SchedulerCache {
+	return sched.commonCache
+}
+
 // Run begins watching and scheduling. It waits for cache to be synced, then starts scheduling and blocked until the context is done.
 func (sched *Scheduler) Run(ctx context.Context) {
+	// Start embedded binder if configured.
+	if sched.embeddedBinder != nil {
+		if err := sched.embeddedBinder.Start(ctx); err != nil {
+			klog.ErrorS(err, "Failed to start embedded binder", "scheduler", sched.Name)
+		} else {
+			klog.V(2).InfoS("Embedded binder started", "scheduler", sched.Name)
+			defer sched.embeddedBinder.Stop()
+		}
+	}
+
 	// run scheduler maintainer to maintain scheduler status in CRD
 	go sched.schedulerMaintainer.Run(sched.StopEverything)
 	if !cache.WaitForCacheSync(ctx.Done(), sched.scheduledPodsHasSynced) {
@@ -308,6 +343,10 @@ func (sched *Scheduler) createDataSet(idx int, subCluster string, switchType fra
 		sched.recorder,
 		time.Duration(subClusterConfig.MaxWaitingDeletionDuration)*time.Second,
 	)
+	// Propagate embedded binder to the unit scheduler so it can bind pods directly.
+	if sched.embeddedBinder != nil {
+		unitScheduler.SetEmbeddedBinder(sched.embeddedBinder)
+	}
 	debugger := cachedebugger.New(
 		sched.informerFactory.Core().V1().Nodes().Lister(),
 		sched.informerFactory.Core().V1().Pods().Lister(),

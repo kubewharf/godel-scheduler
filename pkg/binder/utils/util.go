@@ -28,12 +28,10 @@ import (
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
 )
 
-func CleanupPodAnnotations(client clientset.Interface, pod *v1.Pod) error {
-	podCopy := pod.DeepCopy()
-	if podCopy.Annotations == nil {
-		podCopy.Annotations = map[string]string{}
-	}
-
+// cleanupSchedulingAnnotations removes all scheduling-decision annotations
+// from the given Pod copy. This is a shared helper used by both the original
+// CleanupPodAnnotations and the enhanced CleanupPodAnnotationsWithRetryCount.
+func cleanupSchedulingAnnotations(podCopy *v1.Pod) {
 	delete(podCopy.Annotations, podutil.AssumedNodeAnnotationKey)
 	delete(podCopy.Annotations, podutil.AssumedCrossNodeAnnotationKey)
 	delete(podCopy.Annotations, podutil.NominatedNodeAnnotationKey)
@@ -41,9 +39,65 @@ func CleanupPodAnnotations(client clientset.Interface, pod *v1.Pod) error {
 	delete(podCopy.Annotations, podutil.MicroTopologyKey)
 	delete(podCopy.Annotations, podutil.MovementNameKey)
 	delete(podCopy.Annotations, podutil.MatchedReservationPlaceholderKey)
+}
+
+// CleanupPodAnnotations resets all scheduling-decision annotations and sets
+// the Pod state back to Dispatched so that the same Scheduler can re-schedule it.
+// This preserves the original behaviour before the embedded-Binder enhancement.
+func CleanupPodAnnotations(client clientset.Interface, pod *v1.Pod) error {
+	podCopy := pod.DeepCopy()
+	if podCopy.Annotations == nil {
+		podCopy.Annotations = map[string]string{}
+	}
+
+	cleanupSchedulingAnnotations(podCopy)
 
 	// reset pod state to dispatched
 	podCopy.Annotations[podutil.PodStateAnnotationKey] = string(podutil.PodDispatched)
+
+	startTime := time.Now()
+	err := util.PatchPod(client, pod, podCopy)
+	if err != nil {
+		metrics.PodOperatingLatencyObserve(framework.ExtractPodProperty(pod), metrics.FailureResult, metrics.PatchPod, metrics.SinceInSeconds(startTime))
+		return err
+	}
+	metrics.PodOperatingLatencyObserve(framework.ExtractPodProperty(pod), metrics.SuccessResult, metrics.PatchPod, metrics.SinceInSeconds(startTime))
+	return nil
+}
+
+// CleanupPodAnnotationsWithRetryCount behaves like CleanupPodAnnotations but
+// checks the cumulative bind-failure count (stored in the Pod's annotations)
+// against maxLocalRetries. When the threshold is reached or exceeded, the Pod
+// is dispatched back to the Dispatcher (state = Pending, Scheduler annotation
+// removed) so that it can be re-assigned to a different Scheduler. Otherwise
+// the Pod is sent back to the same Scheduler (state = Dispatched).
+//
+// A maxLocalRetries value of 0 disables the Dispatcher fallback and always
+// returns the Pod to the same Scheduler.
+func CleanupPodAnnotationsWithRetryCount(client clientset.Interface, pod *v1.Pod, schedulerName string, maxLocalRetries int) error {
+	podCopy := pod.DeepCopy()
+	if podCopy.Annotations == nil {
+		podCopy.Annotations = map[string]string{}
+	}
+
+	cleanupSchedulingAnnotations(podCopy)
+
+	if ShouldDispatchToAnotherScheduler(podCopy, maxLocalRetries) {
+		// Exceeded local retries – dispatch back to Dispatcher.
+		// Record the current scheduler in the failed-schedulers list.
+		failedSchedulers := podCopy.Annotations[podutil.FailedSchedulersAnnotationKey]
+		if failedSchedulers == "" {
+			failedSchedulers = schedulerName
+		} else {
+			failedSchedulers = failedSchedulers + "," + schedulerName
+		}
+		podCopy.Annotations[podutil.FailedSchedulersAnnotationKey] = failedSchedulers
+		podCopy.Annotations[podutil.PodStateAnnotationKey] = string(podutil.PodPending)
+		delete(podCopy.Annotations, podutil.SchedulerAnnotationKey)
+	} else {
+		// Still within retry budget – return to same Scheduler.
+		podCopy.Annotations[podutil.PodStateAnnotationKey] = string(podutil.PodDispatched)
+	}
 
 	startTime := time.Now()
 	err := util.PatchPod(client, pod, podCopy)

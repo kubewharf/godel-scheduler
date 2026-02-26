@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 
+	"github.com/kubewharf/godel-scheduler/pkg/binder"
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/util/interpretabity"
 	podutil "github.com/kubewharf/godel-scheduler/pkg/util/pod"
@@ -58,6 +59,11 @@ type UnitScheduler interface {
 
 	CanBeRecycle() bool
 	Close()
+
+	// SetEmbeddedBinder attaches an embedded Binder for direct in-process binding.
+	SetEmbeddedBinder(binder.BinderInterface)
+	// GetEmbeddedBinder returns the attached embedded Binder, or nil.
+	GetEmbeddedBinder() binder.BinderInterface
 }
 
 // TODO: revisit this.
