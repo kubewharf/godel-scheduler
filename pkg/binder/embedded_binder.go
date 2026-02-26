@@ -142,17 +142,19 @@ func (eb *EmbeddedBinder) BindUnit(ctx context.Context, req *BindRequest) (*Bind
 		return nil, err
 	}
 
-	// Validate that the target node still belongs to this Scheduler's partition.
+	// Validate that every target node still belongs to this Scheduler's partition.
 	// During node reshuffles the node may have been reassigned, which would
 	// cause a stale bind.
 	if eb.nodeValidator != nil {
-		if err := eb.nodeValidator.Validate(req.NodeName); err != nil {
-			klog.V(2).InfoS("Node validation failed, rejecting bind request",
-				"scheduler", eb.schedulerName,
-				"node", req.NodeName,
-				"err", err)
-			bindermetrics.ObserveNodeValidationFailure(eb.schedulerName, "ownership")
-			return nil, fmt.Errorf("node validation failed for %q: %w", req.NodeName, err)
+		for _, nodeName := range req.UniqueNodeNames() {
+			if err := eb.nodeValidator.Validate(nodeName); err != nil {
+				klog.V(2).InfoS("Node validation failed, rejecting bind request",
+					"scheduler", eb.schedulerName,
+					"node", nodeName,
+					"err", err)
+				bindermetrics.ObserveNodeValidationFailure(eb.schedulerName, "ownership")
+				return nil, fmt.Errorf("node validation failed for %q: %w", nodeName, err)
+			}
 		}
 	}
 
@@ -181,12 +183,13 @@ func (eb *EmbeddedBinder) BindUnit(ctx context.Context, req *BindRequest) (*Bind
 		default:
 		}
 
-		err := eb.bindPodToNode(ctx, pod, req.NodeName)
+		targetNode := req.NodeNameFor(pod.UID)
+		err := eb.bindPodToNode(ctx, pod, targetNode)
 		if err != nil {
 			klog.V(3).InfoS("Failed to bind pod in embedded binder",
 				"scheduler", eb.schedulerName,
 				"pod", klog.KObj(pod),
-				"node", req.NodeName,
+				"node", targetNode,
 				"err", err)
 
 			result.FailedPods[pod.UID] = err
@@ -208,7 +211,7 @@ func (eb *EmbeddedBinder) BindUnit(ctx context.Context, req *BindRequest) (*Bind
 			klog.V(3).InfoS("Successfully bound pod via embedded binder",
 				"scheduler", eb.schedulerName,
 				"pod", klog.KObj(pod),
-				"node", req.NodeName)
+				"node", targetNode)
 		}
 	}
 

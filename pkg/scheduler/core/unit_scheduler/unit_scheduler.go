@@ -26,6 +26,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/clock"
 	clientset "k8s.io/client-go/kubernetes"
 	corelister "k8s.io/client-go/listers/core/v1"
@@ -812,21 +813,27 @@ func (gs *unitScheduler) persistViaEmbeddedBinder(ctx context.Context,
 	switchType, subCluster := gs.switchType, gs.subCluster
 	unitProperty := unitInfo.QueuedUnitInfo.GetUnitProperty()
 
-	// Collect all pods into a BindRequest.
+	// Collect all pods and build per-pod node mapping from ClonedPod annotations.
+	// ClonedPod (not QueuedPodInfo.Pod) contains the scheduling result annotations
+	// set by ReservePod, including AssumedNodeAnnotationKey.
 	var queuedPods []*framework.QueuedPodInfo
-	nodeName := ""
+	nodeNames := make(map[types.UID]string, len(result.SuccessfulPods))
 	for _, podKey := range result.SuccessfulPods {
 		runningUnitInfo := unitInfo.DispatchedPods[podKey]
 		queuedPods = append(queuedPods, runningUnitInfo.QueuedPodInfo)
+		// Extract the target node from the ClonedPod's scheduling annotations.
+		// Each pod in a PodGroup may be scheduled to a different node.
+		nodeName := runningUnitInfo.ClonedPod.Annotations[podutil.AssumedNodeAnnotationKey]
 		if nodeName == "" {
-			nodeName = runningUnitInfo.ClonedPod.Annotations[podutil.AssumedNodeAnnotationKey]
+			nodeName = runningUnitInfo.ClonedPod.Spec.NodeName
 		}
+		nodeNames[runningUnitInfo.QueuedPodInfo.Pod.UID] = nodeName
 	}
 
 	req := &binder.BindRequest{
 		Unit:          unitInfo.QueuedUnitInfo,
 		Pods:          queuedPods,
-		NodeName:      nodeName,
+		NodeNames:     nodeNames,
 		SchedulerName: gs.schedulerName,
 	}
 

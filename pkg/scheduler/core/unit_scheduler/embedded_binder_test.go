@@ -181,7 +181,7 @@ func TestPersistSuccessfulPods_DelegatesViaEmbeddedBinder(t *testing.T) {
 	assert.Equal(t, 1, mock.getBindCalls(), "BindUnit should be called once")
 	req := mock.getLastReq()
 	assert.NotNil(t, req)
-	assert.Equal(t, "node-a", req.NodeName)
+	assert.Equal(t, "node-a", req.NodeNameFor("uid-1"), "should resolve node from NodeNames map")
 	assert.Len(t, req.Pods, 1)
 }
 
@@ -326,7 +326,8 @@ func TestPersistSuccessfulPods_EmbeddedBinderMultiplePods(t *testing.T) {
 	assert.Equal(t, 1, mock.getBindCalls(), "should produce single BindUnit call")
 	req := mock.getLastReq()
 	assert.Len(t, req.Pods, 2, "BindRequest should have 2 pods")
-	assert.Equal(t, "node-e", req.NodeName)
+	assert.Equal(t, "node-e", req.NodeNameFor("uid-a"), "pod-a should target node-e")
+	assert.Equal(t, "node-e", req.NodeNameFor("uid-b"), "pod-b should target node-e")
 }
 
 func TestPersistSuccessfulPods_NoPods(t *testing.T) {
@@ -356,4 +357,70 @@ func TestPersistSuccessfulPods_NoPods(t *testing.T) {
 	// Should not panic with empty pod list.
 	gs.PersistSuccessfulPods(context.Background(), result, unitInfo)
 	// Mock may or may not be called depending on validation; key is no panic.
+}
+
+// TestPersistSuccessfulPods_MultiNodePodGroup verifies that when pods in a
+// PodGroup are scheduled to different nodes, the BindRequest contains
+// per-pod node assignments via NodeNames.
+func TestPersistSuccessfulPods_MultiNodePodGroup(t *testing.T) {
+	// Pod A → node-X, Pod B → node-Y (different nodes, simulating gang scheduling)
+	podA := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "pg-pod-a", Namespace: "default", UID: "uid-pg-a",
+			Annotations: map[string]string{},
+		},
+	}
+	podB := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "pg-pod-b", Namespace: "default", UID: "uid-pg-b",
+			Annotations: map[string]string{},
+		},
+	}
+	// ClonedPods have the scheduling result annotations.
+	clonedA := podA.DeepCopy()
+	clonedA.Annotations[podutil.AssumedNodeAnnotationKey] = "node-X"
+	clonedB := podB.DeepCopy()
+	clonedB.Annotations[podutil.AssumedNodeAnnotationKey] = "node-Y"
+
+	mock := newMockEmbeddedBinder()
+	mock.returnResult = &binder.BindResult{
+		SuccessfulPods: []types.UID{"uid-pg-a", "uid-pg-b"},
+	}
+
+	fakeCache := &fakecache.Cache{}
+	gs := &unitScheduler{
+		schedulerName:  "test-scheduler",
+		switchType:     framework.SwitchType(1),
+		subCluster:     "",
+		client:         clientsetfake.NewSimpleClientset(),
+		Cache:          fakeCache,
+		Reconciler:     reconciler.NewFailedTaskReconciler(nil, nil, fakeCache, ""),
+		Recorder:       noopEventRecorder{},
+		embeddedBinder: mock,
+	}
+
+	result := &core.UnitResult{
+		SuccessfulPods: []string{"default/pg-pod-a", "default/pg-pod-b"},
+	}
+	unitInfo := &core.SchedulingUnitInfo{
+		UnitKey: "podgroup-unit",
+		QueuedUnitInfo: &framework.QueuedUnitInfo{
+			ScheduleUnit: &framework.SinglePodUnit{},
+		},
+		DispatchedPods: map[string]*core.RunningUnitInfo{
+			"default/pg-pod-a": makeRunningUnitInfo(podA, clonedA),
+			"default/pg-pod-b": makeRunningUnitInfo(podB, clonedB),
+		},
+	}
+
+	gs.PersistSuccessfulPods(context.Background(), result, unitInfo)
+	assert.Equal(t, 1, mock.getBindCalls())
+	req := mock.getLastReq()
+	assert.NotNil(t, req)
+	assert.Len(t, req.Pods, 2)
+	// Verify per-pod node assignments.
+	assert.Equal(t, "node-X", req.NodeNameFor("uid-pg-a"), "pod-a should target node-X")
+	assert.Equal(t, "node-Y", req.NodeNameFor("uid-pg-b"), "pod-b should target node-Y")
+	// NodeNames map should have 2 entries.
+	assert.Len(t, req.NodeNames, 2)
 }

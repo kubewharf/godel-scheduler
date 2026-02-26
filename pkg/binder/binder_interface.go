@@ -67,8 +67,15 @@ type BindRequest struct {
 	Pods []*framework.QueuedPodInfo
 
 	// NodeName is the node selected by the Scheduler for this unit's Pods.
-	// Must not be empty.
+	// Used when ALL Pods in the unit are assigned to the same node (single-pod
+	// units or same-node PodGroups). Ignored when NodeNames is non-empty.
 	NodeName string
+
+	// NodeNames maps each Pod UID to its target node name. This supports
+	// PodGroups where different Pods may be scheduled to different nodes.
+	// When set, it takes precedence over NodeName. Every Pod in Pods must
+	// have an entry in this map for validation to pass.
+	NodeNames map[types.UID]string
 
 	// Victims is the set of Pods that should be preempted to make room for
 	// this unit. May be nil if no preemption is required.
@@ -77,6 +84,36 @@ type BindRequest struct {
 	// SchedulerName identifies the Scheduler instance that produced this request.
 	// Used for logging, metrics, and partition validation.
 	SchedulerName string
+}
+
+// NodeNameFor returns the target node for the given Pod UID.
+// It first checks NodeNames (per-pod mapping), then falls back to
+// the blanket NodeName.
+func (r *BindRequest) NodeNameFor(uid types.UID) string {
+	if len(r.NodeNames) > 0 {
+		if n, ok := r.NodeNames[uid]; ok {
+			return n
+		}
+	}
+	return r.NodeName
+}
+
+// UniqueNodeNames returns the deduplicated set of target node names
+// referenced by this request.
+func (r *BindRequest) UniqueNodeNames() []string {
+	seen := make(map[string]struct{})
+	var names []string
+	if len(r.NodeNames) > 0 {
+		for _, n := range r.NodeNames {
+			if _, ok := seen[n]; !ok {
+				seen[n] = struct{}{}
+				names = append(names, n)
+			}
+		}
+	} else if r.NodeName != "" {
+		names = append(names, r.NodeName)
+	}
+	return names
 }
 
 // Validate checks that the BindRequest contains all mandatory fields.
@@ -90,8 +127,21 @@ func (r *BindRequest) Validate() error {
 	if len(r.Pods) == 0 {
 		return fmt.Errorf("%w: Pods must not be empty", ErrInvalidRequest)
 	}
-	if r.NodeName == "" {
+	// At least one of NodeName or NodeNames must be provided.
+	if r.NodeName == "" && len(r.NodeNames) == 0 {
 		return fmt.Errorf("%w: NodeName must not be empty", ErrInvalidRequest)
+	}
+	// When NodeNames is provided, every Pod must have an entry.
+	if len(r.NodeNames) > 0 {
+		for _, qpi := range r.Pods {
+			if qpi == nil || qpi.Pod == nil {
+				continue
+			}
+			if _, ok := r.NodeNames[qpi.Pod.UID]; !ok {
+				return fmt.Errorf("%w: NodeNames missing entry for pod %s/%s (UID %s)",
+					ErrInvalidRequest, qpi.Pod.Namespace, qpi.Pod.Name, qpi.Pod.UID)
+			}
+		}
 	}
 	return nil
 }

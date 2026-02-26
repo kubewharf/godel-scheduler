@@ -490,3 +490,105 @@ func containsNodeOwnership(err error) bool {
 	}
 	return IsNodeOwnershipError(err)
 }
+
+// --- Per-pod NodeNames tests ---
+
+func TestEmbeddedBinder_BindUnit_PerPodNodeNames(t *testing.T) {
+	eb, client := newTestEmbeddedBinder(t)
+	_ = eb.Start(context.Background())
+	defer eb.Stop()
+
+	// Track which (pod, node) pairs were bound.
+	var mu sync.Mutex
+	bindings := make(map[string]string) // pod name → node name
+	client.PrependReactor("create", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "binding" {
+			ca := action.(k8stesting.CreateAction)
+			binding := ca.GetObject().(*v1.Binding)
+			mu.Lock()
+			bindings[binding.Name] = binding.Target.Name
+			mu.Unlock()
+			return true, nil, nil
+		}
+		return false, nil, nil
+	})
+
+	pod1 := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pg-pod-0", Namespace: "default", UID: "uid-pg-0"}}
+	pod2 := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pg-pod-1", Namespace: "default", UID: "uid-pg-1"}}
+	pod3 := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pg-pod-2", Namespace: "default", UID: "uid-pg-2"}}
+
+	req := &BindRequest{
+		Unit: &framework.QueuedUnitInfo{},
+		Pods: []*framework.QueuedPodInfo{
+			makeQueuedPodInfo(pod1),
+			makeQueuedPodInfo(pod2),
+			makeQueuedPodInfo(pod3),
+		},
+		NodeNames: map[types.UID]string{
+			"uid-pg-0": "node-A",
+			"uid-pg-1": "node-B",
+			"uid-pg-2": "node-A", // same node as pod-0
+		},
+		SchedulerName: "test-scheduler",
+	}
+
+	result, err := eb.BindUnit(context.Background(), req)
+	assert.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.AllSucceeded())
+	assert.Len(t, result.SuccessfulPods, 3)
+
+	// Verify each pod was bound to the correct node.
+	assert.Equal(t, "node-A", bindings["pg-pod-0"], "pod-0 should bind to node-A")
+	assert.Equal(t, "node-B", bindings["pg-pod-1"], "pod-1 should bind to node-B")
+	assert.Equal(t, "node-A", bindings["pg-pod-2"], "pod-2 should bind to node-A")
+}
+
+func TestEmbeddedBinder_BindUnit_PerPodNodeNames_Validation(t *testing.T) {
+	// NodeNames validates every unique node; if one node fails ownership → entire request rejected.
+	client := fake.NewSimpleClientset()
+	crdClient := godelclientfake.NewSimpleClientset()
+	fc := &fakecache.Cache{
+		AssumeFunc:       func(pod *v1.Pod) {},
+		ForgetFunc:       func(pod *v1.Pod) {},
+		IsAssumedPodFunc: func(pod *v1.Pod) bool { return false },
+		IsCachedPodFunc:  func(pod *v1.Pod) bool { return false },
+		GetPodFunc:       func(pod *v1.Pod) *v1.Pod { return pod },
+		UnitStatus:       unitstatus.NewUnitStatusMap(),
+	}
+	nodeGetter := NodeGetter(func(nodeName string) (*v1.Node, error) {
+		// node-A belongs to test-scheduler; node-B belongs to other-scheduler
+		owner := "test-scheduler"
+		if nodeName == "node-B" {
+			owner = "other-scheduler"
+		}
+		return &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        nodeName,
+				Annotations: map[string]string{"godel.bytedance.com/scheduler-name": owner},
+			},
+		}, nil
+	})
+	eb := NewEmbeddedBinder(client, crdClient, fc, "test-scheduler", DefaultEmbeddedBinderConfig(), nodeGetter)
+	require.NoError(t, eb.Start(context.Background()))
+	defer eb.Stop()
+
+	pod1 := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns", UID: "u1"}}
+	pod2 := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p2", Namespace: "ns", UID: "u2"}}
+	req := &BindRequest{
+		Unit: &framework.QueuedUnitInfo{},
+		Pods: []*framework.QueuedPodInfo{
+			makeQueuedPodInfo(pod1),
+			makeQueuedPodInfo(pod2),
+		},
+		NodeNames: map[types.UID]string{
+			"u1": "node-A",
+			"u2": "node-B", // belongs to other-scheduler
+		},
+		SchedulerName: "test-scheduler",
+	}
+	result, err := eb.BindUnit(context.Background(), req)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "node validation failed")
+}

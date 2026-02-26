@@ -301,3 +301,145 @@ func TestBindResult_EmptyResult(t *testing.T) {
 	assert.True(t, result.AllSucceeded())
 	assert.False(t, result.AllFailed())
 }
+
+// --- NodeNames per-pod node mapping tests ---
+
+func TestBindRequest_Validation_NodeNamesValid(t *testing.T) {
+	pod1 := makeTestQueuedPodInfo("pod-1")
+	pod2 := makeTestQueuedPodInfo("pod-2")
+	req := &BindRequest{
+		Unit: makeTestQueuedUnitInfo(),
+		Pods: []*framework.QueuedPodInfo{pod1, pod2},
+		NodeNames: map[types.UID]string{
+			pod1.Pod.UID: "node-A",
+			pod2.Pod.UID: "node-B",
+		},
+		SchedulerName: "scheduler-A",
+	}
+	err := req.Validate()
+	assert.NoError(t, err, "NodeNames with entries for all pods should be valid")
+}
+
+func TestBindRequest_Validation_NodeNamesMissingEntry(t *testing.T) {
+	pod1 := makeTestQueuedPodInfo("pod-1")
+	pod2 := makeTestQueuedPodInfo("pod-2")
+	req := &BindRequest{
+		Unit: makeTestQueuedUnitInfo(),
+		Pods: []*framework.QueuedPodInfo{pod1, pod2},
+		NodeNames: map[types.UID]string{
+			pod1.Pod.UID: "node-A",
+			// pod2 missing
+		},
+		SchedulerName: "scheduler-A",
+	}
+	err := req.Validate()
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrInvalidRequest))
+	assert.Contains(t, err.Error(), "NodeNames missing entry")
+}
+
+func TestBindRequest_Validation_NodeNamesFallback(t *testing.T) {
+	// When NodeNames is empty but NodeName is set, validation passes (backward compat).
+	req := &BindRequest{
+		Unit:     makeTestQueuedUnitInfo(),
+		Pods:     []*framework.QueuedPodInfo{makeTestQueuedPodInfo("pod-1")},
+		NodeName: "node-1",
+	}
+	err := req.Validate()
+	assert.NoError(t, err)
+}
+
+func TestBindRequest_Validation_BothEmpty(t *testing.T) {
+	req := &BindRequest{
+		Unit: makeTestQueuedUnitInfo(),
+		Pods: []*framework.QueuedPodInfo{makeTestQueuedPodInfo("pod-1")},
+		// Neither NodeName nor NodeNames set
+	}
+	err := req.Validate()
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrInvalidRequest))
+	assert.Contains(t, err.Error(), "NodeName must not be empty")
+}
+
+func TestBindRequest_NodeNameFor(t *testing.T) {
+	tests := []struct {
+		name     string
+		req      *BindRequest
+		uid      types.UID
+		expected string
+	}{
+		{
+			name: "from NodeNames map",
+			req: &BindRequest{
+				NodeNames: map[types.UID]string{
+					"uid-A": "node-1",
+					"uid-B": "node-2",
+				},
+				NodeName: "fallback-node",
+			},
+			uid:      "uid-B",
+			expected: "node-2",
+		},
+		{
+			name: "fallback to NodeName when not in map",
+			req: &BindRequest{
+				NodeNames: map[types.UID]string{
+					"uid-A": "node-1",
+				},
+				NodeName: "fallback-node",
+			},
+			uid:      "uid-missing",
+			expected: "fallback-node",
+		},
+		{
+			name: "fallback to NodeName when NodeNames is nil",
+			req: &BindRequest{
+				NodeName: "single-node",
+			},
+			uid:      "uid-any",
+			expected: "single-node",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.req.NodeNameFor(tt.uid))
+		})
+	}
+}
+
+func TestBindRequest_UniqueNodeNames(t *testing.T) {
+	tests := []struct {
+		name     string
+		req      *BindRequest
+		expected int // number of unique nodes
+	}{
+		{
+			name: "from NodeNames map with duplicates",
+			req: &BindRequest{
+				NodeNames: map[types.UID]string{
+					"uid-1": "node-A",
+					"uid-2": "node-B",
+					"uid-3": "node-A", // duplicate
+				},
+			},
+			expected: 2,
+		},
+		{
+			name: "fallback to single NodeName",
+			req: &BindRequest{
+				NodeName: "node-single",
+			},
+			expected: 1,
+		},
+		{
+			name:     "both empty",
+			req:      &BindRequest{},
+			expected: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Len(t, tt.req.UniqueNodeNames(), tt.expected)
+		})
+	}
+}
