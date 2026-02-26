@@ -27,4 +27,7 @@ create_cluster "${REPO_ROOT}"/manifests/quickstart-feature-examples/${CLUSTER_NA
 kind load docker-image --nodes ${CLUSTER_NAME}-control-plane godel-local:latest --name ${CLUSTER_NAME}
 
 # 3. Use kustomize to generate related CRDs, ClusterRole & Deployments
-kustomize build "${REPO_ROOT}"/manifests/base | kubectl apply -f -
+# KUSTOMIZE_PATH can be overridden to apply a different overlay (e.g. embedded-binder).
+KUSTOMIZE_PATH="${KUSTOMIZE_PATH:-${REPO_ROOT}/manifests/base}"
+echo "Applying kustomize from: ${KUSTOMIZE_PATH}"
+kustomize build "${KUSTOMIZE_PATH}" | kubectl apply -f -
