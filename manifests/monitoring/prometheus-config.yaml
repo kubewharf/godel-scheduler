@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # Scrape Gödel Scheduler (includes embedded binder metrics)
+      - job_name: "godel-scheduler"
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - godel-system
+        relabel_configs:
+          # Only scrape endpoints with the "godel-scheduler-metrics" service name.
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: godel-scheduler-metrics
+          # Use the metrics port named "metrics".
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+          # Populate standard labels.
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+
+      # Scrape standalone Dispatcher (if present)
+      - job_name: "godel-dispatcher"
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - godel-system
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: godel-dispatcher-metrics
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
+      # Scrape standalone Binder (if present, replicas > 0)
+      - job_name: "godel-binder"
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - godel-system
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: godel-binder-metrics
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod

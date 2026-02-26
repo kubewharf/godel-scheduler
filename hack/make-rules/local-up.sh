@@ -31,3 +31,17 @@ kind load docker-image --nodes ${CLUSTER_NAME}-control-plane godel-local:latest 
 KUSTOMIZE_PATH="${KUSTOMIZE_PATH:-${REPO_ROOT}/manifests/base}"
 echo "Applying kustomize from: ${KUSTOMIZE_PATH}"
 kustomize build "${KUSTOMIZE_PATH}" | kubectl apply -f -
+
+# 4. Deploy Prometheus monitoring stack (if manifests exist).
+MONITORING_PATH="${REPO_ROOT}/manifests/monitoring"
+if [ -d "${MONITORING_PATH}" ]; then
+  echo "Deploying Prometheus monitoring stack..."
+
+  # Pre-pull the Prometheus image and load it into kind to avoid ImagePullBackOff.
+  PROM_IMAGE="prom/prometheus:v2.51.0"
+  docker pull "${PROM_IMAGE}" 2>/dev/null || true
+  kind load docker-image --nodes ${CLUSTER_NAME}-control-plane "${PROM_IMAGE}" --name ${CLUSTER_NAME}
+
+  kustomize build "${MONITORING_PATH}" | kubectl apply -f -
+  echo "Prometheus is available at http://localhost:30090 (via kind node port)"
+fi

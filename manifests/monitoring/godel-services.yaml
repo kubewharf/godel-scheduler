@@ -1,0 +1,58 @@
+# Headless Services that expose the /metrics endpoints of Gödel components.
+# These are used by Prometheus service-discovery (endpoints role) to find
+# scrape targets automatically.
+
+# Scheduler metrics (also serves embedded-binder metrics when enabled).
+# Default insecure port: 10251
+apiVersion: v1
+kind: Service
+metadata:
+  name: godel-scheduler-metrics
+  namespace: godel-system
+  labels:
+    component: scheduler
+spec:
+  clusterIP: None
+  selector:
+    app: godel-scheduler
+  ports:
+    - name: metrics
+      port: 10251
+      targetPort: 10251
+      protocol: TCP
+---
+# Dispatcher metrics
+apiVersion: v1
+kind: Service
+metadata:
+  name: godel-dispatcher-metrics
+  namespace: godel-system
+  labels:
+    component: dispatcher
+spec:
+  clusterIP: None
+  selector:
+    app: godel-dispatcher
+  ports:
+    - name: metrics
+      port: 10251
+      targetPort: 10251
+      protocol: TCP
+---
+# Standalone Binder metrics (only meaningful when not using embedded binder)
+apiVersion: v1
+kind: Service
+metadata:
+  name: godel-binder-metrics
+  namespace: godel-system
+  labels:
+    component: binder
+spec:
+  clusterIP: None
+  selector:
+    app: binder
+  ports:
+    - name: metrics
+      port: 10251
+      targetPort: 10251
+      protocol: TCP

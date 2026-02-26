@@ -30,6 +30,10 @@ spec:
           image: godel-local:latest
           imagePullPolicy: Never
           command: ["/usr/local/bin/dispatcher"]
+          ports:
+            - containerPort: 10251
+              name: metrics
+              protocol: TCP
           args:
             - "--leader-elect=false"
             - "--tracer=noop"

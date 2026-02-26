@@ -4,6 +4,11 @@ name: godel-demo-labels
 nodes:
   - role: control-plane
     image: kindest/node:v1.21.1
+    extraPortMappings:
+      # Expose Prometheus NodePort to host
+      - containerPort: 30090
+        hostPort: 30090
+        protocol: TCP
   - role: worker
     image: kindest/node:v1.21.1
     labels:
