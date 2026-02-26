@@ -182,8 +182,8 @@ func New(
 		binder.reservationLister = crdInformerFactory.Scheduling().V1alpha1().Reservations().Lister()
 	}
 
-	// Add all event handlers
-	addAllEventHandlers(binder, informerFactory, crdInformerFactory, katalystCrdInformerFactory)
+	// Add all event handlers (standalone mode: Informer→BinderQueue path is active)
+	addAllEventHandlers(binder, informerFactory, crdInformerFactory, katalystCrdInformerFactory, false)
 
 	return binder, nil
 }

@@ -91,7 +91,40 @@
 
 ## Phase 3：PodGroupController 迁移
 
-**状态**：⬜ 未开始
+**状态**：✅ 已完成  
+**完成日期**：2026-02-26
+
+### 修改文件
+
+| 文件 | 改动 |
+|------|------|
+| `pkg/binder/controller/podgroup.go` | 新增 `PodGroupControllerOptions` 结构体（含 `SchedulerName` 字段）；新增 `SetupPodGroupControllerWithOptions` 入口（嵌入模式使用）；保留 `SetupPodGroupController` 向后兼容；新增 `podBelongsToPartition` 分区过滤方法（按 `SchedulerAnnotationKey` 过滤 Pod）；`syncHandler` 中在计算 PodGroup 状态前按分区过滤 Pod；`updatePodGroup` 中增加 `IsConflict` 冲突重试处理（annotation 和 status 更新均支持） |
+| `cmd/scheduler/app/server.go` | 当 `EnableEmbeddedBinder` 为 true 时，在 `run()` 中使用 `SetupPodGroupControllerWithOptions` 启动 PodGroupController，传入 `SchedulerName` 实现分区隔离 |
+| `pkg/binder/eventhandlers.go` | `addAllEventHandlers` 增加 `embeddedMode bool` 参数；嵌入模式下跳过 BinderQueue 相关的 informer handler 注册（`addPodToBinderQueue`、`updatePodInBinderQueue`、`deletePodFromBinderQueue`）；Cache handler 始终注册 |
+| `pkg/binder/godel_binder.go` | 调用 `addAllEventHandlers` 时传入 `false`（独立模式适配） |
+
+### 新增测试文件
+
+| 文件 | 用途 | 测试数 |
+|------|------|--------|
+| `pkg/binder/controller/podgroup_partition_test.go` | PodGroupController 分区过滤测试 | 8 个测试（含 6 个 `podBelongsToPartition` 子用例 + 分区过滤场景覆盖 + 向后兼容性验证） |
+| `pkg/binder/eventhandlers_embedded_test.go` | 嵌入模式 EventHandler 行为测试 | 6 个测试（嵌入模式跳过、独立模式正常、Update/Delete handler、非 Assumed Pod 过滤、错误 Scheduler 过滤） |
+
+### Phase 3 交付物对照
+
+- [x] **PodGroupController 提取**：`SetupPodGroupControllerWithOptions` 新入口，支持通过 `PodGroupControllerOptions` 传入调度器名称
+- [x] **分区过滤**：`podBelongsToPartition` 方法按 `SchedulerAnnotationKey` 注解过滤 Pod，`syncHandler` 仅统计属于本分区的 Pod
+- [x] **多实例冲突处理**：`updatePodGroup` 中 annotation 和 status 更新均增加 `apierrs.IsConflict` 冲突重试（RefreshGet + Retry）
+- [x] **Scheduler 集成**：`cmd/scheduler/app/server.go` 在 `EnableEmbeddedBinder` 时启动 PodGroupController，使用 `SchedulerName` 分区
+- [x] **EventHandler 嵌入模式跳过**：`addAllEventHandlers` 在嵌入模式下不注册 BinderQueue handler，避免与 Scheduler 调度队列冲突
+- [x] **向后兼容**：`SetupPodGroupController` 保持不变，独立 Binder 模式行为无改动
+
+### 测试结果
+
+- `pkg/binder/...` + `pkg/binder/controller/...`：**全部通过**（含 `-race` 竞态检测）
+- `go vet` 无新增告警（`pkg/binder/controller/...`、`cmd/scheduler/...` 均通过）
+- 编译验证：`cmd/scheduler`、`cmd/binder` 均正常构建
+- 原有 21 个 PodGroupController 测试全部回归通过
 
 ---
 

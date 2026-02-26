@@ -66,6 +66,18 @@ const (
 	EventReason = "PGController"
 )
 
+// PodGroupControllerOptions holds optional configuration for PodGroupController.
+// When embedded in a Scheduler process, SchedulerName enables partition filtering
+// so that each controller instance only manages PodGroups whose member pods
+// belong to its own scheduler partition.
+type PodGroupControllerOptions struct {
+	// SchedulerName, when non-empty, restricts the controller to only process
+	// pods that carry godel.bytedance.com/selected-scheduler = SchedulerName.
+	// This is essential for the embedded-binder architecture where multiple
+	// PodGroupController instances run concurrently (one per Scheduler).
+	SchedulerName string
+}
+
 // PodGroupController is a controller that process pod groups using provided Handler interface
 type PodGroupController struct {
 	eventRecorder   record.EventRecorder
@@ -75,14 +87,34 @@ type PodGroupController struct {
 	pgListerSynced  cache.InformerSynced
 	podListerSynced cache.InformerSynced
 	pgClient        pgclientset.Interface
+
+	// schedulerName is the partition filter. When non-empty, only pods with
+	// annotation godel.bytedance.com/selected-scheduler matching this value
+	// are counted toward PodGroup state transitions.
+	schedulerName string
 }
 
-// SetupPodGroupController returns a new *PodGroupController
+// SetupPodGroupController returns a new *PodGroupController (backward-compatible).
+// It creates a controller with no partition filtering (processes all pods).
 func SetupPodGroupController(
 	ctx context.Context,
 	client kubernetes.Interface,
 	pgClient pgclientset.Interface,
 	pgInformer schedinformer.PodGroupInformer,
+) {
+	SetupPodGroupControllerWithOptions(ctx, client, pgClient, pgInformer, PodGroupControllerOptions{})
+}
+
+// SetupPodGroupControllerWithOptions creates a PodGroupController with optional
+// partition filtering. When opts.SchedulerName is non-empty, the controller only
+// counts pods belonging to that scheduler partition for PodGroup state transitions.
+// This is the entry point used by the embedded-binder architecture.
+func SetupPodGroupControllerWithOptions(
+	ctx context.Context,
+	client kubernetes.Interface,
+	pgClient pgclientset.Interface,
+	pgInformer schedinformer.PodGroupInformer,
+	opts PodGroupControllerOptions,
 ) {
 	broadcaster := record.NewBroadcaster()
 	broadcaster.StartRecordingToSink(&corev1.EventSinkImpl{Interface: client.CoreV1().Events(v1.NamespaceAll)})
@@ -95,6 +127,7 @@ func SetupPodGroupController(
 			workqueue.NewItemExponentialFailureRateLimiter(5*time.Millisecond, 300*time.Second),
 			"PodGroup",
 		),
+		schedulerName: opts.SchedulerName,
 	}
 
 	pgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -113,6 +146,10 @@ func SetupPodGroupController(
 	ctrl.pgListerSynced = pgInformer.Informer().HasSynced
 	ctrl.podListerSynced = podInformer.Informer().HasSynced
 	ctrl.pgClient = pgClient
+
+	if ctrl.schedulerName != "" {
+		klog.InfoS("PodGroupController partition filtering enabled", "schedulerName", ctrl.schedulerName)
+	}
 
 	go podInformer.Informer().Run(ctx.Done())
 	go ctrl.Run(PodGroupWorkers, ctx.Done())
@@ -157,6 +194,17 @@ func (ctrl *PodGroupController) pgTrigger(obj interface{}, eventType string) {
 	ctrl.pgAdded(pg, eventType)
 }
 
+// podBelongsToPartition checks whether a pod belongs to this controller's
+// scheduler partition. If schedulerName is empty (standalone binder mode),
+// all pods are accepted. Otherwise, only pods whose
+// godel.bytedance.com/selected-scheduler annotation matches are accepted.
+func (ctrl *PodGroupController) podBelongsToPartition(pod *v1.Pod) bool {
+	if ctrl.schedulerName == "" {
+		return true
+	}
+	return pod.Annotations[podutil.SchedulerAnnotationKey] == ctrl.schedulerName
+}
+
 // podTrigger reacts to a Pod creation/update/deletion
 func (ctrl *PodGroupController) podTrigger(obj interface{}, eventType string) {
 	pod, err := podutil.ConvertToPod(obj)
@@ -164,6 +212,12 @@ func (ctrl *PodGroupController) podTrigger(obj interface{}, eventType string) {
 		klog.InfoS("Failed to convert obj to *v1.Pod", "object", obj, "err", err)
 		return
 	}
+
+	// Partition filter: skip pods that don't belong to this scheduler.
+	if !ctrl.podBelongsToPartition(pod) {
+		return
+	}
+
 	event := fmt.Sprintf(eventType, podutil.GetPodKey(pod))
 
 	pgName := unitutil.GetPodGroupName(pod)
@@ -248,10 +302,29 @@ func (ctrl *PodGroupController) syncHandler(key string) bool {
 	var eventMsg string
 	var pods []*v1.Pod
 	{
-		pods, err = GetAllPods(ctrl.podLister, namespace, name)
+		allPods, err := GetAllPods(ctrl.podLister, namespace, name)
 		if err != nil {
 			klog.InfoS("Failed to list pods for podGroup", "podGroupKey", key, "err", err)
 			return true
+		}
+
+		// Apply partition filter: when running in embedded mode with a specific
+		// schedulerName, only count pods that belong to this scheduler partition.
+		// In standalone mode (schedulerName == ""), all pods are counted.
+		if ctrl.schedulerName != "" {
+			for _, p := range allPods {
+				if ctrl.podBelongsToPartition(p) {
+					pods = append(pods, p)
+				}
+			}
+			klog.V(5).InfoS("Partition filtered pods for PodGroup",
+				"podGroupKey", key,
+				"schedulerName", ctrl.schedulerName,
+				"totalPods", len(allPods),
+				"filteredPods", len(pods),
+			)
+		} else {
+			pods = allPods
 		}
 
 		if len(pods) > 0 {
@@ -439,6 +512,16 @@ func (ctrl *PodGroupController) updatePodGroup(old, new *schedv1alpha1.PodGroup,
 		if !reflect.DeepEqual(old.Annotations, new.Annotations) {
 			latest, err := ctrl.pgClient.SchedulingV1alpha1().PodGroups(new.Namespace).Update(context.TODO(), new, metav1.UpdateOptions{})
 			if err != nil {
+				// In multi-instance mode, ResourceVersion conflict is expected
+				// when another controller instance updates the same PodGroup.
+				// Re-enqueue so we get a fresh version on next sync.
+				if apierrs.IsConflict(err) {
+					klog.V(4).InfoS("Conflict updating pod group annotation, will retry",
+						"podGroupKey", unitutil.GetPodGroupKey(new),
+						"schedulerName", ctrl.schedulerName,
+					)
+					return false, err
+				}
 				klog.ErrorS(err, "Failed to update pod group annotation",
 					"podGroupKey", unitutil.GetPodGroupKey(new))
 				return false, err
@@ -457,6 +540,18 @@ func (ctrl *PodGroupController) updatePodGroup(old, new *schedv1alpha1.PodGroup,
 		}
 		_, err := ctrl.pgClient.SchedulingV1alpha1().PodGroups(new.Namespace).UpdateStatus(context.TODO(), new, metav1.UpdateOptions{})
 		if err != nil {
+			// In multi-instance mode, ResourceVersion conflict is expected
+			// when another controller instance updates the same PodGroup.
+			// Re-enqueue so we get a fresh version on next sync.
+			if apierrs.IsConflict(err) {
+				klog.V(4).InfoS("Conflict updating pod group status, will retry",
+					"podGroupKey", unitutil.GetPodGroupKey(new),
+					"oldStatus", old.Status.Phase,
+					"newStatus", new.Status.Phase,
+					"schedulerName", ctrl.schedulerName,
+				)
+				return false, err
+			}
 			klog.ErrorS(err, "Failed to update pod group to new status",
 				"podGroupKey", unitutil.GetPodGroupKey(new),
 				"oldStatus", old.Status.Phase,

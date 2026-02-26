@@ -560,11 +560,15 @@ func (binder *Binder) deleteReservation(obj interface{}) {
 
 // addAllEventHandlers is a helper function used in tests and in Prebinder
 // to add event handlers for various informers.
+// When embeddedMode is true, the Informer→BinderQueue path is skipped because
+// in the embedded-binder architecture the Scheduler pushes pods directly into
+// the Binder via function calls. Cache handlers are always registered.
 func addAllEventHandlers(
 	binder *Binder,
 	informerFactory informers.SharedInformerFactory,
 	crdInformerFactory crdinformers.SharedInformerFactory,
 	katalystInformerFactory katalystinformers.SharedInformerFactory,
+	embeddedMode bool,
 ) {
 	// scheduled pod cache
 	informerFactory.Core().V1().Pods().Informer().AddEventHandler(
@@ -576,13 +580,19 @@ func addAllEventHandlers(
 	)
 
 	// pods with nominated nodes by binder
-	informerFactory.Core().V1().Pods().Informer().AddEventHandler(
-		cache.ResourceEventHandlerFuncs{
-			AddFunc:    binder.addPodToBinderQueue,
-			UpdateFunc: binder.updatePodInBinderQueue,
-			DeleteFunc: binder.deletePodFromBinderQueue,
-		},
-	)
+	// In embedded mode, pods are pushed directly by the Scheduler, so the
+	// Informer→BinderQueue path is unnecessary and would cause duplicate processing.
+	if !embeddedMode {
+		informerFactory.Core().V1().Pods().Informer().AddEventHandler(
+			cache.ResourceEventHandlerFuncs{
+				AddFunc:    binder.addPodToBinderQueue,
+				UpdateFunc: binder.updatePodInBinderQueue,
+				DeleteFunc: binder.deletePodFromBinderQueue,
+			},
+		)
+	} else {
+		klog.InfoS("Embedded mode: skipping Informer→BinderQueue event handlers")
+	}
 
 	// TODO: Add cnr event handlers
 	informerFactory.Core().V1().Nodes().Informer().AddEventHandler(

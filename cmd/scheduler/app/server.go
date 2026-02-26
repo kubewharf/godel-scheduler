@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/cmd/scheduler/app/options"
 	"github.com/kubewharf/godel-scheduler/cmd/scheduler/app/util/configz"
 	"github.com/kubewharf/godel-scheduler/pkg/binder"
+	pgcontroller "github.com/kubewharf/godel-scheduler/pkg/binder/controller"
 	godelscheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler"
 	godelschedulerconfig "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	cmdutil "github.com/kubewharf/godel-scheduler/pkg/util/cmd"
@@ -247,6 +248,21 @@ func Run(ctx context.Context, cc schedulerserverconfig.CompletedConfig) error {
 			ComponentName,
 			cc.ComponentConfig.Tracer)
 		defer closer.Close()
+
+		// When embedded binder is enabled, start a PodGroupController
+		// with partition filtering so it only processes PodGroups whose
+		// member pods belong to this scheduler's partition.
+		if cc.EnableEmbeddedBinder {
+			pgInformer := cc.GodelCrdInformerFactory.Scheduling().V1alpha1().PodGroups()
+			pgcontroller.SetupPodGroupControllerWithOptions(ctx, cc.Client, cc.GodelCrdClient, pgInformer,
+				pgcontroller.PodGroupControllerOptions{
+					SchedulerName: *cc.ComponentConfig.SchedulerName,
+				},
+			)
+			klog.InfoS("Started embedded PodGroupController with partition filtering",
+				"schedulerName", *cc.ComponentConfig.SchedulerName,
+			)
+		}
 
 		// Start the scheduler.
 		sched.Run(ctx)
