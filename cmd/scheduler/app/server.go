@@ -202,6 +202,9 @@ func Run(ctx context.Context, cc schedulerserverconfig.CompletedConfig) error {
 			&cc.EmbeddedBinderConfig,
 			nodeGetter,
 		)
+		if err := eb.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start embedded binder: %v", err)
+		}
 		sched.SetEmbeddedBinder(eb)
 		klog.InfoS("Embedded binder enabled",
 			"maxBindRetries", cc.EmbeddedBinderConfig.MaxBindRetries,
