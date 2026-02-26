@@ -34,18 +34,18 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		}, []string{pkgmetrics.SchedulerLabel, pkgmetrics.ReasonLabel})
 
-	// embeddedBinderBindTotal counts bind attempts by the embedded binder,
-	// partitioned by scheduler and result.
+	// embeddedBinderBindTotal counts BindUnit calls by the embedded binder,
+	// partitioned by scheduler and result. Use rate() for unit-level throughput.
 	embeddedBinderBindTotal = metrics.NewCounterVec(
 		&metrics.CounterOpts{
 			Subsystem:      BinderSubsystem,
 			Name:           "embedded_bind_total",
-			Help:           "Total bind attempts via the embedded (per-Scheduler) binder.",
+			Help:           "Total BindUnit calls via the embedded (per-Scheduler) binder.",
 			StabilityLevel: metrics.ALPHA,
 		}, []string{pkgmetrics.SchedulerLabel, pkgmetrics.ResultLabel})
 
 	// embeddedBinderBindLatency measures end-to-end latency of a single
-	// embedded BindUnit call.
+	// embedded BindUnit call (covers all pods in the unit).
 	embeddedBinderBindLatency = metrics.NewHistogramVec(
 		&metrics.HistogramOpts{
 			Subsystem:      BinderSubsystem,
@@ -64,6 +64,49 @@ var (
 			Help:           "Total Pods sent back to Dispatcher after exceeding MaxLocalRetries.",
 			StabilityLevel: metrics.ALPHA,
 		}, []string{pkgmetrics.SchedulerLabel})
+
+	// --- New pod-level metrics ---
+
+	// embeddedBindPodsTotal counts individual pod bind attempts.
+	// Use rate() for pod-level throughput (pods/s).
+	embeddedBindPodsTotal = metrics.NewCounterVec(
+		&metrics.CounterOpts{
+			Subsystem:      BinderSubsystem,
+			Name:           "embedded_bind_pods_total",
+			Help:           "Total individual pod bind attempts via the embedded binder.",
+			StabilityLevel: metrics.ALPHA,
+		}, []string{pkgmetrics.SchedulerLabel, pkgmetrics.ResultLabel})
+
+	// embeddedBindPodDuration measures the API-server bind latency for a
+	// single pod (including retries within bindPodToNode).
+	embeddedBindPodDuration = metrics.NewHistogramVec(
+		&metrics.HistogramOpts{
+			Subsystem:      BinderSubsystem,
+			Name:           "embedded_bind_pod_duration_seconds",
+			Help:           "Latency of a single pod bind API call (including retries), in seconds.",
+			Buckets:        metrics.ExponentialBuckets(0.001, 2, 14),
+			StabilityLevel: metrics.ALPHA,
+		}, []string{pkgmetrics.SchedulerLabel, pkgmetrics.ResultLabel})
+
+	// embeddedBindRetriesTotal counts the number of transient-error retries
+	// inside bindPodToNode. High values indicate API-server pressure.
+	embeddedBindRetriesTotal = metrics.NewCounterVec(
+		&metrics.CounterOpts{
+			Subsystem:      BinderSubsystem,
+			Name:           "embedded_bind_retries_total",
+			Help:           "Total transient-error retries during pod binding in the embedded binder.",
+			StabilityLevel: metrics.ALPHA,
+		}, []string{pkgmetrics.SchedulerLabel})
+
+	// embeddedBindInflight tracks the number of concurrently executing
+	// BindUnit calls. Useful for observing parallelism.
+	embeddedBindInflight = metrics.NewGaugeVec(
+		&metrics.GaugeOpts{
+			Subsystem:      BinderSubsystem,
+			Name:           "embedded_bind_inflight",
+			Help:           "Number of BindUnit calls currently in-flight in the embedded binder.",
+			StabilityLevel: metrics.ALPHA,
+		}, []string{pkgmetrics.SchedulerLabel})
 )
 
 func init() {
@@ -72,6 +115,10 @@ func init() {
 		embeddedBinderBindTotal,
 		embeddedBinderBindLatency,
 		dispatcherFallbackTotal,
+		embeddedBindPodsTotal,
+		embeddedBindPodDuration,
+		embeddedBindRetriesTotal,
+		embeddedBindInflight,
 	)
 }
 
@@ -83,7 +130,7 @@ func ObserveNodeValidationFailure(scheduler, reason string) {
 	}).Inc()
 }
 
-// ObserveEmbeddedBind records a bind attempt from the embedded binder.
+// ObserveEmbeddedBind records a BindUnit-level attempt from the embedded binder.
 func ObserveEmbeddedBind(scheduler, result string, durationSeconds float64) {
 	embeddedBinderBindTotal.With(metrics.Labels{
 		pkgmetrics.SchedulerLabel: scheduler,
@@ -101,4 +148,38 @@ func ObserveDispatcherFallback(scheduler string) {
 	dispatcherFallbackTotal.With(metrics.Labels{
 		pkgmetrics.SchedulerLabel: scheduler,
 	}).Inc()
+}
+
+// ObserveEmbeddedBindPod records a single-pod bind attempt with its duration.
+func ObserveEmbeddedBindPod(scheduler, result string, durationSeconds float64) {
+	embeddedBindPodsTotal.With(metrics.Labels{
+		pkgmetrics.SchedulerLabel: scheduler,
+		pkgmetrics.ResultLabel:    result,
+	}).Inc()
+
+	embeddedBindPodDuration.With(metrics.Labels{
+		pkgmetrics.SchedulerLabel: scheduler,
+		pkgmetrics.ResultLabel:    result,
+	}).Observe(durationSeconds)
+}
+
+// ObserveEmbeddedBindRetry increments the retry counter.
+func ObserveEmbeddedBindRetry(scheduler string) {
+	embeddedBindRetriesTotal.With(metrics.Labels{
+		pkgmetrics.SchedulerLabel: scheduler,
+	}).Inc()
+}
+
+// IncEmbeddedBindInflight increments the inflight gauge when a BindUnit starts.
+func IncEmbeddedBindInflight(scheduler string) {
+	embeddedBindInflight.With(metrics.Labels{
+		pkgmetrics.SchedulerLabel: scheduler,
+	}).Inc()
+}
+
+// DecEmbeddedBindInflight decrements the inflight gauge when a BindUnit finishes.
+func DecEmbeddedBindInflight(scheduler string) {
+	embeddedBindInflight.With(metrics.Labels{
+		pkgmetrics.SchedulerLabel: scheduler,
+	}).Dec()
 }

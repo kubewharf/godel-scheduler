@@ -142,6 +142,12 @@ func (eb *EmbeddedBinder) BindUnit(ctx context.Context, req *BindRequest) (*Bind
 		return nil, err
 	}
 
+	// Track inflight BindUnit calls for concurrency visibility.
+	bindermetrics.IncEmbeddedBindInflight(eb.schedulerName)
+	defer bindermetrics.DecEmbeddedBindInflight(eb.schedulerName)
+
+	unitStart := time.Now()
+
 	// Validate that every target node still belongs to this Scheduler's partition.
 	// During node reshuffles the node may have been reassigned, which would
 	// cause a stale bind.
@@ -153,6 +159,7 @@ func (eb *EmbeddedBinder) BindUnit(ctx context.Context, req *BindRequest) (*Bind
 					"node", nodeName,
 					"err", err)
 				bindermetrics.ObserveNodeValidationFailure(eb.schedulerName, "ownership")
+				bindermetrics.ObserveEmbeddedBind(eb.schedulerName, bindermetrics.FailureResult, time.Since(unitStart).Seconds())
 				return nil, fmt.Errorf("node validation failed for %q: %w", nodeName, err)
 			}
 		}
@@ -179,12 +186,15 @@ func (eb *EmbeddedBinder) BindUnit(ctx context.Context, req *BindRequest) (*Bind
 		case <-ctx.Done():
 			// Timeout – mark all remaining pods as failed.
 			result.FailedPods[pod.UID] = ctx.Err()
+			bindermetrics.ObserveEmbeddedBindPod(eb.schedulerName, bindermetrics.FailureResult, 0)
 			continue
 		default:
 		}
 
 		targetNode := req.NodeNameFor(pod.UID)
+		podStart := time.Now()
 		err := eb.bindPodToNode(ctx, pod, targetNode)
+		podDuration := time.Since(podStart).Seconds()
 		if err != nil {
 			klog.V(3).InfoS("Failed to bind pod in embedded binder",
 				"scheduler", eb.schedulerName,
@@ -193,12 +203,14 @@ func (eb *EmbeddedBinder) BindUnit(ctx context.Context, req *BindRequest) (*Bind
 				"err", err)
 
 			result.FailedPods[pod.UID] = err
+			bindermetrics.ObserveEmbeddedBindPod(eb.schedulerName, bindermetrics.FailureResult, podDuration)
 
 			// Increment bind failure count for retry tracking.
 			binderutils.IncrementBindFailureCount(pod)
 			binderutils.SetLastBindFailureReason(pod, err.Error())
 		} else {
 			result.SuccessfulPods = append(result.SuccessfulPods, pod.UID)
+			bindermetrics.ObserveEmbeddedBindPod(eb.schedulerName, bindermetrics.SuccessResult, podDuration)
 
 			// Mark reservation as complete in shared cache.
 			if finishErr := eb.schedulerCache.FinishReserving(pod); finishErr != nil {
@@ -213,6 +225,16 @@ func (eb *EmbeddedBinder) BindUnit(ctx context.Context, req *BindRequest) (*Bind
 				"pod", klog.KObj(pod),
 				"node", targetNode)
 		}
+	}
+
+	// Record unit-level metrics.
+	unitDuration := time.Since(unitStart).Seconds()
+	if result.AllSucceeded() {
+		bindermetrics.ObserveEmbeddedBind(eb.schedulerName, bindermetrics.SuccessResult, unitDuration)
+	} else if result.AllFailed() {
+		bindermetrics.ObserveEmbeddedBind(eb.schedulerName, bindermetrics.FailureResult, unitDuration)
+	} else {
+		bindermetrics.ObserveEmbeddedBind(eb.schedulerName, "partial_failure", unitDuration)
 	}
 
 	return result, nil
@@ -247,6 +269,7 @@ func (eb *EmbeddedBinder) bindPodToNode(ctx context.Context, pod *v1.Pod, nodeNa
 		lastErr = err
 
 		if errors.IsConflict(err) || errors.IsServerTimeout(err) || errors.IsTooManyRequests(err) {
+			bindermetrics.ObserveEmbeddedBindRetry(eb.schedulerName)
 			klog.V(4).InfoS("Transient error binding pod, will retry",
 				"scheduler", eb.schedulerName,
 				"pod", klog.KObj(pod),

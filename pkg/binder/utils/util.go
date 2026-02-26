@@ -84,6 +84,7 @@ func CleanupPodAnnotationsWithRetryCount(client clientset.Interface, pod *v1.Pod
 
 	if ShouldDispatchToAnotherScheduler(podCopy, maxLocalRetries) {
 		// Exceeded local retries – dispatch back to Dispatcher.
+		metrics.ObserveDispatcherFallback(schedulerName)
 		// Record the current scheduler in the failed-schedulers list.
 		failedSchedulers := podCopy.Annotations[podutil.FailedSchedulersAnnotationKey]
 		if failedSchedulers == "" {
