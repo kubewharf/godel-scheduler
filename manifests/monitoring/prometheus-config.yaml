@@ -9,6 +9,9 @@ data:
       scrape_interval: 15s
       evaluation_interval: 15s
 
+    rule_files:
+      - "/etc/prometheus/rules.yml"
+
     scrape_configs:
       # Scrape Gödel Scheduler (includes embedded binder metrics)
       - job_name: "godel-scheduler"
@@ -71,3 +74,168 @@ data:
             target_label: namespace
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
+
+  # ================================================================
+  # Recording rules: pre-compute key metrics for thesis benchmarks.
+  # These are automatically evaluated every 15s and stored as new
+  # time series, queryable by their "record:" name.
+  # ================================================================
+  rules.yml: |
+    groups:
+      # ──────────────────────────────────────────────────
+      #  Embedded Binder — throughput & latency
+      # ──────────────────────────────────────────────────
+      - name: embedded_binder
+        interval: 15s
+        rules:
+          # ── Throughput ──
+
+          # Pod bind throughput (pods/s) over 1m window, by scheduler & result
+          - record: godel:binder_embedded_bind_pods:rate1m
+            expr: rate(binder_embedded_bind_pods_total[1m])
+
+          # Pod bind throughput (pods/s) over 5m window, by scheduler & result
+          - record: godel:binder_embedded_bind_pods:rate5m
+            expr: rate(binder_embedded_bind_pods_total[5m])
+
+          # Unit bind throughput (units/s) over 1m window
+          - record: godel:binder_embedded_bind_units:rate1m
+            expr: rate(binder_embedded_bind_total[1m])
+
+          # Unit bind throughput (units/s) over 5m window
+          - record: godel:binder_embedded_bind_units:rate5m
+            expr: rate(binder_embedded_bind_total[5m])
+
+          # ── Latency — Unit level ──
+
+          # P50 unit bind latency
+          - record: godel:binder_embedded_bind_duration:p50
+            expr: histogram_quantile(0.50, rate(binder_embedded_bind_duration_seconds_bucket[5m]))
+
+          # P90 unit bind latency
+          - record: godel:binder_embedded_bind_duration:p90
+            expr: histogram_quantile(0.90, rate(binder_embedded_bind_duration_seconds_bucket[5m]))
+
+          # P99 unit bind latency
+          - record: godel:binder_embedded_bind_duration:p99
+            expr: histogram_quantile(0.99, rate(binder_embedded_bind_duration_seconds_bucket[5m]))
+
+          # Average unit bind latency
+          - record: godel:binder_embedded_bind_duration:avg
+            expr: >
+              rate(binder_embedded_bind_duration_seconds_sum[5m])
+              /
+              rate(binder_embedded_bind_duration_seconds_count[5m])
+
+          # ── Latency — Pod level ──
+
+          # P50 single pod bind latency
+          - record: godel:binder_embedded_bind_pod_duration:p50
+            expr: histogram_quantile(0.50, rate(binder_embedded_bind_pod_duration_seconds_bucket[5m]))
+
+          # P90 single pod bind latency
+          - record: godel:binder_embedded_bind_pod_duration:p90
+            expr: histogram_quantile(0.90, rate(binder_embedded_bind_pod_duration_seconds_bucket[5m]))
+
+          # P99 single pod bind latency
+          - record: godel:binder_embedded_bind_pod_duration:p99
+            expr: histogram_quantile(0.99, rate(binder_embedded_bind_pod_duration_seconds_bucket[5m]))
+
+          # Average single pod bind latency
+          - record: godel:binder_embedded_bind_pod_duration:avg
+            expr: >
+              rate(binder_embedded_bind_pod_duration_seconds_sum[5m])
+              /
+              rate(binder_embedded_bind_pod_duration_seconds_count[5m])
+
+          # ── Success rate ──
+
+          # Pod bind success rate (0-1)
+          - record: godel:binder_embedded_bind_pods:success_rate5m
+            expr: >
+              rate(binder_embedded_bind_pods_total{result="success"}[5m])
+              /
+              rate(binder_embedded_bind_pods_total[5m])
+
+          # Unit bind success rate (0-1)
+          - record: godel:binder_embedded_bind_units:success_rate5m
+            expr: >
+              rate(binder_embedded_bind_total{result="success"}[5m])
+              /
+              rate(binder_embedded_bind_total[5m])
+
+          # ── Retries & fallback ──
+
+          # API retry rate (retries/s)
+          - record: godel:binder_embedded_bind_retries:rate5m
+            expr: rate(binder_embedded_bind_retries_total[5m])
+
+          # Dispatcher fallback rate (pods/s)
+          - record: godel:binder_dispatcher_fallback:rate5m
+            expr: rate(binder_dispatcher_fallback_total[5m])
+
+          # Node validation failure rate
+          - record: godel:binder_node_validation_failures:rate5m
+            expr: rate(binder_node_validation_failures_total[5m])
+
+          # ── Concurrency ──
+
+          # Current inflight binds (direct gauge, no rate needed)
+          # Query directly: binder_embedded_bind_inflight
+
+      # ──────────────────────────────────────────────────
+      #  Scheduler — scheduling throughput & latency
+      # ──────────────────────────────────────────────────
+      - name: scheduler_pipeline
+        interval: 15s
+        rules:
+          # Scheduling throughput (pods/s) by result
+          - record: godel:scheduler_pod_scheduling_attempts:rate1m
+            expr: rate(scheduler_pod_scheduling_attempts[1m])
+
+          - record: godel:scheduler_pod_scheduling_attempts:rate5m
+            expr: rate(scheduler_pod_scheduling_attempts[5m])
+
+          # E2E scheduling latency percentiles
+          - record: godel:scheduler_e2e_scheduling_duration:p50
+            expr: histogram_quantile(0.50, rate(scheduler_e2e_scheduling_duration_seconds_bucket[5m]))
+
+          - record: godel:scheduler_e2e_scheduling_duration:p90
+            expr: histogram_quantile(0.90, rate(scheduler_e2e_scheduling_duration_seconds_bucket[5m]))
+
+          - record: godel:scheduler_e2e_scheduling_duration:p99
+            expr: histogram_quantile(0.99, rate(scheduler_e2e_scheduling_duration_seconds_bucket[5m]))
+
+          # Average e2e scheduling latency
+          - record: godel:scheduler_e2e_scheduling_duration:avg
+            expr: >
+              rate(scheduler_e2e_scheduling_duration_seconds_sum[5m])
+              /
+              rate(scheduler_e2e_scheduling_duration_seconds_count[5m])
+
+          # Scheduling algorithm latency (core algorithm only)
+          - record: godel:scheduler_scheduling_algorithm_duration:p90
+            expr: histogram_quantile(0.90, rate(scheduler_scheduling_algorithm_duration_seconds_bucket[5m]))
+
+          - record: godel:scheduler_scheduling_algorithm_duration:p99
+            expr: histogram_quantile(0.99, rate(scheduler_scheduling_algorithm_duration_seconds_bucket[5m]))
+
+      # ──────────────────────────────────────────────────
+      #  End-to-End pipeline (schedule + bind combined)
+      # ──────────────────────────────────────────────────
+      - name: e2e_pipeline
+        interval: 15s
+        rules:
+          # Combined schedule + bind P90 (sum of p90s as upper-bound estimate)
+          - record: godel:e2e_schedule_and_bind_duration:p90_estimate
+            expr: >
+              godel:scheduler_e2e_scheduling_duration:p90
+              +
+              godel:binder_embedded_bind_duration:p90
+
+          # Combined schedule + bind P99
+          - record: godel:e2e_schedule_and_bind_duration:p99_estimate
+            expr: >
+              godel:scheduler_e2e_scheduling_duration:p99
+              +
+              godel:binder_embedded_bind_duration:p99
