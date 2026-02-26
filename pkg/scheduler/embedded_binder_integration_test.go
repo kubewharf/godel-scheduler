@@ -103,9 +103,11 @@ type fakeDataSetForPropagation struct {
 	us *recordingUS
 }
 
-func (f *fakeDataSetForPropagation) ClusterIndex() int                      { return 0 }
-func (f *fakeDataSetForPropagation) SubCluster() string                     { return "" }
-func (f *fakeDataSetForPropagation) Type() framework.SwitchType             { return framework.DisableScheduleSwitch }
+func (f *fakeDataSetForPropagation) ClusterIndex() int  { return 0 }
+func (f *fakeDataSetForPropagation) SubCluster() string { return "" }
+func (f *fakeDataSetForPropagation) Type() framework.SwitchType {
+	return framework.DisableScheduleSwitch
+}
 func (f *fakeDataSetForPropagation) Ctx() context.Context                   { return context.Background() }
 func (f *fakeDataSetForPropagation) Run(context.Context) bool               { return true }
 func (f *fakeDataSetForPropagation) Close() bool                            { return true }
