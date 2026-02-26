@@ -21,10 +21,13 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/godel-scheduler/cmd/scheduler/app/config"
+	"github.com/kubewharf/godel-scheduler/pkg/binder"
 	schedulerconfig "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -513,5 +516,175 @@ func TestLoadFileV1beta1ForPreemptionProfileConfig(t *testing.T) {
 		if diff := cmp.Diff(expectedProfile.BetterSelectPolicies, profile.BetterSelectPolicies); len(diff) > 0 {
 			t.Errorf("subCluster 2 got diff: %s", diff)
 		}
+	}
+}
+
+func TestOptions_EnableEmbeddedBinder_Default(t *testing.T) {
+	opts, err := NewOptions()
+	assert.NoError(t, err)
+	assert.False(t, opts.EnableEmbeddedBinder, "EnableEmbeddedBinder should default to false")
+}
+
+func TestOptions_EnableEmbeddedBinder_Flag(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected bool
+	}{
+		{
+			name:     "flag set to true",
+			args:     []string{"--enable-embedded-binder=true"},
+			expected: true,
+		},
+		{
+			name:     "flag set to false",
+			args:     []string{"--enable-embedded-binder=false"},
+			expected: false,
+		},
+		{
+			name:     "flag without value defaults to true",
+			args:     []string{"--enable-embedded-binder"},
+			expected: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := NewOptions()
+			assert.NoError(t, err)
+
+			nfs := opts.Flags()
+			fs := nfs.FlagSet("embedded binder")
+			err = fs.Parse(tt.args)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, opts.EnableEmbeddedBinder)
+		})
+	}
+}
+
+func TestOptions_BinderConfig_Flags(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		wantMaxRetries int
+		wantTimeout    time.Duration
+		wantMaxLocal   int
+	}{
+		{
+			name:           "default values when no flags",
+			args:           []string{},
+			wantMaxRetries: binder.DefaultMaxBindRetries,
+			wantTimeout:    binder.DefaultBindTimeout,
+			wantMaxLocal:   binder.DefaultMaxLocalRetries,
+		},
+		{
+			name:           "custom max-bind-retries",
+			args:           []string{"--max-bind-retries=10"},
+			wantMaxRetries: 10,
+			wantTimeout:    binder.DefaultBindTimeout,
+			wantMaxLocal:   binder.DefaultMaxLocalRetries,
+		},
+		{
+			name:           "custom bind-timeout",
+			args:           []string{"--bind-timeout=60s"},
+			wantMaxRetries: binder.DefaultMaxBindRetries,
+			wantTimeout:    60 * time.Second,
+			wantMaxLocal:   binder.DefaultMaxLocalRetries,
+		},
+		{
+			name:           "custom max-local-retries",
+			args:           []string{"--max-local-retries=8"},
+			wantMaxRetries: binder.DefaultMaxBindRetries,
+			wantTimeout:    binder.DefaultBindTimeout,
+			wantMaxLocal:   8,
+		},
+		{
+			name:           "all custom values",
+			args:           []string{"--max-bind-retries=5", "--bind-timeout=45s", "--max-local-retries=12"},
+			wantMaxRetries: 5,
+			wantTimeout:    45 * time.Second,
+			wantMaxLocal:   12,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := NewOptions()
+			assert.NoError(t, err)
+
+			nfs := opts.Flags()
+			fs := nfs.FlagSet("embedded binder")
+			err = fs.Parse(tt.args)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantMaxRetries, opts.EmbeddedBinderConfig.MaxBindRetries)
+			assert.Equal(t, tt.wantTimeout, opts.EmbeddedBinderConfig.BindTimeout)
+			assert.Equal(t, tt.wantMaxLocal, opts.EmbeddedBinderConfig.MaxLocalRetries)
+		})
+	}
+}
+
+func TestOptions_BinderConfig_InvalidValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		setup  func(o *Options)
+		errMsg string
+	}{
+		{
+			name: "negative MaxBindRetries",
+			setup: func(o *Options) {
+				o.EnableEmbeddedBinder = true
+				o.EmbeddedBinderConfig.MaxBindRetries = -1
+			},
+			errMsg: "MaxBindRetries",
+		},
+		{
+			name: "zero BindTimeout",
+			setup: func(o *Options) {
+				o.EnableEmbeddedBinder = true
+				o.EmbeddedBinderConfig.BindTimeout = 0
+			},
+			errMsg: "BindTimeout",
+		},
+		{
+			name: "negative MaxLocalRetries",
+			setup: func(o *Options) {
+				o.EnableEmbeddedBinder = true
+				o.EmbeddedBinderConfig.MaxLocalRetries = -1
+			},
+			errMsg: "MaxLocalRetries",
+		},
+		{
+			name: "invalid config not validated when embedded binder disabled",
+			setup: func(o *Options) {
+				o.EnableEmbeddedBinder = false
+				o.EmbeddedBinderConfig.MaxBindRetries = -1
+				o.EmbeddedBinderConfig.BindTimeout = 0
+			},
+			errMsg: "", // no error expected
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := NewOptions()
+			assert.NoError(t, err)
+			tt.setup(opts)
+
+			errs := opts.Validate()
+			if tt.errMsg != "" {
+				found := false
+				for _, e := range errs {
+					if strings.Contains(e.Error(), tt.errMsg) {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "expected error containing %q, got: %v", tt.errMsg, errs)
+			} else {
+				// Filter to only embedded binder related errors
+				for _, e := range errs {
+					assert.NotContains(t, e.Error(), "MaxBindRetries")
+					assert.NotContains(t, e.Error(), "BindTimeout")
+					assert.NotContains(t, e.Error(), "MaxLocalRetries")
+				}
+			}
+		})
 	}
 }

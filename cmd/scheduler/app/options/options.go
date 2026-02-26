@@ -49,6 +49,7 @@ import (
 	schedulerappconfig "github.com/kubewharf/godel-scheduler/cmd/scheduler/app/config"
 	"github.com/kubewharf/godel-scheduler/cmd/scheduler/app/util/ports"
 	defaultsconfig "github.com/kubewharf/godel-scheduler/pkg/apis/config"
+	"github.com/kubewharf/godel-scheduler/pkg/binder"
 	godelschedulerconfig "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	godelschedulerscheme "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config/scheme"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config/validation"
@@ -83,6 +84,14 @@ type Options struct {
 	UnitInitialBackoffSeconds     int64
 	DisablePreemption             bool
 	AttemptImpactFactorOnPriority float64
+
+	// EnableEmbeddedBinder controls whether the Scheduler starts an embedded
+	// (per-instance) Binder instead of relying on the standalone shared Binder.
+	EnableEmbeddedBinder bool
+
+	// EmbeddedBinderConfig holds tuning parameters for the embedded Binder.
+	// Only used when EnableEmbeddedBinder is true.
+	EmbeddedBinderConfig binder.EmbeddedBinderConfig
 }
 
 // NewOptions returns default scheduler app options.
@@ -134,6 +143,10 @@ func NewOptions() (*Options, error) {
 		o.AttemptImpactFactorOnPriority = godelschedulerconfig.DefaultAttemptImpactFactorOnPriority
 		o.DisablePreemption = godelschedulerconfig.DefaultDisablePreemption
 	}
+
+	// Embedded Binder defaults (disabled by default for backward compatibility).
+	o.EnableEmbeddedBinder = false
+	o.EmbeddedBinderConfig = *binder.DefaultEmbeddedBinderConfig()
 
 	return o, nil
 }
@@ -190,6 +203,8 @@ func (o *Options) Flags() (nfs cliflag.NamedFlagSets) {
 		fs.Float64Var(&o.AttemptImpactFactorOnPriority, "attempt-impact-factor-on-priority", o.AttemptImpactFactorOnPriority, "factor used in godel sort to get scheduling attempts impact, the bigger the factor is, the more impact one scheduling attempt will make, default value is 2.0. This parameter overrides the value defined in config file, which is specified in --config.")
 		fs.Int64Var(&o.ComponentConfig.ReservationTimeOutSeconds, "reservation-ttl", o.ComponentConfig.ReservationTimeOutSeconds, "how long resources will be reserved (for resource reservation).")
 	}
+
+	o.addEmbeddedBinderFlags(nfs.FlagSet("embedded binder"))
 
 	return nfs
 }
@@ -384,6 +399,20 @@ func (o *Options) ApplyTo(c *schedulerappconfig.Config) error {
 	return nil
 }
 
+// addEmbeddedBinderFlags registers CLI flags for the embedded Binder feature.
+func (o *Options) addEmbeddedBinderFlags(fs *pflag.FlagSet) {
+	fs.BoolVar(&o.EnableEmbeddedBinder, "enable-embedded-binder", o.EnableEmbeddedBinder,
+		"When true, the Scheduler starts an embedded (per-instance) Binder that shares the scheduling cache, "+
+			"eliminating the need for a standalone shared Binder process.")
+	fs.IntVar(&o.EmbeddedBinderConfig.MaxBindRetries, "max-bind-retries", o.EmbeddedBinderConfig.MaxBindRetries,
+		"Maximum number of retries for a single Pod bind API call before considering the bind a failure (embedded binder only).")
+	fs.DurationVar(&o.EmbeddedBinderConfig.BindTimeout, "bind-timeout", o.EmbeddedBinderConfig.BindTimeout,
+		"Maximum wall-clock duration for binding all Pods in a single BindRequest (embedded binder only).")
+	fs.IntVar(&o.EmbeddedBinderConfig.MaxLocalRetries, "max-local-retries", o.EmbeddedBinderConfig.MaxLocalRetries,
+		"Cumulative scheduling+binding failure count after which a Pod is dispatched back to the Dispatcher "+
+			"instead of retried locally. 0 means unlimited local retries (embedded binder only).")
+}
+
 func applyPreemptionConfig(configProfile, optionProfile *godelschedulerconfig.GodelSchedulerProfile) {
 	if configProfile.CandidatesSelectPolicy == nil {
 		if optionProfile != nil && optionProfile.CandidatesSelectPolicy != nil {
@@ -411,6 +440,13 @@ func (o *Options) Validate() []error {
 	if o.SchedulerRenewIntervalSeconds < 0 {
 		errs = append(errs, field.Required(field.NewPath("schedulerRenewIntervalSeconds"), "must be greater than 0"))
 	}
+
+	if o.EnableEmbeddedBinder {
+		if err := o.EmbeddedBinderConfig.Validate(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	return errs
 }
 
