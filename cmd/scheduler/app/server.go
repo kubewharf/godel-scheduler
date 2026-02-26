@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/cmd/scheduler/app/util/configz"
 	"github.com/kubewharf/godel-scheduler/pkg/binder"
 	pgcontroller "github.com/kubewharf/godel-scheduler/pkg/binder/controller"
+	bindermetrics "github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
 	godelscheduler "github.com/kubewharf/godel-scheduler/pkg/scheduler"
 	godelschedulerconfig "github.com/kubewharf/godel-scheduler/pkg/scheduler/apis/config"
 	cmdutil "github.com/kubewharf/godel-scheduler/pkg/util/cmd"
@@ -186,6 +187,9 @@ func Run(ctx context.Context, cc schedulerserverconfig.CompletedConfig) error {
 
 	// Optionally attach an embedded Binder.
 	if cc.EnableEmbeddedBinder {
+		// Register binder metrics into the global Prometheus registry so they
+		// are exposed on the same /metrics endpoint as scheduler metrics.
+		bindermetrics.Register()
 		// Build a NodeGetter from the shared informer's Node lister.
 		// This is used by the NodeValidator to verify node ownership
 		// before binding (guards against stale binds during reshuffles).
