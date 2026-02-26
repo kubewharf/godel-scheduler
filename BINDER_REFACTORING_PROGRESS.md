@@ -130,7 +130,44 @@
 
 ## Phase 4：容错与节点验证
 
-**状态**：⬜ 未开始
+**状态**：✅ 已完成  
+**完成日期**：2026-02-27
+
+### 新增文件
+
+| 文件 | 用途 | 测试数 |
+|------|------|--------|
+| `pkg/binder/node_validator.go` | `NodeValidator`：绑定前验证目标节点仍属于当前 Scheduler 分区（模块 D）；`NodeGetter` 类型 + `NodeOwnershipError` 类型化错误 + `IsNodeOwnershipError()` 辅助函数 | — |
+| `pkg/binder/node_validator_test.go` | NodeValidator 测试 | 12 个测试（8 个 Validate 子用例 + NilGetter + ErrorMessage + IsNodeOwnershipError 4 个子用例） |
+| `pkg/binder/binder_reconciler_test.go` | BinderTasksReconciler 增强测试 | 9 个测试（Enqueue、Success、TransientError、NotFound、Run/Stop、ConcurrentAdd、DispatcherFallback、LocalRetry、Len） |
+| `pkg/binder/metrics/embedded_binder_metrics.go` | 嵌入式 Binder 专用指标：`nodeValidationFailures`、`embeddedBinderBindTotal`、`embeddedBinderBindLatency`、`dispatcherFallbackTotal` | — |
+
+### 修改文件
+
+| 文件 | 改动 |
+|------|------|
+| `pkg/binder/binder_reconciler.go` | 新增 `schedulerName` / `maxLocalRetries` 字段；新增 `NewBinderTaskReconcilerWithRetry()` 重试感知构造函数；新增 `Len()` 方法；新增 `cleanupPod()` 方法（按配置分派到 `CleanupPodAnnotations` 或 `CleanupPodAnnotationsWithRetryCount`）；`APICallFailedWorker` 使用 `cleanupPod()` |
+| `pkg/binder/embedded_binder.go` | 新增 `nodeValidator` / `reconciler` 字段；`NewEmbeddedBinder` 增加 `nodeGetter NodeGetter` 参数（第 6 参数）；`BindUnit()` 绑定前执行节点验证步骤；`Start()` / `Stop()` 管理 reconciler 生命周期；新增 `bindermetrics` 导入 |
+| `pkg/binder/embedded_binder_test.go` | 现有 3 处 `NewEmbeddedBinder()` 调用增加第 6 参数 `nil`；新增 3 个 NodeValidator 集成测试 |
+| `cmd/scheduler/app/server.go` | 新增 `v1` 导入；通过 Node Informer Lister 构建 `NodeGetter` 并传入 `NewEmbeddedBinder` |
+
+### Phase 4 交付物对照
+
+- [x] **模块 D**：`NodeValidator` — 通过 `GodelSchedulerNodeAnnotationKey` 注解验证节点归属；支持 nil NodeGetter 跳过验证（向后兼容）
+- [x] **`NodeOwnershipError`**：类型化错误，支持 `errors.As` 解包；`IsNodeOwnershipError()` 辅助函数
+- [x] **模块 J**：`BinderTasksReconciler` 增强 — `NewBinderTaskReconcilerWithRetry` 支持 `maxLocalRetries` 配置；`cleanupPod` 按重试次数选择清理策略；`Len()` 队列长度检查
+- [x] **绑定指标**：4 个新增 Prometheus 指标（`node_validation_failures`、`embedded_binder_bind_total`、`embedded_binder_bind_latency`、`dispatcher_fallback_total`）
+- [x] **EmbeddedBinder 集成**：`BindUnit()` 在绑定前执行节点验证；验证失败直接返回错误，不进入绑定流程
+- [x] **Scheduler 集成**：`server.go` 通过 Node Informer Lister 提供 `NodeGetter`
+
+### 测试结果
+
+- NodeValidator 测试：12 个，全部 PASS
+- Reconciler 测试：9 个，全部 PASS
+- NodeValidator 集成测试：3 个（OwnedNode / OtherNode / Disabled），全部 PASS
+- `pkg/binder/...` 全量测试：全部 PASS（含 `-race` 竞态检测）
+- `go vet` 无新增告警
+- 编译验证：`cmd/scheduler`、`cmd/binder` 均正常构建
 
 ---
 

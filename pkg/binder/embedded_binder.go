@@ -30,6 +30,7 @@ import (
 	"k8s.io/klog/v2"
 
 	godelclient "github.com/kubewharf/godel-scheduler-api/pkg/client/clientset/versioned"
+	bindermetrics "github.com/kubewharf/godel-scheduler/pkg/binder/metrics"
 	binderutils "github.com/kubewharf/godel-scheduler/pkg/binder/utils"
 	godelcache "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache"
 )
@@ -45,6 +46,9 @@ type EmbeddedBinder struct {
 	schedulerCache godelcache.SchedulerCache
 	cacheAdapter   *CacheAdapter
 
+	nodeValidator *NodeValidator
+	reconciler    *BinderTasksReconciler
+
 	schedulerName string
 	config        *EmbeddedBinderConfig
 
@@ -57,12 +61,15 @@ var _ BinderInterface = &EmbeddedBinder{}
 
 // NewEmbeddedBinder creates a new EmbeddedBinder. It panics if schedulerCache
 // is nil. The config parameter may be nil, in which case defaults are used.
+// nodeGetter may be nil to disable node-ownership validation (not recommended
+// in production).
 func NewEmbeddedBinder(
 	client clientset.Interface,
 	crdClient godelclient.Interface,
 	schedulerCache godelcache.SchedulerCache,
 	schedulerName string,
 	config *EmbeddedBinderConfig,
+	nodeGetter NodeGetter,
 ) *EmbeddedBinder {
 	if schedulerCache == nil {
 		panic("schedulerCache must not be nil for EmbeddedBinder")
@@ -70,11 +77,19 @@ func NewEmbeddedBinder(
 	if config == nil {
 		config = DefaultEmbeddedBinderConfig()
 	}
+
+	var nv *NodeValidator
+	if nodeGetter != nil {
+		nv = NewNodeValidator(schedulerName, nodeGetter)
+	}
+
 	return &EmbeddedBinder{
 		client:         client,
 		crdClient:      crdClient,
 		schedulerCache: schedulerCache,
 		cacheAdapter:   NewCacheAdapter(schedulerCache),
+		nodeValidator:  nv,
+		reconciler:     NewBinderTaskReconcilerWithRetry(client, schedulerName, config.MaxLocalRetries),
 		schedulerName:  schedulerName,
 		config:         config,
 	}
@@ -88,6 +103,9 @@ func (eb *EmbeddedBinder) Start(ctx context.Context) error {
 	}
 	_, cancel := context.WithCancel(ctx)
 	eb.cancel = cancel
+	if eb.reconciler != nil {
+		eb.reconciler.Run()
+	}
 	klog.V(2).InfoS("Embedded Binder started", "scheduler", eb.schedulerName)
 	return nil
 }
@@ -96,6 +114,9 @@ func (eb *EmbeddedBinder) Start(ctx context.Context) error {
 // multiple times.
 func (eb *EmbeddedBinder) Stop() {
 	if eb.running.CompareAndSwap(true, false) {
+		if eb.reconciler != nil {
+			eb.reconciler.Close()
+		}
 		if eb.cancel != nil {
 			eb.cancel()
 		}
@@ -108,9 +129,10 @@ func (eb *EmbeddedBinder) Stop() {
 // scheduling decision (filtering, scoring, reserving). The EmbeddedBinder
 // is responsible for:
 //  1. Validating the request
-//  2. Binding each Pod to its target node via the API server
-//  3. Finishing the reservation in the shared cache
-//  4. Handling failures (incrementing retry count, cleaning up)
+//  2. Validating node ownership (preventing stale binds during reshuffle)
+//  3. Binding each Pod to its target node via the API server
+//  4. Finishing the reservation in the shared cache
+//  5. Handling failures (incrementing retry count, cleaning up)
 func (eb *EmbeddedBinder) BindUnit(ctx context.Context, req *BindRequest) (*BindResult, error) {
 	if !eb.running.Load() {
 		return nil, ErrBinderNotRunning
@@ -118,6 +140,20 @@ func (eb *EmbeddedBinder) BindUnit(ctx context.Context, req *BindRequest) (*Bind
 
 	if err := req.Validate(); err != nil {
 		return nil, err
+	}
+
+	// Validate that the target node still belongs to this Scheduler's partition.
+	// During node reshuffles the node may have been reassigned, which would
+	// cause a stale bind.
+	if eb.nodeValidator != nil {
+		if err := eb.nodeValidator.Validate(req.NodeName); err != nil {
+			klog.V(2).InfoS("Node validation failed, rejecting bind request",
+				"scheduler", eb.schedulerName,
+				"node", req.NodeName,
+				"err", err)
+			bindermetrics.ObserveNodeValidationFailure(eb.schedulerName, "ownership")
+			return nil, fmt.Errorf("node validation failed for %q: %w", req.NodeName, err)
+		}
 	}
 
 	bindTimeout := eb.config.BindTimeout

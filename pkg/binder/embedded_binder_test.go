@@ -52,7 +52,7 @@ func newTestEmbeddedBinder(t *testing.T) (*EmbeddedBinder, *fake.Clientset) {
 		GetPodFunc:       func(pod *v1.Pod) *v1.Pod { return pod },
 		UnitStatus:       unitstatus.NewUnitStatusMap(),
 	}
-	eb := NewEmbeddedBinder(client, crdClient, fc, "test-scheduler", DefaultEmbeddedBinderConfig())
+	eb := NewEmbeddedBinder(client, crdClient, fc, "test-scheduler", DefaultEmbeddedBinderConfig(), nil)
 	return eb, client
 }
 
@@ -89,7 +89,7 @@ func TestEmbeddedBinder_New(t *testing.T) {
 
 func TestEmbeddedBinder_New_NilCache(t *testing.T) {
 	assert.Panics(t, func() {
-		NewEmbeddedBinder(fake.NewSimpleClientset(), godelclientfake.NewSimpleClientset(), nil, "test", nil)
+		NewEmbeddedBinder(fake.NewSimpleClientset(), godelclientfake.NewSimpleClientset(), nil, "test", nil, nil)
 	})
 }
 
@@ -102,7 +102,7 @@ func TestEmbeddedBinder_New_NilConfig(t *testing.T) {
 		GetPodFunc:       func(pod *v1.Pod) *v1.Pod { return pod },
 		UnitStatus:       unitstatus.NewUnitStatusMap(),
 	}
-	eb := NewEmbeddedBinder(fake.NewSimpleClientset(), godelclientfake.NewSimpleClientset(), fc, "test", nil)
+	eb := NewEmbeddedBinder(fake.NewSimpleClientset(), godelclientfake.NewSimpleClientset(), fc, "test", nil, nil)
 	assert.NotNil(t, eb.Config())
 	assert.Equal(t, DefaultMaxBindRetries, eb.Config().MaxBindRetries)
 }
@@ -371,4 +371,122 @@ func TestEmbeddedBinder_BindUnit_NilPodInList(t *testing.T) {
 	// nil Pod is skipped
 	assert.Empty(t, result.SuccessfulPods)
 	assert.Empty(t, result.FailedPods)
+}
+
+// --- NodeValidator integration tests ---
+
+func TestEmbeddedBinder_BindUnit_NodeValidation_OwnedNode(t *testing.T) {
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-valid-node",
+			Namespace: "default",
+			UID:       types.UID("uid-pod-valid-node"),
+		},
+	}
+	client := fake.NewSimpleClientset(pod)
+	crdClient := godelclientfake.NewSimpleClientset()
+	fc := &fakecache.Cache{
+		AssumeFunc:       func(pod *v1.Pod) {},
+		ForgetFunc:       func(pod *v1.Pod) {},
+		IsAssumedPodFunc: func(pod *v1.Pod) bool { return false },
+		IsCachedPodFunc:  func(pod *v1.Pod) bool { return false },
+		GetPodFunc:       func(pod *v1.Pod) *v1.Pod { return pod },
+		UnitStatus:       unitstatus.NewUnitStatusMap(),
+	}
+	nodeGetter := NodeGetter(func(nodeName string) (*v1.Node, error) {
+		return &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        nodeName,
+				Annotations: map[string]string{"godel.bytedance.com/scheduler-name": "test-scheduler"},
+			},
+		}, nil
+	})
+	eb := NewEmbeddedBinder(client, crdClient, fc, "test-scheduler", DefaultEmbeddedBinderConfig(), nodeGetter)
+	require.NoError(t, eb.Start(context.Background()))
+	defer eb.Stop()
+
+	req := &BindRequest{
+		Unit:          &framework.QueuedUnitInfo{},
+		Pods:          []*framework.QueuedPodInfo{makeQueuedPodInfo(pod)},
+		NodeName:      "node-owned",
+		SchedulerName: "test-scheduler",
+	}
+	result, err := eb.BindUnit(context.Background(), req)
+	assert.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, result.SuccessfulPods, 1)
+}
+
+func TestEmbeddedBinder_BindUnit_NodeValidation_OtherNode(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	crdClient := godelclientfake.NewSimpleClientset()
+	fc := &fakecache.Cache{
+		AssumeFunc:       func(pod *v1.Pod) {},
+		ForgetFunc:       func(pod *v1.Pod) {},
+		IsAssumedPodFunc: func(pod *v1.Pod) bool { return false },
+		IsCachedPodFunc:  func(pod *v1.Pod) bool { return false },
+		GetPodFunc:       func(pod *v1.Pod) *v1.Pod { return pod },
+		UnitStatus:       unitstatus.NewUnitStatusMap(),
+	}
+	nodeGetter := NodeGetter(func(nodeName string) (*v1.Node, error) {
+		return &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        nodeName,
+				Annotations: map[string]string{"godel.bytedance.com/scheduler-name": "scheduler-B"},
+			},
+		}, nil
+	})
+	eb := NewEmbeddedBinder(client, crdClient, fc, "test-scheduler", DefaultEmbeddedBinderConfig(), nodeGetter)
+	require.NoError(t, eb.Start(context.Background()))
+	defer eb.Stop()
+
+	req := makeTestBindRequest("pod-bad-node", "default", "node-other")
+	result, err := eb.BindUnit(context.Background(), req)
+	assert.Error(t, err, "expected node validation to fail for node belonging to another scheduler")
+	assert.Nil(t, result)
+	assert.True(t, IsNodeOwnershipError(err) || containsNodeOwnership(err), "expected NodeOwnershipError")
+}
+
+func TestEmbeddedBinder_BindUnit_NodeValidation_Disabled(t *testing.T) {
+	// When nodeGetter is nil, node validation is skipped and binding proceeds.
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-no-validation",
+			Namespace: "default",
+			UID:       types.UID("uid-pod-no-validation"),
+		},
+	}
+	client := fake.NewSimpleClientset(pod)
+	crdClient := godelclientfake.NewSimpleClientset()
+	fc := &fakecache.Cache{
+		AssumeFunc:       func(pod *v1.Pod) {},
+		ForgetFunc:       func(pod *v1.Pod) {},
+		IsAssumedPodFunc: func(pod *v1.Pod) bool { return false },
+		IsCachedPodFunc:  func(pod *v1.Pod) bool { return false },
+		GetPodFunc:       func(pod *v1.Pod) *v1.Pod { return pod },
+		UnitStatus:       unitstatus.NewUnitStatusMap(),
+	}
+	// nodeGetter is nil — validation disabled
+	eb := NewEmbeddedBinder(client, crdClient, fc, "test-scheduler", DefaultEmbeddedBinderConfig(), nil)
+	require.NoError(t, eb.Start(context.Background()))
+	defer eb.Stop()
+
+	req := &BindRequest{
+		Unit:          &framework.QueuedUnitInfo{},
+		Pods:          []*framework.QueuedPodInfo{makeQueuedPodInfo(pod)},
+		NodeName:      "any-node",
+		SchedulerName: "test-scheduler",
+	}
+	result, err := eb.BindUnit(context.Background(), req)
+	assert.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, result.SuccessfulPods, 1, "with nil nodeGetter, bind should succeed without validation")
+}
+
+// containsNodeOwnership checks if the error chain contains a NodeOwnershipError.
+func containsNodeOwnership(err error) bool {
+	if err == nil {
+		return false
+	}
+	return IsNodeOwnershipError(err)
 }

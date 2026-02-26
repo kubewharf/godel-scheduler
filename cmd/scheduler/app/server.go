@@ -39,6 +39,7 @@ import (
 	"github.com/kubewharf/godel-scheduler/pkg/util/tracing"
 	"github.com/kubewharf/godel-scheduler/pkg/version/verflag"
 
+	v1 "k8s.io/api/core/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
@@ -185,12 +186,21 @@ func Run(ctx context.Context, cc schedulerserverconfig.CompletedConfig) error {
 
 	// Optionally attach an embedded Binder.
 	if cc.EnableEmbeddedBinder {
+		// Build a NodeGetter from the shared informer's Node lister.
+		// This is used by the NodeValidator to verify node ownership
+		// before binding (guards against stale binds during reshuffles).
+		nodeLister := cc.InformerFactory.Core().V1().Nodes().Lister()
+		nodeGetter := binder.NodeGetter(func(nodeName string) (*v1.Node, error) {
+			return nodeLister.Get(nodeName)
+		})
+
 		eb := binder.NewEmbeddedBinder(
 			cc.Client,
 			cc.GodelCrdClient,
 			sched.GetCache(),
 			*cc.ComponentConfig.SchedulerName,
 			&cc.EmbeddedBinderConfig,
+			nodeGetter,
 		)
 		sched.SetEmbeddedBinder(eb)
 		klog.InfoS("Embedded binder enabled",
