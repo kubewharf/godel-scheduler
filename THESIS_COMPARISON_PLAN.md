@@ -4,7 +4,7 @@
 
 ### 1.1 研究目标
 
-验证**独立 Binder（Embedded Binder）架构**相较于**共享 Binder（Shared Binder）架构**在调度吞吐量、绑定延迟、容错能力、资源利用率、Pod 分布均衡度、稳定性与扩展性方面的系统性提升。
+验证**独立 Binder（Embedded Binder）架构**相较于**共享 Binder（Shared Binder）架构**在调度吞吐量、绑定延迟、容错能力、资源利用率、Pod 分布均衡度、稳定性与扩展性方面的系统性提升；同时与业界主流批量/混合调度器（**Volcano**、**Koordinator**）进行横向对比，定位论文方案在整体调度生态中的竞争力。
 
 ### 1.2 对比组设计
 
@@ -13,6 +13,8 @@
 | **A — 共享 Binder（Baseline）** | `--enable-embedded-binder=false` + 独立 Binder Deployment（replicas=1） | 原始 Gödel Scheduler 架构，所有 Scheduler 共用一个 Binder |
 | **B — 独立 Binder（Proposed）** | `--enable-embedded-binder=true` + Binder Deployment replicas=0 | 论文提出的架构，每个 Scheduler 内嵌独立 Binder |
 | **C — kube-scheduler（Reference）** | 原生 Kubernetes 调度器（单实例） | 行业基准参考，用于凸显分布式架构的整体优势 |
+| **D — Volcano** | Volcano Scheduler（v1.9.x，单实例） | CNCF 批量调度参考，擅长 Gang / Queue 场景 |
+| **E — Koordinator** | Koordinator Scheduler（v1.5.x，单实例） | 阿里巴巴混合调度参考，QoS 感知 + 精细化资源管理 |
 
 > **所有实验**至少执行 **3 次**，取**中位数 + 标准差**，确保统计显著性。
 
@@ -27,6 +29,16 @@ kubectl apply -k manifests/overlays/embedded-binder/
 
 # 组 C：kube-scheduler
 # 禁用 Gödel，启用原生 kube-scheduler
+
+# 组 D：Volcano
+helm install volcano volcano-sh/volcano -n volcano-system --create-namespace \
+  --set scheduler.replicas=1
+# Pod 使用 schedulerName: volcano
+
+# 组 E：Koordinator
+helm install koordinator koordinator-sh/koordinator -n koordinator-system --create-namespace \
+  --set scheduler.replicas=1
+# Pod 使用 schedulerName: koord-scheduler
 ```
 
 ---
@@ -49,6 +61,8 @@ kubectl apply -k manifests/overlays/embedded-binder/
 |------|------|
 | Kubernetes | 1.29.x |
 | Gödel Scheduler | 当前 commit（含全部 7 个 Phase 改造） |
+| Volcano | v1.9.x（CNCF 批量调度器） |
+| Koordinator | v1.5.x（阿里巴巴混合调度器） |
 | KWOK | 最新稳定版（模拟大规模节点） |
 | Prometheus | v2.51.0（已部署，NodePort 30090） |
 | kind | 最新版（本地集群） |
@@ -106,6 +120,8 @@ spec:
 | W7 | 异构资源 | 500 pods/s | 50,000 | 混合（见下） | 无 | 资源碎片化测试 |
 | W8 | 大规模集群 | 2,000 pods/s | 800,000 | cpu:100m, mem:128Mi | 无 | 参照官方 best-practice |
 
+> **说明**：组 D（Volcano）和组 E（Koordinator）执行核心场景 **W1–W4 + W6**，其中 W6（Gang 调度）用于展示 Volcano 的批量调度优势。Pod 模板中 `schedulerName` 根据对比组切换：组 A/B 为 `godel-scheduler`，组 C 为 `default-scheduler`，组 D 为 `volcano`，组 E 为 `koord-scheduler`。
+
 **W7 异构资源混合比例：**
 - 30% 小规格：cpu:50m, mem:64Mi
 - 40% 中规格：cpu:200m, mem:256Mi
@@ -162,9 +178,9 @@ wait
 
 | 图表编号 | 图表类型 | X 轴 | Y 轴 | 系列 |
 |----------|----------|------|------|------|
-| T-1 | 折线图 | 时间 (s) | 调度吞吐量 (pods/s) | A / B / C |
-| T-2 | 柱状图 | 集群规模 (S1–S5) | 峰值吞吐量 (pods/s) | A / B / C |
-| T-3 | 柱状图 | 负载场景 (W1–W4) | 平均吞吐量 (pods/s) | A / B |
+| T-1 | 折线图 | 时间 (s) | 调度吞吐量 (pods/s) | A / B / C / D / E |
+| T-2 | 柱状图 | 集群规模 (S1–S5) | 峰值吞吐量 (pods/s) | A / B / C / D / E |
+| T-3 | 柱状图 | 负载场景 (W1–W4) | 平均吞吐量 (pods/s) | A / B / D / E |
 | T-4 | 折线图 | Scheduler 实例数 (1,2,3,5) | 吞吐量 (pods/s) | A / B（扩展性） |
 
 ---
@@ -193,11 +209,11 @@ wait
 
 | 图表编号 | 图表类型 | X 轴 | Y 轴 | 系列 |
 |----------|----------|------|------|------|
-| L-1 | 折线图 | 时间 (s) | E2E 调度延迟 P99 (ms) | A / B / C |
+| L-1 | 折线图 | 时间 (s) | E2E 调度延迟 P99 (ms) | A / B / C / D / E |
 | L-2 | 柱状分组图 | 百分位数 (P50/P90/P99) | 延迟 (ms) | A / B（绑定延迟） |
-| L-3 | 箱线图 | 配置组 (A/B) | E2E 延迟 (ms) | 分布对比 |
-| L-4 | 折线图 | Pod 创建速率 (100–2000 pods/s) | P99 延迟 (ms) | A / B（延迟 vs 负载） |
-| L-5 | CDF 曲线 | 延迟 (ms) | 累积概率 | A / B |
+| L-3 | 箱线图 | 配置组 (A/B/C/D/E) | E2E 延迟 (ms) | 分布对比 |
+| L-4 | 折线图 | Pod 创建速率 (100–2000 pods/s) | P99 延迟 (ms) | A / B / D / E（延迟 vs 负载） |
+| L-5 | CDF 曲线 | 延迟 (ms) | 累积概率 | A / B / D / E |
 | L-6 | 堆积柱状图 | 配置组 (A/B) | 调度延迟 + 绑定延迟 (ms) | Pipeline 分解 |
 
 ---
@@ -257,9 +273,9 @@ wait
 
 | 图表编号 | 图表类型 | X 轴 | Y 轴 | 系列 |
 |----------|----------|------|------|------|
-| S-1 | 折线图 | 时间 (s) | 调度成功率 (%) | A / B |
-| S-2 | 柱状分组图 | 负载场景 | 成功率 / 失败率 / Unschedulable | A / B |
-| S-3 | 折线图 | 时间 (s) | Pending Pod 数量 | A / B |
+| S-1 | 折线图 | 时间 (s) | 调度成功率 (%) | A / B / D / E |
+| S-2 | 柱状分组图 | 负载场景 | 成功率 / 失败率 / Unschedulable | A / B / D / E |
+| S-3 | 折线图 | 时间 (s) | Pending Pod 数量 | A / B / D / E |
 | S-4 | 柱状图 | 配置组 | 平均重试次数 | A / B |
 
 ---
@@ -307,10 +323,10 @@ CPU_ALLOC=$(curl -s "http://localhost:30090/api/v1/query?query=scheduler_cluster
 
 | 图表编号 | 图表类型 | X 轴 | Y 轴 | 系列 |
 |----------|----------|------|------|------|
-| U-1 | 箱线图 | 配置组 (A/B) | 节点 CPU 利用率 (%) | 分布对比 |
-| U-2 | 折线图 | 时间 (s) | CPU 利用率方差 | A / B |
+| U-1 | 箱线图 | 配置组 (A/B/D/E) | 节点 CPU 利用率 (%) | 分布对比 |
+| U-2 | 折线图 | 时间 (s) | CPU 利用率方差 | A / B / D / E |
 | U-3 | 热力图 | 节点 ID × 时间 | CPU 利用率 (%) | A vs B 对比 |
-| U-4 | 柱状图 | 配置组 | 变异系数 (CV) | A / B |
+| U-4 | 柱状图 | 配置组 | 变异系数 (CV) | A / B / D / E |
 
 ---
 
@@ -363,9 +379,9 @@ def compute_fragmentation(utilization_csv):
 
 | 图表编号 | 图表类型 | X 轴 | Y 轴 | 系列 |
 |----------|----------|------|------|------|
-| R-1 | 堆积柱状图 | 配置组 (A/B) | 资源量 (CPU cores) | 已用 / 碎片 / 空闲 |
-| R-2 | 柱状图 | 负载场景 | 碎片化指数 (%) | A / B |
-| R-3 | 散点图 | CPU 利用率 (%) | Memory 利用率 (%) | 节点分布（A vs B） |
+| R-1 | 堆积柱状图 | 配置组 (A/B/D/E) | 资源量 (CPU cores) | 已用 / 碎片 / 空闲 |
+| R-2 | 柱状图 | 负载场景 | 碎片化指数 (%) | A / B / D / E |
+| R-3 | 散点图 | CPU 利用率 (%) | Memory 利用率 (%) | 节点分布（A / B / D / E） |
 
 ---
 
@@ -397,9 +413,9 @@ done
 
 | 图表编号 | 图表类型 | X 轴 | Y 轴 | 系列 |
 |----------|----------|------|------|------|
-| D-1 | 箱线图 | 配置组 (A/B) | 每节点 Pod 数 | 分布对比 |
+| D-1 | 箱线图 | 配置组 (A/B/D/E) | 每节点 Pod 数 | 分布对比 |
 | D-2 | 柱状分组图 | Scheduler 实例 | Pod 数 | A / B |
-| D-3 | 直方图 | 每节点 Pod 数 | 节点数 | A / B 叠加 |
+| D-3 | 直方图 | 每节点 Pod 数 | 节点数 | A / B / D / E 叠加 |
 
 ---
 
@@ -432,10 +448,10 @@ done
 
 | 图表编号 | 图表类型 | X 轴 | Y 轴 | 系列 |
 |----------|----------|------|------|------|
-| ST-1 | 折线图 | 时间 (min) | P99 延迟 (ms) | A / B（30min 持续） |
-| ST-2 | 双轴折线图 | 时间 (min) | 左：吞吐量；右：P99 延迟 | A / B（阶梯增压） |
-| ST-3 | 折线图 | 时间 (s) | 吞吐量 (pods/s) | A / B（突发洪峰） |
-| ST-4 | 折线图（带趋势线） | 时间 (min) | P99 延迟 (ms) | A / B + 线性趋势线 |
+| ST-1 | 折线图 | 时间 (min) | P99 延迟 (ms) | A / B / D / E（30min 持续） |
+| ST-2 | 双轴折线图 | 时间 (min) | 左：吞吐量；右：P99 延迟 | A / B / D / E（阶梯增压） |
+| ST-3 | 折线图 | 时间 (s) | 吞吐量 (pods/s) | A / B / D / E（突发洪峰） |
+| ST-4 | 折线图（带趋势线） | 时间 (min) | P99 延迟 (ms) | A / B / D / E + 线性趋势线 |
 
 ---
 
@@ -477,8 +493,8 @@ done
 | SC-1 | 折线图 | Scheduler 实例数 (1–5) | 吞吐量 (pods/s) | A / B + 理想线性线 |
 | SC-2 | 折线图 | Scheduler 实例数 (1–5) | P99 延迟 (ms) | A / B |
 | SC-3 | 柱状图 | Scheduler 实例数 | 扩展效率 (%) | A / B |
-| VS-1 | 折线图 | 集群规模 (节点数) | 吞吐量 (pods/s) | A / B / C |
-| VS-2 | 折线图 | 集群规模 (节点数) | P99 延迟 (ms) | A / B / C |
+| VS-1 | 折线图 | 集群规模 (节点数) | 吞吐量 (pods/s) | A / B / C / D / E |
+| VS-2 | 折线图 | 集群规模 (节点数) | P99 延迟 (ms) | A / B / C / D / E |
 
 ---
 
@@ -513,7 +529,17 @@ Phase 3: 参考基线 — 组 C（kube-scheduler）(1 天)
 ├── 执行 W1–W4 + VS-1~5
 └── 导出 Prometheus 快照
 
-Phase 4: 数据分析与可视化 (2 天)
+Phase 4: 行业对标 — 组 D（Volcano）(1.5 天)
+├── 部署 Volcano Scheduler
+├── 执行 W1–W4 + W6（Gang）+ VS-1~5 + ST-1~4
+└── 导出 Prometheus 快照
+
+Phase 5: 行业对标 — 组 E（Koordinator）(1.5 天)
+├── 部署 Koordinator Scheduler
+├── 执行 W1–W4 + W6 + VS-1~5 + ST-1~4
+└── 导出 Prometheus 快照
+
+Phase 6: 数据分析与可视化 (2 天)
 ├── 数据清洗与对齐
 ├── 生成所有图表
 ├── 统计显著性检验
@@ -525,7 +551,7 @@ Phase 4: 数据分析与可视化 (2 天)
 ```bash
 #!/bin/bash
 # run-experiment.sh <config> <workload> <run_id>
-CONFIG=$1    # a|b|c
+CONFIG=$1    # a|b|c|d|e
 WORKLOAD=$2  # w1|w2|w3|w4|w5|w6|w7|w8
 RUN_ID=$3    # 1|2|3
 
@@ -622,7 +648,9 @@ done
 
 ## 6. 论文图表汇总
 
-### 6.1 图表清单（共 28 张）
+### 6.1 图表清单（共 28+ 张）
+
+> 加入 Volcano（D）和 Koordinator（E）后，多数图表新增了 2 条系列线，总图表数量不变，但信息密度显著增加。
 
 | 维度 | 编号 | 图表名称 | 类型 |
 |------|------|----------|------|
@@ -664,15 +692,15 @@ done
 
 | 维度 | 预期结论 | 论证依据 |
 |------|----------|----------|
-| **吞吐量** | B 吞吐量约为 A 的 **1.5–3×**（取决于 Scheduler 实例数） | 消除共享 Binder 的单点队列竞争瓶颈，绑定请求并行处理 |
-| **延迟** | B 绑定延迟降低 **50%+**，E2E 延迟降低 **30–50%** | 去除 Scheduler→Binder 的网络开销和队列等待时间 |
+| **吞吐量** | B 吞吐量约为 A 的 **1.5–3×**（取决于 Scheduler 实例数）；B > D、E（多实例并行优势） | 消除共享 Binder 的单点队列竞争瓶颈，绑定请求并行处理 |
+| **延迟** | B 绑定延迟降低 **50%+**，E2E 延迟降低 **30–50%**；B 与 D/E 在 E2E 延迟上持平或更优 | 去除 Scheduler→Binder 的网络开销和队列等待时间 |
 | **容错** | B 的 MTTR 降低至 **秒级**，A 为**分钟级** | Binder 故障仅影响单个 Scheduler 分区，其他分区不受影响 |
-| **成功率** | B 的调度成功率在高负载下比 A 高 **2–5%** | 绑定更快完成 → Cache 更快更新 → 减少调度冲突 |
-| **利用率** | B 的资源利用率 CV 比 A 降低 **10–20%** | 更及时的绑定使全局视图更准确，减少调度偏差 |
-| **碎片化** | B 的碎片化指数与 A **持平或略优** | 调度算法不变，但绑定更快减少"临时碎片" |
-| **均衡度** | B 与 A **持平**（Dispatcher 负载均衡机制不变） | 独立 Binder 不影响 Dispatcher 的 Pod 分发策略 |
-| **稳定性** | B 的 P99 延迟在 30min 内**无上升趋势**，A 可能有 | 无队列积压，无 Binder 端的 back-pressure |
-| **扩展性** | B 的吞吐量扩展效率 > **85%**（接近线性），A < **60%** | 独立 Binder 消除共享资源竞争，实现真正的水平扩展 |
+| **成功率** | B 的调度成功率在高负载下比 A 高 **2–5%**；B ≥ D/E | 绑定更快完成 → Cache 更快更新 → 减少调度冲突 |
+| **利用率** | B 的资源利用率 CV 比 A 降低 **10–20%**；E 可能略优（QoS 感知） | 更及时的绑定使全局视图更准确，减少调度偏差 |
+| **碎片化** | B 的碎片化指数与 A **持平或略优**；E 的 QoS 策略可能进一步优化 | 调度算法不变，但绑定更快减少“临时碎片” |
+| **均衡度** | B 与 A **持平**（Dispatcher 负载均衡机制不变）；D/E 依赖各自散布策略 | 独立 Binder 不影响 Dispatcher 的 Pod 分发策略 |
+| **稳定性** | B 的 P99 延迟在 30min 内**无上升趋势**，A 可能有；D/E 在极高负载下可能出现性能播号 | 无队列积压，无 Binder 端的 back-pressure |
+| **扩展性** | B 的吞吐量扩展效率 > **85%**（接近线性），A < **60%**；C/D/E 均为单实例，无水平扩展能力 | 独立 Binder 消除共享资源竞争，实现真正的水平扩展 |
 
 ### 7.2 论文章节映射
 
@@ -692,7 +720,8 @@ done
 ├── 5.6 资源效率评估                          → 图表 U-1~U-4, R-1~R-3, D-1~D-2
 ├── 5.7 稳定性与抗压评估                      → 图表 ST-1~ST-4
 ├── 5.8 扩展性评估                            → 图表 SC-1~SC-3, VS-1~VS-2
-└── 5.9 实验结论                              → §7.1 汇总表
+├── 5.9 与行业方案横向对比（Volcano / Koordinator） → 各维度图表中的 D/E 系列
+└── 5.10 实验结论                            → §7.1 汇总表
 ```
 
 ---
@@ -735,15 +764,21 @@ COLORS = {
     'A (Shared Binder)': '#E74C3C',
     'B (Embedded Binder)': '#2ECC71',
     'C (kube-scheduler)': '#3498DB',
+    'D (Volcano)': '#F39C12',
+    'E (Koordinator)': '#9B59B6',
 }
 
-def plot_throughput_timeseries(data_a, data_b, data_c=None, output='T-1.pdf'):
+def plot_throughput_timeseries(data_a, data_b, data_c=None, data_d=None, data_e=None, output='T-1.pdf'):
     """图表 T-1: 调度吞吐量随时间变化"""
     fig, ax = plt.subplots()
     ax.plot(data_a['time'], data_a['throughput'], label='A (Shared Binder)', color=COLORS['A (Shared Binder)'])
     ax.plot(data_b['time'], data_b['throughput'], label='B (Embedded Binder)', color=COLORS['B (Embedded Binder)'])
     if data_c is not None:
         ax.plot(data_c['time'], data_c['throughput'], label='C (kube-scheduler)', color=COLORS['C (kube-scheduler)'], linestyle='--')
+    if data_d is not None:
+        ax.plot(data_d['time'], data_d['throughput'], label='D (Volcano)', color=COLORS['D (Volcano)'], linestyle='-.')
+    if data_e is not None:
+        ax.plot(data_e['time'], data_e['throughput'], label='E (Koordinator)', color=COLORS['E (Koordinator)'], linestyle=':')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Scheduling Throughput (pods/s)')
     ax.legend()
@@ -763,12 +798,13 @@ def plot_throughput_timeseries(data_a, data_b, data_c=None, output='T-1.pdf'):
 | Kubernetes 版本 | 所有组使用同一版本 |
 | API Server 配置 | `--max-mutating-requests-inflight=10000 --max-requests-inflight=20000` |
 | 节点规格 | KWOK 模拟节点使用相同模板（CPU: 32, Memory: 64Gi） |
-| Pod 模板 | 相同的 annotations 和 resource requests |
+| Pod 模板 | 相同的 resource requests（仅 `schedulerName` 按组切换） |
 | 网络条件 | 相同网络环境 |
 | 系统负载 | 实验前清理其他进程 |
 | Pod 创建速率 | 使用相同工具和参数 |
 | 日志级别 | 统一设置为 4 |
 | QPS/Burst | 统一设置为 10000 |
+| 调度器实例数 | 组 C/D/E 为单实例；组 A/B 按设计矩阵设置 |
 
 ### 9.2 常见陷阱
 
@@ -778,6 +814,9 @@ def plot_throughput_timeseries(data_a, data_b, data_c=None, output='T-1.pdf'):
 4. **kind 集群限制**：kind 集群性能受宿主机限制，超大规模测试建议使用物理集群
 5. **冷启动效应**：每次实验前等待 30s 让系统稳定，正式数据排除前 60s
 6. **GC 干扰**：Go 的 GC 可能导致延迟尖刺，多次测量取中位数
+7. **Volcano 部署注意**：Volcano 的 `vc-controller-manager` 和 `vc-scheduler` 需充足 CPU/内存，若与 Gödel 共存需确保 CRD 不冲突
+8. **Koordinator 部署注意**：Koordinator 依赖 `koordlet`（DaemonSet）在真实节点上采集资源画像，KWOK 节点上无法运行，需以纯调度器模式测试
+9. **调度器指标差异**：Volcano 和 Koordinator 的 Prometheus 指标名与 Gödel 不同，需分别配置采集规则并做指标映射
 
 ### 9.3 统计显著性
 
@@ -793,10 +832,12 @@ def plot_throughput_timeseries(data_a, data_b, data_c=None, output='T-1.pdf'):
 
 | 阶段 | 工作内容 | 预计时间 |
 |------|----------|----------|
-| 环境准备 | 集群搭建、脚本编写、验证 | 1 天 |
+| 环境准备 | 集群搭建、脚本编写、验证、部署 Volcano/Koordinator | 1.5 天 |
 | 组 A 实验 | 全部场景 × 3 次重复 | 2 天 |
 | 组 B 实验 | 全部场景 × 3 次重复 | 2 天 |
 | 组 C 实验 | 核心场景 × 3 次重复 | 1 天 |
+| 组 D 实验（Volcano） | W1–W4 + W6 + VS + ST × 3 次重复 | 1.5 天 |
+| 组 E 实验（Koordinator） | W1–W4 + W6 + VS + ST × 3 次重复 | 1.5 天 |
 | 数据分析 | 清洗、统计、可视化 | 2 天 |
 | 论文撰写 | 实验章节（含图表） | 2 天 |
-| **总计** | | **~10 天** |
+| **总计** | | **~13.5 天** |
