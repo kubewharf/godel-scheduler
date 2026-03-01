@@ -68,6 +68,66 @@ helm install koordinator koordinator-sh/koordinator -n koordinator-system --crea
 | S4 | 10,000 | 3 | 超大规模 |
 | S5 | 30,000 | 3 | 极限规模 |
 
+### 2.3 KWOK 模拟集群准备
+
+#### 2.3.1 部署 KWOK 控制器（每个集群执行一次）
+
+```bash
+bash docs/performance/deploy-kwok.sh
+```
+
+安装 `kwok-controller` + `stage-fast.yaml`（自动将假节点上的 Pod 推进到 Running 状态）。
+
+#### 2.3.2 按规模梯度创建模拟节点
+
+节点模板：`docs/performance/node.yaml`（`generateName: fake-big-node-`，128 CPU / 256Gi Memory / 110 Pods，带 `kwok.x-k8s.io/node: fake` 注解 + `fake.byted.org/node` label）。
+
+```bash
+# S1: 100 节点
+seq 100 | xargs -I {} -P 50 bash -c "kubectl create -f docs/performance/node.yaml"
+
+# S2: 1,000 节点
+seq 1000 | xargs -I {} -P 50 bash -c "kubectl create -f docs/performance/node.yaml"
+
+# S3: 5,000 节点
+seq 5000 | xargs -I {} -P 50 bash -c "kubectl create -f docs/performance/node.yaml"
+
+# S4: 10,000 节点
+seq 10000 | xargs -I {} -P 50 bash -c "kubectl create -f docs/performance/node.yaml"
+
+# S5: 30,000 节点
+seq 30000 | xargs -I {} -P 50 bash -c "kubectl create -f docs/performance/node.yaml"
+```
+
+#### 2.3.3 清理节点（切换规模前必须执行）
+
+```bash
+kubectl delete node -l fake.byted.org/node
+```
+
+#### 2.3.4 验证节点就绪
+
+```bash
+# 检查 KWOK 节点数量
+kubectl get nodes -l fake.byted.org/node --no-headers | wc -l
+
+# 检查所有节点 Ready 状态
+kubectl get nodes -l fake.byted.org/node --no-headers | grep -c " Ready"
+
+# 检查 Gödel 节点分区分配（Node Shuffler 自动分配）
+for sched in scheduler-0 scheduler-1 scheduler-2; do
+  echo "$sched: $(kubectl get nodes -o json | jq "[.items[] | select(.metadata.annotations[\"godel.bytedance.com/scheduler-name\"]==\"$sched\")] | length")"
+done
+```
+
+#### 2.3.5 注意事项
+
+- **内存需求**：30K 节点时 etcd + API Server 内存可达 60–80GB，是高配 VM 的核心需求
+- **节点唯一性**：模板使用 `generateName`，每次 `kubectl create` 自动生成唯一节点名
+- **节点分区**：创建后 Dispatcher 的 Node Shuffler 自动通过 `godel.bytedance.com/scheduler-name` 注解将节点分配给各 Scheduler
+- **Pod 快速就绪**：`stage-fast.yaml` 让 Pod 创建后立即标记为 Running，观测到的延迟纯粹是调度器性能
+- **并行度**：`-P 50` 表示 50 路并发创建，30K 节点约几分钟完成
+
 ---
 
 ## 3. 负载模型
