@@ -24,6 +24,7 @@ import (
 	framework "github.com/kubewharf/godel-scheduler/pkg/framework/api"
 	"github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores"
 	nodestore "github.com/kubewharf/godel-scheduler/pkg/scheduler/cache/commonstores/node_store"
+	"github.com/kubewharf/godel-scheduler/pkg/util/generationstore"
 )
 
 // Snapshot is a snapshot of s NodeInfo and NodeTree order. The scheduler takes a
@@ -60,6 +61,10 @@ func NewEmptySnapshot(handler commoncache.CacheHandler) *Snapshot {
 	handler.SetPodOpFunc(podOpFunc(s.CommonStoresSwitch))
 
 	return s
+}
+
+func (s *Snapshot) GetNodeStoreGeneration() int64 {
+	return s.CommonStoresSwitch.Find(nodestore.Name).(*nodestore.NodeStore).Store.(generationstore.RawStore).GetGeneration()
 }
 
 func (s *Snapshot) MakeBasicNodeGroup() framework.NodeGroup {

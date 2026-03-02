@@ -64,7 +64,7 @@ type UnitScheduler interface {
 type SchedulerHooks interface {
 	PodScheduler() PodScheduler
 	EventRecorder() events.EventRecorder
-	BootstrapSchedulePod(ctx context.Context, pod *v1.Pod, podTrace tracing.SchedulingTrace, nodeGroup string) (string, framework.SchedulerFramework, framework.SchedulerPreemptionFramework, *framework.CycleState, error)
+	BootstrapSchedulePod(ctx context.Context, pod *v1.Pod, schedulingCtx *framework.PodSchedulingCtx, podTrace tracing.SchedulingTrace, nodeGroup string) (string, framework.SchedulerFramework, framework.SchedulerPreemptionFramework, *framework.CycleState, error)
 	ReservePod(ctx context.Context, clonedPod *v1.Pod, scheduleResult PodScheduleResult) (string, error)
 }
 
@@ -160,6 +160,7 @@ func TransferToUnitResult(unitInfo *SchedulingUnitInfo, details *interpretabity.
 type RunningUnitInfo struct {
 	QueuedPodInfo *framework.QueuedPodInfo
 	Trace         tracing.SchedulingTrace
+	SchedulingCtx *framework.PodSchedulingCtx
 
 	// clonedPod is used to store those changes to the original pods in the workflow
 	// e.g. span initialization, reservation info, preemption info ...

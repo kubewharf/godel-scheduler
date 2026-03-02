@@ -424,6 +424,7 @@ func TestScheduleInSpecificNodeGroup(t *testing.T) {
 			nodeGroup := snapshot.MakeBasicNodeGroup()
 			state := framework.NewCycleState()
 			framework.SetPodResourceTypeState(podutil.GuaranteedPod, state)
+			framework.SetPodSchedulingCtxKey(&framework.PodSchedulingCtx{}, state)
 			framework.SetPodTrace(&tracing.NoopSchedulingTrace{}, state)
 			if tt.schedulingStagesState != nil {
 				constructCycleStateSkipSpecificStage(state, framework.SchedulingStagesState(*tt.schedulingStagesState))

@@ -27,6 +27,7 @@ defaultProfile:
   attemptImpactFactorOnPriority: 3.0      # This should be 10 by default
   disablePreemption: false                # This should be true by default
   blockQueue: false
+  expectedThroughput: 1000                # This should be 0 by default
   percentageOfNodesToScore: 0
   increasedPercentageOfNodesToScore: 0
   unitInitialBackoffSeconds: 1            # This should be 10 by default

@@ -37,6 +37,7 @@ var metricsList = []metrics.Registerable{
 	queueSortingLatency,
 	podSchedulingStageDuration,
 	schedulingUpdateSnapshotDuration,
+	schedulingPodFilteredUnchangedNodesPercentage,
 	schedulingAlgorithmDuration,
 	preemptingEvaluationDuration,
 	preemptingEvaluationQuantile,

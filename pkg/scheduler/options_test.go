@@ -196,6 +196,7 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 	// DefaultProfile
 	{
 		expectedProfile := &subClusterConfig{
+			ExpectedThroughput:       1000,
 			PercentageOfNodesToScore: 0,
 
 			MaxWaitingDeletionDuration: 120,
@@ -230,6 +231,7 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 		name := "subCluster priorityqueue"
 		subClusterProfile := newSubClusterConfigFromDefaultConfig(getSubClusterProfile(cfg.ComponentConfig, name), defaultProfile)
 		expectedProfile := &subClusterConfig{
+			ExpectedThroughput:       1000,
 			PercentageOfNodesToScore: 0,
 
 			MaxWaitingDeletionDuration: 120,
@@ -264,6 +266,7 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 		name := "subCluster blockqueue"
 		subClusterProfile := newSubClusterConfigFromDefaultConfig(getSubClusterProfile(cfg.ComponentConfig, name), defaultProfile)
 		expectedProfile := &subClusterConfig{
+			ExpectedThroughput:       1000,
 			PercentageOfNodesToScore: 0,
 
 			MaxWaitingDeletionDuration: 120,
@@ -296,6 +299,7 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 		name := "subCluster different percentageOfNodesToScore & unitInitialBackoffSeconds & unitMaxBackoffSeconds"
 		subClusterProfile := newSubClusterConfigFromDefaultConfig(getSubClusterProfile(cfg.ComponentConfig, name), defaultProfile)
 		expectedProfile := &subClusterConfig{
+			ExpectedThroughput:                1000,
 			PercentageOfNodesToScore:          20,
 			IncreasedPercentageOfNodesToScore: 40,
 
@@ -389,6 +393,7 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 		name := "subCluster 1"
 		subClusterProfile := newSubClusterConfigFromDefaultConfig(getSubClusterProfile(cfg.ComponentConfig, name), defaultProfile)
 		expectedProfile := &subClusterConfig{
+			ExpectedThroughput:       1000,
 			PercentageOfNodesToScore: 0,
 
 			MaxWaitingDeletionDuration: 300,
@@ -416,6 +421,7 @@ func TestLoadAndRenderFileV1beta1(t *testing.T) {
 	// Finally revisit DefaultProfile again, it should NOT be affected by the configuration rendering of the sub-cluster.
 	{
 		expectedProfile := &subClusterConfig{
+			ExpectedThroughput:       1000,
 			PercentageOfNodesToScore: 0,
 
 			MaxWaitingDeletionDuration: 120,

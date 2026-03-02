@@ -171,7 +171,7 @@ func (gs *unitScheduler) EventRecorder() events.EventRecorder {
 	return gs.Recorder
 }
 
-func (gs *unitScheduler) BootstrapSchedulePod(ctx context.Context, pod *v1.Pod, podTrace tracing.SchedulingTrace, nodeGroup string) (string, framework.SchedulerFramework, framework.SchedulerPreemptionFramework, *framework.CycleState, error) {
+func (gs *unitScheduler) BootstrapSchedulePod(ctx context.Context, pod *v1.Pod, schedulingCtx *framework.PodSchedulingCtx, podTrace tracing.SchedulingTrace, nodeGroup string) (string, framework.SchedulerFramework, framework.SchedulerPreemptionFramework, *framework.CycleState, error) {
 	godelScheduler, switchType, subCluster := gs.Scheduler, gs.switchType, gs.subCluster
 
 	if err := podPassesBasicChecks(pod, gs.pvcLister); err != nil {
@@ -196,6 +196,11 @@ func (gs *unitScheduler) BootstrapSchedulePod(ctx context.Context, pod *v1.Pod, 
 		return "", nil, nil, nil, err
 	}
 	state.SetRecordPluginMetrics(true)
+
+	if err = framework.SetPodSchedulingCtxKey(schedulingCtx, state); err != nil {
+		klog.ErrorS(err, "Fail to set pod schedulingCtx context map", "switchType", switchType, "subCluster", subCluster, "pod", podutil.GetPodKey(pod))
+		return "", nil, nil, nil, err
+	}
 
 	if err = framework.SetPodTrace(podTrace, state); err != nil {
 		klog.ErrorS(err, "Fail to set pod tracing context map", "switchType", switchType, "subCluster", subCluster, "pod", podutil.GetPodKey(pod))
@@ -518,6 +523,7 @@ func (gs *unitScheduler) constructRunningUnitInfo(ctx context.Context, unit fram
 			QueuedPodInfo: podInfo,
 			ClonedPod:     getAndInitClonedPod(podTrace.GetRootSpanContext(), podInfo),
 			Trace:         podTrace,
+			SchedulingCtx: podInfo.SchedulingCtx,
 		}
 		allMember++
 	}
@@ -592,6 +598,7 @@ func (gs *unitScheduler) handleSchedulingUnitFailure(ctx context.Context, result
 		}
 	}
 	// 2. refresh the pod info
+	nodeStoreGeneration := gs.Snapshot.GetNodeStoreGeneration()
 	podInfos := unitInfo.QueuedUnitInfo.GetPods()
 	for i := range podInfos {
 		podInfo := podInfos[i]
@@ -605,6 +612,7 @@ func (gs *unitScheduler) handleSchedulingUnitFailure(ctx context.Context, result
 		} else {
 			// refresh queue span
 			podInfo.QueueSpan = tracing.NewSpanInfo(podInfo.GetPodProperty().ConvertToTracingTags())
+			podInfo.SchedulingCtx = &framework.PodSchedulingCtx{NodeStoreGeneration: nodeStoreGeneration}
 			if err == nil {
 				podInfo.Pod = cachedPod.DeepCopy()
 			}

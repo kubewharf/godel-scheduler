@@ -30,6 +30,7 @@ const (
 	NodePartitionTypeStateKey = "NodePartitionType"
 	PodLauncherStateKey       = "PodLauncher"
 	PodResourceTypeStateKey   = "PodResourceType"
+	PodSchedulingCtxKey       = "PodSchedulingCtx"
 	PodTraceStateKey          = "PodTrace"
 	NodeGroupStateKey         = "NodeGroup"
 	PotentialVictimsKey       = "PotentialVictims"
@@ -45,6 +46,7 @@ const (
 	NodePartitionTypeMissedErrorString = "failed to get NodePartitionType, supposed to be set in cycle state"
 	PodLauncherMissedErrorString       = "failed to get PodLauncher, supposed to be set in cycle state"
 	PodResourceTypeMissingErrorString  = "failed to get PodResourceType, supposed to be set in cycle state"
+	PodSchedulingCtxMissingErrorString = "failed to get PodSchedulingCtx, supposed to be set in cycle state"
 	PodTraceMissingErrorString         = "failed to get PodTrace, supposed to be set in cycle state"
 	NodeGroupMissedErrorString         = "failed to get NodeGroup, supposed to be set in cycle state"
 
@@ -89,6 +91,17 @@ func SetPodLauncherState(podLauncher podutil.PodLauncher, state *CycleState) err
 		return nil
 	}
 	return podutil.PodLauncherUnsupportError
+}
+
+func SetPodSchedulingCtxKey(schedulingCtx *PodSchedulingCtx, state *CycleState) error {
+	if schedulingCtx == nil {
+		schedulingCtx = &PodSchedulingCtx{}
+	}
+	data := &stateData{
+		data: schedulingCtx,
+	}
+	state.Write(PodSchedulingCtxKey, data)
+	return nil
 }
 
 func SetPodTrace(podTrace tracing.SchedulingTrace, state *CycleState) error {
@@ -240,6 +253,17 @@ func GetPodLauncher(state *CycleState) (podutil.PodLauncher, error) {
 		}
 	}
 	return "", PodLauncherMissedError
+}
+
+var PodSchedulingCtxMissingError = fmt.Errorf(PodSchedulingCtxMissingErrorString)
+
+func GetPodSchedulingCtx(state *CycleState) (*PodSchedulingCtx, error) {
+	if data, err := state.Read(PodSchedulingCtxKey); err == nil {
+		if s, ok := data.(*stateData); ok {
+			return s.data.(*PodSchedulingCtx), nil
+		}
+	}
+	return nil, PodSchedulingCtxMissingError
 }
 
 var PodTraceMissingError = fmt.Errorf(PodTraceMissingErrorString)

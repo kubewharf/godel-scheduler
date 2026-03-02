@@ -38,10 +38,11 @@ var (
 	FLOAT64_3  = 3.0
 	FLOAT64_10 = 10.0
 
-	INT32_0  = int32(0)
-	INT32_10 = int32(10)
-	INT32_20 = int32(20)
-	INT32_40 = int32(40)
+	INT32_0    = int32(0)
+	INT32_10   = int32(10)
+	INT32_20   = int32(20)
+	INT32_40   = int32(40)
+	INT32_1000 = int32(1000)
 
 	INT64_1   = int64(1)
 	INT64_2   = int64(2)
@@ -204,6 +205,7 @@ func TestLoadFileV1beta1(t *testing.T) {
 					},
 				},
 			},
+			ExpectedThroughput:                &INT32_1000,
 			PercentageOfNodesToScore:          &INT32_0,
 			IncreasedPercentageOfNodesToScore: &INT32_0,
 			DisablePreemption:                 &FALSE,
